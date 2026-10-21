@@ -24,3 +24,5 @@ Consequences (+ Alternatives when useful), under about 40 lines.
 | [0016](0016-quiet-background-checks.md) | Background checks are quiet; progress UI only for long or user-started work | accepted |
 | [0017](0017-ipc-allowlist.md) | Per-command IPC allowlist, least-privilege capability | accepted |
 | [0018](0018-onboarding.md) | Multi-step onboarding that chooses the download range up front | accepted |
+| [0019](0019-history-download-v2.md) | History download v2, attachment policy, one download range | accepted |
+| [0020](0020-compose-editor.md) | Rich compose editor: TipTap 3 core | accepted |

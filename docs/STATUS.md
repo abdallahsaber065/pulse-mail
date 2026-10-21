@@ -1,7 +1,7 @@
 # Status: what works today
 
 An honest snapshot of the code at `HEAD` (2026-10-21, v0.1.0, through commit
-`feee336` plus later commits listed in [PLAN.md](PLAN.md#progress-log)). It
+`498cf18` plus later commits listed in [PLAN.md](PLAN.md#progress-log)). It
 describes what the code does, not what is planned. Plans live in
 [ROADMAP.md](ROADMAP.md) and [PLAN.md](PLAN.md).
 
@@ -15,7 +15,7 @@ yet exercised against the real account.
 | Topic | Default | Where it can change |
 | --- | --- | --- |
 | Reading pane | Right of the list; bottom and full-page options | Settings → Reading mail → Reading pane |
-| Offline bodies | Last 90 days; older on demand; 1 GB budget | Settings → Storage (`offline_days`, `storage_budget_mb`) |
+| Download to this PC | Per account: 30 days / 90 days / 1 year / everything (full messages); older mail fetched on open; attachments up to 10 MB kept; one 1 GB budget for all accounts | Settings → Accounts → account page; Settings → Storage (`storage_budget_mb`) |
 | Accounts | Several accounts, per-account inboxes + "All inboxes"; every account notifies | Settings → Accounts (per-account notifications) |
 | Shortcuts | `c` compose, `Shift+C` copy code, `r`/`a`/`f` reply / reply all / forward, Ctrl+K palette | `src/lib/shortcuts.ts` |
 | Codes | Not auto-copied (`otp_autocopy=0`); clipboard cleared after 60 s; codes hidden on the lock screen | Settings → Codes |
@@ -44,7 +44,8 @@ yet exercised against the real account.
 | Feature | State | Notes | Code |
 | --- | --- | --- | --- |
 | Fast first sync | Done | 50 newest INBOX ids + one Gmail batch of `format=metadata`; rows stream to the UI. ≈1.0 s in the benchmark, 2.4 s in the debug app | `sync/mod.rs::first_sync` |
-| History download (H1) | Done (untested live beyond the existing account) | Per account and range: `messages.list` pages of 500 (cursor saved after each page, so it resumes after restart), metadata through the batch path; then offline bodies newer than `offline_days`, stopping at the storage budget. Pause/resume. Progress: phase, n/total, speed, ETA in the onboarding screen, Settings → Accounts and the chip popover | `Engine::history_download`, `HistSession`, migration 4 |
+| History download (H1) | Done (v2, live on the existing account: exact count 2,253 in 1.8 s) | Phases count → index → bodies → files ([ADR 0019](decisions/0019-history-download-v2.md)). Resumable id queue, backoff on rate limits, stall detection with an error and **Retry now**, auto-retry. Progress: "Counting messages… N found", "Downloading n / N · x/s · ~t left", size estimate with and without attachments. Pause/resume | `Engine::history_download`, `hist_call`, `HistSession`, migrations 6–7 |
+| Per-account settings page | Done (untested live) | Name, color, notifications, "Download to this PC" range, attachments policy (on demand / small files 2·10·25 MB / all), storage used, sync status, signature, remove | `SettingsPanel.tsx` (`AccountPage`), `set_account_settings`, `account_storage` |
 | Lazy bodies on open | Done | Older bodies download when opened | `commands::load_thread` |
 | Incremental sync (history.list) | Done | Adds, deletes, label changes; history 404 → fresh first sync and re-download of the range | `Engine::delta_sync` |
 | IMAP IDLE push | Done | INBOX only, per account; re-IDLE every 20 min; backoff 1 → 60 s | `sync/imap_idle.rs` |
@@ -70,7 +71,7 @@ yet exercised against the real account.
 | Archive, star, read/unread | Done | Optimistic with rollback; Undo for archive | `Engine::modify_thread` |
 | Delete / trash, spam, snooze, label editing | Not started | | |
 | Search | Done (untested live) | Local FTS5 first (understands `from:`, `subject:`, `is:unread/read/starred`, `has:attachment`, phrases). 450 ms later Gmail's own search runs on every account with the full query (all Gmail operators: `in:`, `label:`, `before:`, `-x`, `OR`…); missing messages are fetched as metadata and merged by thread. Banner: "Searching all of Gmail…" / "Results from Gmail and this PC". Spam/trash excluded locally | `store/query.rs`, `Engine::server_search`, `lib/search.ts` |
-| Compose / reply / reply all / forward | Done (untested live: no real send made) | Docked sheet; From picker with several accounts; To/Cc/Bcc, subject, plain-text body (an HTML alternative is generated from escaped text); quoted text behind "•••" with "Remove quoted text". Autosaves to Gmail Drafts 2 s after edits; Esc saves and closes; trash discards the draft. Reply honours Reply-To, reply all drops your own address, keeps `In-Reply-To`/`References` and the thread. MIME built in Rust (`mail-builder`); limits 100 recipients, 1 MB body. `mailto:` links open compose | `compose/`, `commands/compose.rs`, `Compose.tsx` |
+| Compose / reply / reply all / forward | Done (untested live: no real send made) | Docked sheet; From picker; To/Cc/Bcc, subject; **rich editor** (TipTap: bold/italic/underline/strike, lists, quote, links with Ctrl+K, RTL per block, [ADR 0020](decisions/0020-compose-editor.md)); HTML re-sanitized in Rust, text alternative included; attachments by picker or drag-drop (25 MB total, upload endpoint over 3 MB); forward re-attaches the original files; per-account signature. Autosaves to Gmail Drafts; Esc saves and closes. Reply keeps Reply-To/threading. MIME built in Rust (`mail-builder`) | `compose/`, `commands/compose.rs`, `Compose.tsx` |
 | Undo send | Done | Send saves the draft, then waits the undo delay (setting `undo_send_secs`) before `drafts.send`; Undo in the snackbar cancels and reopens the draft. Result arrives as a `send-result` event | `commands/compose.rs::send_message`, `cancel_send` |
 | Keyboard shortcuts | Done | j/k, o/Enter, u/Esc, /, e, s, Shift+I/U, g+i/s/t/d, Shift+R, `,`, ?, c compose, r/a/f reply / reply all / forward, Ctrl+Enter send, Shift+C copy code, Ctrl+K palette | `lib/shortcuts.ts` |
 | Command palette (Ctrl+K) | Done | Fuzzy-ranked: conversation actions, compose/reply, go to folder or label, switch account, layout, theme, settings, shortcuts, "Search mail for…" | `CommandPalette.tsx`, `lib/palette.ts` |
@@ -91,7 +92,7 @@ yet exercised against the real account.
 | --- | --- | --- |
 | Tray (Open, Check mail now, Quit) | Done | "Check mail now" checks every account |
 | Start with Windows, close = hide, single instance | Done | |
-| Settings sheet | Done | General, Appearance, Reading (images, dark mail), Codes, Accounts (range, notifications, history progress, pause, remove), Storage (offline days, budget, size used), About |
+| Settings sheet | Done | General, Appearance, Reading (images, dark mail), Codes, Accounts (range, notifications, history progress, pause, remove), Storage (budget, size used); per-account page, About |
 | Theme, density | Done | `localStorage` |
 | Sync chip + popover | Done | Per-account history rows with pause/resume; activity list names the account |
 | App icon | Stubbed | Default Tauri icon |

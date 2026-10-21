@@ -122,3 +122,15 @@ Before each phase sign-off:
 - `git status` shows no `*.json` client file and no `*.db`.
 - `cargo test security::` passes (IPC allowlist, devtools, log scan).
 - `cargo audit` and `pnpm audit` recorded in the audit log above.
+
+## Compose HTML, attachment staging and stored files (2026-10-21)
+- Compose HTML from the editor is re-sanitized in Rust (`sanitize_compose_html`,
+  an ammonia allowlist: basic blocks and marks, lists, `a[href]` limited to
+  http/https/mailto, `dir`). Scripts, styles, images and event handlers are dropped.
+- Attachment bytes reach Rust as a raw IPC body (`stage_attachment`). The
+  file name is percent-encoded in a header. Files are capped at 25 MB, the
+  staging cache at 300 MB in memory, and nothing is written to disk.
+  Staged entries are dropped after send.
+- Saved attachments live under `%APPDATA%\…\files\<account>\<message>\<part>`.
+  Path parts are restricted to alphanumerics, so traversal is impossible. They are
+  deleted with the account on sign-out and count against the storage budget.

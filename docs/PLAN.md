@@ -131,6 +131,11 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-21 (night, 2):** `503baa5` history download v2 (stall fix, exact count,
+  resumable queue, Retry), attachments policy and on-disk store, per-account page.
+  `f0af3d7` one "Download to this PC" range (drops `offline_days`, migration 7).
+  `498cf18` TipTap rich compose with attachments, forward files and signatures.
+  Gates: 112 Rust tests, clippy clean, 38 vitest, build OK.
 - **2026-10-21 (late night):** `5a375d5` migration 5. `79cfd04` taskbar
   overlay + tray unread badge; codes copied with clipboard-history/cloud
   exclusion formats. `a26a03b` reading pane modes (right/bottom/full page).

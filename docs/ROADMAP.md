@@ -45,8 +45,9 @@ per-sender images (V1), labels management (T2), offline outbox (X1).
 ### H1. Full mailbox history 🧑 · P0 · ✅ built (`38b1870`)
 > As built: state on the `accounts` row instead of `backfill_jobs`, one
 > scope per account (the onboarding range), pause/resume, bodies within
-> `offline_days` up to the budget. Eviction and per-label overrides are
-> still open. See [ADR 0014](decisions/0014-full-history-and-storage.md).
+> the per-account range up to the budget; v2 adds the exact count, a resumable queue, stall detection,
+> and an attachments policy. Eviction and per-label overrides are still open. See
+> [ADR 0014](decisions/0014-full-history-and-storage.md) and [ADR 0019](decisions/0019-history-download-v2.md).
 
 Fetch *all* mail, not just 90 days / 500 messages, without slowing live mail.
 - **Design:** a resumable job per account and per label. Walk
