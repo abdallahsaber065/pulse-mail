@@ -10,8 +10,11 @@ tray 24/7, shows a toast within seconds of new mail, pulls one-time codes out
 of verification emails ("Copy code" right on the toast), and opens any message
 instantly from a local cache. Single user, single PC, never published.
 
-Read before larger changes: `docs/PLAN.md` (phases + acceptance criteria),
-`docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/DESIGN.md`, `docs/decisions/`.
+Read before larger changes:
+- `docs/STATUS.md`: what works today (keep it true to `HEAD`)
+- `docs/WORKFLOW.md`: how we work (loop, gates, dev run, benchmarks)
+- `docs/PLAN.md` (phases + acceptance) and `docs/ROADMAP.md` (feature catalog)
+- `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/DESIGN.md`, `docs/decisions/`
 
 ## Stack
 
@@ -25,20 +28,24 @@ Read before larger changes: `docs/PLAN.md` (phases + acceptance criteria),
 ## Layout
 
 ```
-src/                     SolidJS UI
-  components/            TopBar, Sidebar, ThreadList (virtualized), Reader, EmailFrame...
-  lib/                   api.ts (IPC + browser mock), types.ts, format.ts, email-frame.ts, shortcuts.ts, theme.ts
-  styles/app.css         Tailwind + design tokens (light/dark)
+src/                     SolidJS UI (App.tsx owns view state + optimistic overrides)
+  components/            TopBar, Sidebar, ThreadList (virtualized), Reader, EmailFrame,
+                         SyncIndicator, AccountMenu, SettingsPanel, Snackbar, ui/dialog, ui/Popover
+  lib/                   api.ts (IPC + browser mock.ts), types.ts, sync-view.ts, format.ts,
+                         email-frame.ts, shortcuts.ts, theme.ts, prefs.ts
+  styles/app.css         Tailwind + design tokens (light/dark) + motion
 src-tauri/src/
   lib.rs                 app setup, plugins, state, run loop
   commands.rs            IPC surface (friendly errors only)
   auth/                  client config file, PKCE loopback OAuth, keyring, Secret type
   store/                 SQLite schema, migrations, queries
-  sync/                  engine (mod.rs), gmail.rs REST, imap_idle.rs, mime.rs, status.rs
+  sync/                  engine (mod.rs), gmail.rs REST + batch, imap_idle.rs, mime.rs, status.rs
   notify/                Windows toasts (OTP "Copy code")
   otp/                   OTP extractor (pure, heavily tested)
   tray.rs, window.rs     tray menu, hide/destroy-on-close lifecycle
-docs/                    plan, architecture, design, security, OAuth setup, ADRs
+  devtools.rs            dev-only benchmark code (examples/sync_bench.rs)
+src-tauri/build.rs       embeds windows-app-manifest.xml into every target (ADR 0010)
+docs/                    status, roadmap, plan, workflow, architecture, design, security, ADRs
 ```
 
 ## Commands
@@ -58,6 +65,7 @@ Run from the repo root unless noted.
 | Lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets` |
 | Format | `cargo fmt --manifest-path src-tauri/Cargo.toml` |
 | Installer | `pnpm tauri build` (NSIS, per-user) |
+| First-sync benchmark | `cargo run --example sync_bench` in `src-tauri` (uses the user's account; ask first) |
 
 Run the targeted tests for what you touched; run all of them before calling a
 phase done. Never mark work done on a failing build or test.
@@ -85,6 +93,12 @@ phase done. Never mark work done on a failing build or test.
    shipped migration.
 8. **Ask before** adding scopes, network endpoints, telemetry, or anything
    that sends data anywhere except Google's Gmail/OAuth endpoints.
+9. **Never stop sync.** Long-lived tasks catch panics (ADR 0007); slice
+   strings only on char boundaries and test with NBSP/emoji/Arabic (ADR 0008).
+10. **No native dialogs.** Use `confirmDialog()` / `snack()`; never
+    `alert`/`confirm`/`prompt` (ADR 0009).
+11. **Respect the user's install.** Don't sign the user out, delete the DB or
+    Credential Manager entries, or stop their running app unless the task needs it.
 
 ## Conventions
 
@@ -96,9 +110,11 @@ phase done. Never mark work done on a failing build or test.
   `docs/DESIGN.md` for spacing, color and type. No new colors without a token.
 - Pure logic gets unit tests next to it (`#[cfg(test)]` / `*.test.ts`).
 - Record notable decisions as a short ADR in `docs/decisions/NNNN-title.md`.
-- Update `docs/PLAN.md` progress when you finish a milestone.
+- When you finish something: update `docs/STATUS.md` (honestly), the
+  progress log in `docs/PLAN.md`, and `docs/ROADMAP.md` if scope changed.
 
 ## Git
 
-Local repo only (no remote). Small, focused commits with imperative subjects.
-Don't commit, rewrite history, or delete branches unless asked.
+Local repo only (no remote, never push). Small, focused commits with
+imperative subjects. Don't commit unless asked; never rewrite history,
+stash, reset, or delete branches.

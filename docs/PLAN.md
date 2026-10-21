@@ -1,37 +1,44 @@
 # Pulse Mail: plan and progress
 
+Phases with acceptance criteria, performance targets and the progress log.
+What each item means in detail: [ROADMAP.md](ROADMAP.md). What works
+today: [STATUS.md](STATUS.md). How we work: [WORKFLOW.md](WORKFLOW.md).
+
 ## Goal
 
 Never open Gmail on the web again. A Windows tray app that is always on,
-tells you about new mail within seconds, makes verification codes one click
-away, and opens any email instantly. Looks like Gmail, only cleaner.
+tells you about new mail within seconds (from every account), makes
+verification codes one click away, and opens any email instantly. Looks like
+Gmail, only cleaner. Fast and light: about 200 MB at most with the window open.
 
 ## Performance targets
 
-Measured on the user's PC (release build, one Gmail account, about 300
-cached messages). "p50/p95" are over at least 20 samples.
+Measured on the user's PC (release build unless noted, one Gmail account).
+"p50/p95" are over at least 20 samples. Gaps: there's no `toast shown` log
+line yet, so toast latency needs [ROADMAP M1](ROADMAP.md#m1) first.
 
-| Metric | Target | How to measure |
-| --- | --- | --- |
-| First 50 inbox rows on a fresh sign-in | ≤ 1.5 s | `cargo run --example sync_bench` (in `src-tauri`), or the activity line "Inbox ready: N newest messages in X s" |
-| New-mail toast latency (Gmail receives it, toast shows) | p50 ≤ 3 s, p95 ≤ 6 s | Send a test mail with a timestamp in the subject; compare with the log line `toast shown` |
-| Latency with IMAP down (fallback polling) | ≤ 65 s | Block imap.gmail.com in the firewall, repeat |
-| Idle RAM, tray only (window destroyed) | ≤ 25 MB private working set for `pulse-mail.exe` | Task Manager → Details, or `Get-Process pulse-mail` (WS / PM) after 10 min idle |
-| Idle RAM, window hidden (hide-on-close) | ≤ 120 MB total incl. WebView2 processes | Sum of `pulse-mail` + its `msedgewebview2` children |
-| RAM, window open, reading mail | ≤ 200 MB total | Same as above while reading a large HTML mail |
-| Idle CPU | ≈ 0 % (no wakeups beyond IDLE refresh every 20 min and the 15 min safety poll) | Process Explorer → CPU / context switches |
-| Reopen window from tray, hidden mode | ≤ 100 ms to first paint | `performance.now()` stamp vs tray click log |
-| Reopen window from tray, destroy mode | ≤ 600 ms to first paint | same |
-| Toast "Copy code" → clipboard | ≤ 200 ms | manual |
-| Thread list scroll | 60 fps with 10k rows | DevTools performance panel |
-| Search in local cache | ≤ 50 ms for 10k messages | timing around the `search` command |
-| Cold start at login to tray | ≤ 1.5 s, no window | log timestamps |
-| Installer size | ≤ 10 MB | NSIS output |
+| Metric | Target | How to measure | Measured |
+| --- | --- | --- | --- |
+| First 50 inbox rows on a fresh sign-in | ≤ 1.5 s | `cargo run --example sync_bench` (in `src-tauri`), or the activity line "Inbox ready: N newest messages in X s" | ≈1.0 s bench; 2.4 s in debug app ✅ |
+| New-mail toast latency (Gmail receives it, toast shows) | p50 ≤ 3 s, p95 ≤ 6 s | Send a test mail with a timestamp in the subject; compare with the log line `toast shown` | not yet |
+| Latency with IMAP down (fallback polling) | ≤ 65 s | Block imap.gmail.com in the firewall, repeat | not yet |
+| Idle RAM, tray only (window destroyed) | ≤ 25 MB private working set for `pulse-mail.exe` | Task Manager → Details, or `Get-Process pulse-mail` (WS / PM) after 10 min idle | not yet |
+| Idle RAM, window hidden (hide-on-close) | ≤ 120 MB total incl. WebView2 processes | Sum of `pulse-mail` + its `msedgewebview2` children | not yet |
+| RAM, window open, reading mail | ≤ 200 MB total | Same as above while reading a large HTML mail | not yet |
+| Idle CPU | ≈ 0 % (no wakeups beyond IDLE refresh every 20 min and the 15 min safety poll) | Process Explorer → CPU / context switches | not yet |
+| Reopen window from tray, hidden mode | ≤ 100 ms to first paint | `performance.now()` stamp vs tray click log | not yet |
+| Reopen window from tray, destroy mode | ≤ 600 ms to first paint | same | not yet |
+| Toast "Copy code" → clipboard | ≤ 200 ms | manual | not yet |
+| Thread list scroll | 60 fps with 10k rows | DevTools performance panel | not yet |
+| Search in local cache | ≤ 50 ms for 10k messages | timing around the `search` command | not yet |
+| Cold start at login to tray | ≤ 1.5 s, no window | log timestamps | not yet |
+| Installer size | ≤ 10 MB | NSIS output | not yet |
 
 ## Phases
 
-Each phase ends with every box checked, `cargo test`, `pnpm test` and
-`pnpm build` green, and this file updated.
+Each phase ends with every box checked, the gates in WORKFLOW.md green,
+STATUS.md and this file updated, and the acceptance test done on the
+user's PC. IDs (H1, A1, …) refer to [ROADMAP.md](ROADMAP.md).
 
 ### Phase 0: foundations ✅ (2026-10-21)
 
@@ -39,7 +46,7 @@ Each phase ends with every box checked, `cargo test`, `pnpm test` and
 - [x] Docs: README, AGENTS.md (+ CLAUDE.md pointer), PLAN, ARCHITECTURE, DESIGN, SECURITY, SETUP-GOOGLE-OAUTH, ADRs
 - [x] `.gitignore` keeps secrets, databases and builds out of git
 
-### Phase 1: notifications that never miss (in progress)
+### Phase 1: notifications that never miss (nearly done)
 
 Goal: useful on day one even before the inbox UI is polished.
 
@@ -59,7 +66,7 @@ Goal: useful on day one even before the inbox UI is polished.
 - [x] First-pass Gmail-like UI: top bar with search, sidebar with labels and unread counts, virtualized thread list with OTP chips, reader pane with sandboxed HTML, image blocking, OTP banner, light/dark, shortcuts, setup and sign-in screens, browser mock mode
 - [x] **User:** create Google OAuth client and save the JSON (see `SETUP-GOOGLE-OAUTH.md`)
 - [x] First real sign-in and full sync on the user's PC
-- [ ] Measure toast latency (p50/p95) and fix whatever is slow
+- [ ] Add `toast shown` / first-paint / cold-start log lines, then measure toast latency (p50/p95) and fix whatever is slow ([M1](ROADMAP.md#m1))
 - [ ] Verify toasts and "Copy code" with an installed (NSIS) build: dev builds show the PowerShell name/icon
 - [ ] Measure idle RAM in both close modes; pick the default (ADR 0004)
 - [x] Settings UI for: start with Windows, close behavior (plus theme, density, notifications all / codes only / off)
@@ -71,39 +78,63 @@ Acceptance: a code sent to Gmail shows on a toast within the latency target,
 toast opens that message, and it all still works after a sleep/resume and a
 Wi-Fi drop.
 
-### Phase 2: daily driver (read and triage)
+### Phase 2: daily driver (read, find, triage, reply)
 
-- [x] Mark read on open, star, archive, mark unread (Gmail `threads.modify`), optimistic with rollback, Undo for archive; hover row actions + reader action bar + shortcuts (e, s, Shift+I, Shift+U)
-- Delete (trash), snooze
-- Thread view polish: collapse older messages, quoted text folding, attachments list with save
-- Inline `cid:` images from attachments; "always show images from this sender"
-- Search: local FTS first, then "search all mail on Gmail" fallback
-- Categories (Primary / Updates / Promotions) tabs like Gmail
-- Notification rules: quiet hours, VIP senders, mute labels, OTP-only mode
-- Lock-screen privacy option: hide codes on the lock screen
-- Paging deeper into history on scroll (older than the 60-day window)
-- Acceptance: a full day of mail triage without opening Gmail web
+- [ ] List paging + reader body-error state (R3)
+- [ ] Reading pane modes: right / bottom / no split / new window (R1)
+- [ ] Search with Gmail operators, server search merged with local (S1), "load older" (H2)
+- [ ] Trash, spam, archive everywhere, mute (T1); label picker (T2)
+- [ ] Attachments: list, preview, save, inline `cid:` images (C4)
+- [ ] Reply, reply all, forward, compose with drafts sync (C1); undo send (C2)
+- [ ] Remote images per sender (V1)
+- [x] Mark read on open, star, archive, mark unread with optimistic UI and Undo (done 2026-10-21)
 
-### Phase 3: lighter and faster
+Acceptance: a full working day of mail triage and replies without opening Gmail web.
 
-- Measure and trim: WebView2 `MemoryUsageTargetLevel = Low` when hidden, lazy-load the reader, cap the HTML cache
-- Optional: Gmail `users.watch` + Pub/Sub pull subscription as a second push source (ADR 0002)
-- Startup and idle profiling, release build size check
-- Acceptance: every target in the table above is met and written down here
+### Phase 3: every account, all history
 
-### Phase 4: compose
+- [ ] Account registry; N accounts syncing and notifying at once (A1, ADR 0012)
+- [ ] Account rail, Ctrl+1…9, unified inbox (A1, A2), per-account colors (A3)
+- [ ] Per-account notification rules (N1)
+- [ ] Resumable full-history backfill with progress and storage budget (H1, ADR 0014); DB maintenance (H3)
 
-- Compose, reply, reply all, forward (plain + basic rich text), drafts synced to Gmail
-- Send via Gmail API `messages.send`; undo send (delayed send window)
-- Acceptance: reply to a thread and it shows correctly in Gmail web
+Acceptance: two accounts signed in; mail to the non-selected one toasts
+within the latency target; switching accounts shows mail instantly; a full
+mailbox backfill survives a restart and a sleep/resume.
 
-### Later / maybe
+### Phase 4: Windows citizen and polish
 
-- Multiple accounts (schema already has `account_id`)
-- Snooze, scheduled send, labels editing
-- Auto-update via Tauri updater (signed)
+- [ ] App icon, AUMID registration, installed NSIS build tested, Action Center activation (W1)
+- [ ] Tray unread badge (N3), quiet hours / Focus (N2), global hotkey (W3)
+- [ ] OTP extras: auto-copy, clipboard clear, hide on lock screen, sender trust (O1)
+- [ ] Command palette (K1); crash logs (V4); sleep/resume + network-change reconnect (X2)
+- [ ] Settings page grown per U3
+
+Acceptance: installed build used for a week with no dev console; every
+target in the table above measured and met.
+
+### Phase 5: lighter and faster
+
+- [ ] Decide ADR 0004 from measurements; WebView2 `MemoryUsageTargetLevel = Low` when hidden
+- [ ] Startup and idle profiling, release size check
+- [ ] Optional: Gmail `users.watch` + Pub/Sub pull as a second push source (ADR 0002)
+- [ ] Offline outbox (X1)
+
+Acceptance: every performance target met and written down here.
+
+### Later
+
+Snooze (T3), send later (C2), categories (T4), unsubscribe helper (T7),
+contacts autocomplete (C3), encryption at rest (V2), app lock (V3), auto-update
+and signing (W2), `mailto:` handler (W4), i18n/RTL UI (U2), themes (U1), print
+and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
+
+- **2026-10-21 (evening):** Docs refresh: STATUS.md (honest feature
+  matrix), ROADMAP.md (prioritized catalog), WORKFLOW.md, ARCHITECTURE.md
+  rewritten for the current code (sync state machine, IPC list, multi-account
+  target), DESIGN.md (current UI + planned layouts), ADRs 0006–0014.
 
 - **2026-10-21 (later):** Fixed the OTP panic (byte index inside a NBSP in
   `in_url_token`; it killed the first sync, leaving 7 messages and a stuck

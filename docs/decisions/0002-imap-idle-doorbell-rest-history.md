@@ -21,3 +21,9 @@ labels, thread ids and history diffs.
 - Needs the full `https://mail.google.com/` scope (IMAP requires it).
 - Only INBOX changes ring the doorbell; other labels catch up on the next sync.
 - Later option: add Pub/Sub *pull* (no public endpoint) as a second source if IDLE proves flaky.
+
+## Updates
+- 2026-10-21: the *first* sync no longer fetches `format=raw`; it uses
+  metadata in one batch request and loads bodies lazily
+  ([ADR 0006](0006-metadata-first-batch-sync.md)). Incremental sync still
+  fetches new messages as `raw`, as described above.

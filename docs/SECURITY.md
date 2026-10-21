@@ -22,17 +22,17 @@ For Desktop-app clients Google treats the client secret as non-confidential
 - Loopback redirect on `127.0.0.1` with a random port, as Google recommends for desktop apps.
 - Random `state` checked on return; other requests (favicon) are ignored; the listener closes after one code or 5 minutes.
 - `prompt=consent&access_type=offline` so a refresh token is always issued.
-- Sign-out revokes the token at Google (best effort), deletes it from Credential Manager, and deletes the cached account data.
+- Sign-out (after an in-app confirm dialog) revokes the token at Google (best effort), deletes it from Credential Manager, and deletes the cached account data.
 
 **Secrets in code**
 - `auth::secret::Secret` formats as `***` in `Debug` and `Display`; the only accessor is `expose()` (grep for it when auditing).
 - Errors returned to the UI are fixed friendly sentences; serde and HTTP error bodies are never echoed.
-- Logs (`tracing`) carry no tokens, no message bodies, no subjects. Default level: `info`.
+- Logs (`tracing`) carry no tokens, no message bodies, no subjects. Gmail errors log only the HTTP status and Google's machine-readable reason. Default level: `info`.
 
 **Network**
 - HTTPS only (`reqwest` with `https_only(true)`), rustls with the Windows certificate store through `rustls-platform-verifier`.
 - IMAP over implicit TLS (993) with webpki roots.
-- Endpoints: `accounts.google.com`, `oauth2.googleapis.com`, `gmail.googleapis.com`, `imap.gmail.com`. Nothing else, no telemetry. Adding any endpoint requires asking the user.
+- Endpoints: `accounts.google.com`, `oauth2.googleapis.com`, `gmail.googleapis.com` (REST and `/batch/gmail/v1`), `imap.gmail.com`. Nothing else, no telemetry. Adding any endpoint requires asking the user.
 
 **Rendering hostile email**
 - Email HTML renders only in `EmailFrame`: `<iframe sandbox="allow-same-origin">`, so no scripts, forms, popups or top navigation.
@@ -48,10 +48,13 @@ For Desktop-app clients Google treats the client secret as non-confidential
 
 ## Known risks and decisions
 
+- **Panics:** sync tasks catch panics (ADR 0007) so a malformed email can't
+  stop notifications; the release build unwinds instead of aborting.
+
 - **Unverified app with a restricted scope.** Fine for personal use (under 100 users) once the app is set to "In production". In "Testing" the refresh token dies after 7 days.
-- **OTP codes on toasts** can show on the lock screen if Windows is set to allow it. Phase 2 adds "hide codes on lock screen". Until then, turn off Settings → System → Notifications → "Show notifications on the lock screen" for Pulse Mail if that matters.
-- **Clipboard:** copied codes stay on the clipboard (and in Windows clipboard history if it's enabled). Possible later: clear after 60 s.
-- **Local cache is not encrypted at rest.** It relies on the Windows user account and BitLocker. Revisit if the PC is shared.
+- **OTP codes on toasts** can show on the lock screen if Windows is set to allow it. "Hide codes on the lock screen" is planned ([ROADMAP O1](ROADMAP.md#o1)). Until then, turn off Settings → System → Notifications → "Show notifications on the lock screen" for Pulse Mail if that matters.
+- **Clipboard:** copied codes stay on the clipboard (and in Windows clipboard history if it's enabled). Planned: clear after 60 s ([ROADMAP O1](ROADMAP.md#o1)).
+- **Local cache is not encrypted at rest.** It relies on the Windows user account and BitLocker. Options are in [ROADMAP V2](ROADMAP.md#v2) (SQLCipher or DPAPI).
 
 ## Reporting / checking
 

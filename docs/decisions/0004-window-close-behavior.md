@@ -14,3 +14,8 @@ WebView2 `MemoryUsageTargetLevel::Low` while hidden.
 
 ## Consequences
 The app must never rely on the window existing (true by design: Rust owns state).
+
+## Updates
+- 2026-10-21: the setting now exists in Settings → "When I close the
+  window". The default is still **hide**; the measurement hasn't been done
+  yet ([ROADMAP M1](../ROADMAP.md#m1)).

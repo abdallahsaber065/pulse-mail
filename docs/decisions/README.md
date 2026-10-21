@@ -1,13 +1,22 @@
 # Architecture Decision Records
 
-Short, numbered, never rewritten; supersede with a new ADR.
+Short, numbered, never rewritten: later changes go under "Updates" in the
+ADR or into a new ADR that supersedes it. Template: Context → Decision →
+Consequences (+ Alternatives when useful), under about 40 lines.
 
 | # | Decision | Status |
 | --- | --- | --- |
 | [0001](0001-tauri-webview2-ui.md) | Tauri v2 + WebView2 UI, not a pure-Rust GUI | accepted |
-| [0002](0002-imap-idle-doorbell-rest-history.md) | IMAP IDLE doorbell + Gmail REST history | accepted |
+| [0002](0002-imap-idle-doorbell-rest-history.md) | IMAP IDLE doorbell + Gmail REST history | accepted (updated) |
 | [0003](0003-rustls-ring.md) | rustls + ring for all TLS | accepted |
-| [0004](0004-window-close-behavior.md) | Hide on close by default, destroy as option | proposed |
+| [0004](0004-window-close-behavior.md) | Hide on close by default, destroy as option | proposed (needs measurement) |
 | [0005](0005-winrt-toasts.md) | WinRT toasts from Rust | accepted |
-
-Template: Context → Decision → Consequences, under 40 lines.
+| [0006](0006-metadata-first-batch-sync.md) | Metadata-first first sync through the Gmail batch endpoint | accepted |
+| [0007](0007-panic-isolation.md) | A panic never stops sync | accepted |
+| [0008](0008-char-boundary-safe-text.md) | All text slicing is char-boundary safe | accepted |
+| [0009](0009-in-app-dialogs-and-snackbars.md) | In-app dialogs and snackbars, no native browser dialogs | accepted |
+| [0010](0010-manifest-for-all-targets.md) | Common-Controls manifest embedded in every Windows target | accepted |
+| [0011](0011-local-first-label-changes.md) | Local-first label changes with rollback and optimistic UI | accepted |
+| [0012](0012-multi-account.md) | Multi-account: one runtime per account, all live | proposed |
+| [0013](0013-reading-pane-modes.md) | Reading pane modes (right / bottom / none / window) | proposed |
+| [0014](0014-full-history-and-storage.md) | Full-history backfill with a storage budget | proposed |
