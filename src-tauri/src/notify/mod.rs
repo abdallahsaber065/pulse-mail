@@ -5,6 +5,9 @@ use tauri::AppHandle;
 
 #[derive(Debug, Clone)]
 pub struct NewMailToast {
+    pub account_id: i64,
+    /// Account email, shown when several accounts exist ("" = hide).
+    pub account: String,
     pub message_id: String,
     pub thread_id: String,
     pub from: String,
@@ -29,7 +32,7 @@ pub fn toast_text(t: &NewMailToast) -> ToastText {
     } else {
         t.subject.clone()
     };
-    match &t.otp {
+    let text = match &t.otp {
         Some(_) if t.hide_code => ToastText {
             title: format!("Verification code from {}", t.from),
             line1: subject,
@@ -45,6 +48,15 @@ pub fn toast_text(t: &NewMailToast) -> ToastText {
             line1: subject,
             line2: ellipsize(&t.snippet, 140),
         },
+    };
+    // With several accounts, say which inbox it landed in.
+    if t.account.is_empty() {
+        text
+    } else {
+        ToastText {
+            line2: ellipsize(&format!("To {} · {}", t.account, text.line2), 140),
+            ..text
+        }
     }
 }
 
@@ -88,11 +100,12 @@ pub fn show_new_mail(app: &AppHandle, t: NewMailToast) {
         let otp = t.otp.clone();
         let thread_id = t.thread_id.clone();
         let message_id = t.message_id.clone();
+        let account_id = t.account_id;
         let result = toast
             .on_activated(move |action| {
                 match (action.as_deref(), &otp) {
                     (Some("copy"), Some(code)) => crate::copy_secret(&app, code),
-                    _ => crate::window::open_thread(&app, &thread_id, Some(&message_id)),
+                    _ => crate::window::open_thread(&app, account_id, &thread_id, Some(&message_id)),
                 }
                 Ok(())
             })
@@ -138,6 +151,8 @@ mod tests {
 
     fn t(otp: Option<&str>) -> NewMailToast {
         NewMailToast {
+            account_id: 1,
+            account: String::new(),
             message_id: "m".into(),
             thread_id: "t".into(),
             from: "GitHub".into(),
@@ -170,5 +185,12 @@ mod tests {
         assert_eq!(tt.title, "GitHub");
         assert_eq!(tt.line2.chars().count(), 140);
         assert!(tt.line2.ends_with('…'));
+    }
+
+    #[test]
+    fn multi_account_toast_names_the_inbox() {
+        let mut x = t(None);
+        x.account = "work@example.com".into();
+        assert!(toast_text(&x).line2.starts_with("To work@example.com · "));
     }
 }

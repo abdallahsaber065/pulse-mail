@@ -30,6 +30,10 @@ pub enum GmailError {
 pub struct Profile {
     pub email_address: String,
     pub history_id: String,
+    #[serde(default)]
+    pub messages_total: i64,
+    #[serde(default)]
+    pub threads_total: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,6 +69,17 @@ struct MessageList {
     #[serde(default)]
     messages: Vec<MessageRef>,
     next_page_token: Option<String>,
+    #[serde(default)]
+    result_size_estimate: i64,
+}
+
+/// One page of `messages.list`.
+#[derive(Debug)]
+pub struct MessagePage {
+    pub ids: Vec<String>,
+    pub next: Option<String>,
+    /// Gmail's (rough) estimate of the total number of matches.
+    pub estimate: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -391,6 +406,24 @@ impl Gmail {
         }
         out.truncate(max);
         Ok(out)
+    }
+
+    /// One page (up to 500 ids) of messages matching `q`, newest first.
+    pub async fn list_page(&self, token: &Secret, q: &str, page: Option<&str>, max: u32) -> Result<MessagePage, GmailError> {
+        let max = max.clamp(1, 500).to_string();
+        let mut query = vec![("maxResults", max.as_str())];
+        if !q.is_empty() {
+            query.push(("q", q));
+        }
+        if let Some(p) = page {
+            query.push(("pageToken", p));
+        }
+        let list: MessageList = self.get(token, "/messages", &query).await?;
+        Ok(MessagePage {
+            ids: list.messages.into_iter().map(|m| m.id).collect(),
+            next: list.next_page_token,
+            estimate: list.result_size_estimate,
+        })
     }
 
     pub async fn get_raw(&self, token: &Secret, id: &str) -> Result<RawMessage, GmailError> {

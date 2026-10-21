@@ -3,6 +3,9 @@ import { chipView } from "./sync-view";
 import type { SyncStatus } from "./types";
 
 const base: SyncStatus = {
+  accountId: 1,
+  email: "a@x.com",
+  history: null,
   running: true,
   imapConnected: false,
   syncing: false,

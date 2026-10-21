@@ -25,6 +25,9 @@ pub struct Progress {
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncStatus {
+    /// Account this status belongs to (one cell per account).
+    pub account_id: i64,
+    pub email: String,
     pub running: bool,
     pub imap_connected: bool,
     pub syncing: bool,
@@ -38,12 +41,35 @@ pub struct SyncStatus {
     pub progress: Option<Progress>,
     /// Background backfill of older mail.
     pub backfill: Option<Progress>,
+    /// History download (H1): always present once the account is known.
+    pub history: Option<History>,
+}
+
+/// Full-history download state for the onboarding progress screen, the
+/// settings account page and the chip popover.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct History {
+    /// "setup" | "pending" | "running" | "paused" | "done"
+    pub state: String,
+    /// "30d" | "90d" | "1y" | "all"
+    pub window: String,
+    /// "list" (message list) | "bodies" (offline copies) | "" when idle
+    pub phase: String,
+    pub done: u32,
+    pub total: u32,
+    /// Messages per second over this session (0 = unknown).
+    pub rate: f32,
+    /// Seconds left at the current rate (None = unknown).
+    pub eta_secs: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Activity {
     pub at: i64,
+    /// Account email when several accounts exist.
+    pub account: String,
     /// "info" | "success" | "warn" | "error"
     pub level: &'static str,
     pub text: String,
@@ -62,9 +88,17 @@ pub struct StatusCell {
 
 impl StatusCell {
     pub fn new(app: Option<AppHandle>) -> Self {
+        Self::for_account(app, 0, "")
+    }
+
+    pub fn for_account(app: Option<AppHandle>, account_id: i64, email: &str) -> Self {
         Self {
             inner: Mutex::new(Inner {
-                status: SyncStatus::default(),
+                status: SyncStatus {
+                    account_id,
+                    email: email.to_string(),
+                    ..Default::default()
+                },
                 activity: VecDeque::new(),
                 last_progress_emit: None,
             }),
@@ -147,19 +181,44 @@ impl StatusCell {
         self.lock().status.imap_connected
     }
 
+    /// History counters, throttled like `progress`.
+    pub fn history(&self, h: History) {
+        let snapshot = {
+            let mut inner = self.lock();
+            let important = inner.status.history.as_ref().is_none_or(|old| {
+                old.state != h.state || old.phase != h.phase || old.total != h.total || h.done >= h.total
+            });
+            if inner.status.history.as_ref() == Some(&h) {
+                return;
+            }
+            inner.status.history = Some(h);
+            let due = inner
+                .last_progress_emit
+                .is_none_or(|t| t.elapsed() >= PROGRESS_EMIT_EVERY);
+            if !(important || due) {
+                return;
+            }
+            inner.last_progress_emit = Some(Instant::now());
+            inner.status.clone()
+        };
+        self.emit("sync-status", snapshot);
+    }
+
     pub fn log(&self, level: &'static str, text: impl Into<String>) {
+        let mut inner = self.lock();
         let entry = Activity {
             at: super::now_ms(),
+            account: inner.status.email.clone(),
             level,
             text: text.into(),
         };
         {
-            let mut inner = self.lock();
             if inner.activity.len() >= ACTIVITY_MAX {
                 inner.activity.pop_front();
             }
             inner.activity.push_back(entry.clone());
         }
+        drop(inner);
         self.emit("sync-activity", entry);
     }
 
@@ -188,5 +247,24 @@ mod tests {
         let a = s.activity();
         assert_eq!(a.len(), ACTIVITY_MAX);
         assert_eq!(a.last().unwrap().text, "entry 99");
+    }
+
+    #[test]
+    fn history_updates_are_stored() {
+        let s = StatusCell::for_account(None, 7, "a@example.com");
+        let h = History {
+            state: "running".into(),
+            window: "1y".into(),
+            phase: "list".into(),
+            done: 10,
+            total: 100,
+            rate: 5.0,
+            eta_secs: Some(18),
+        };
+        s.history(h.clone());
+        assert_eq!(s.get().history, Some(h));
+        assert_eq!(s.get().account_id, 7);
+        s.log("info", "x");
+        assert_eq!(s.activity()[0].account, "a@example.com");
     }
 }

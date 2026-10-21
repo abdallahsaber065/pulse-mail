@@ -10,6 +10,8 @@ import type { Attachment, Message, RenderedMessage } from "../lib/types";
 
 interface Props {
   messages: Message[];
+  /** Account the thread belongs to (null = default account). */
+  accountId: number | null;
   /** Thread clicked but nothing cached for it yet. */
   loading: boolean;
   /** Bodies couldn't be downloaded; show an inline retry instead of a skeleton. */
@@ -68,7 +70,7 @@ export default function Reader(p: Props) {
   const showImages = (id: string) => setImagesFor((s) => new Set(s).add(id));
   const alwaysShow = async (m: Message) => {
     try {
-      await api.setImageSender(m.fromEmail, true);
+      await api.setImageSender(m.fromEmail, true, p.accountId);
       showImages(m.id);
       setVersion((v) => v + 1);
     } catch (e) {
@@ -208,6 +210,7 @@ export default function Reader(p: Props) {
                     >
                       <EmailFrame
                         messageId={m.id}
+                        accountId={p.accountId}
                         dark={theme.isDark()}
                         showImages={imagesFor().has(m.id)}
                         version={version() + (p.emailDark === "smart" ? 0 : 100000)}

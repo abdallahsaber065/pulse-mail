@@ -4,6 +4,7 @@ import type { RenderedMessage } from "../lib/types";
 
 interface Props {
   messageId: string;
+  accountId: number | null;
   dark: boolean;
   showImages: boolean;
   /** Re-render when this changes (e.g. after allowlisting the sender). */
@@ -35,7 +36,7 @@ export default function EmailFrame(p: Props) {
       ([id, dark, images]) => {
         const n = ++seq;
         setError(null);
-        api.renderMessage(id, dark, images).then(
+        api.renderMessage(id, dark, images, p.accountId).then(
           (r) => {
             if (n !== seq) return;
             setDoc(r.srcdoc);

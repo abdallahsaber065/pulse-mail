@@ -7,6 +7,8 @@ export interface Progress {
 }
 
 export interface SyncStatus {
+  accountId: number;
+  email: string;
   running: boolean;
   imapConnected: boolean;
   syncing: boolean;
@@ -18,10 +20,58 @@ export interface SyncStatus {
   progress: Progress | null;
   /** Background work (older mail, body prefetch). */
   backfill: Progress | null;
+  /** History download (H1) state. */
+  history: History | null;
+}
+
+export type SyncWindow = "30d" | "90d" | "1y" | "all";
+export type HistoryState = "setup" | "pending" | "running" | "paused" | "done";
+
+export interface History {
+  state: HistoryState;
+  window: SyncWindow;
+  /** "list" = message list, "bodies" = offline copies, "" = idle. */
+  phase: "list" | "bodies" | "";
+  done: number;
+  total: number;
+  /** Messages per second this session (0 = unknown yet). */
+  rate: number;
+  etaSecs: number | null;
+}
+
+export interface Account {
+  id: number;
+  email: string;
+  historyId: string | null;
+  lastSyncAt: number | null;
+  syncWindow: SyncWindow;
+  notify: NotificationMode;
+  backfillState: HistoryState;
+  backfillDone: number;
+  backfillTotal: number;
+  messagesTotal: number;
+  sync: SyncStatus;
+  unread: number;
+}
+
+export interface SignedIn {
+  accountId: number;
+  email: string;
+  messagesTotal: number;
+  threadsTotal: number;
+  needsSetup: boolean;
+}
+
+export interface WindowEstimate {
+  window: SyncWindow;
+  messages: number;
+  bytes: number;
 }
 
 export interface Activity {
   at: number;
+  /** Account email ("" before any account). */
+  account: string;
   level: "info" | "success" | "warn" | "error";
   text: string;
 }
@@ -31,8 +81,9 @@ export type NotificationMode = "all" | "otp" | "off";
 export interface AppStatus {
   clientConfigured: boolean;
   clientConfigPath: string;
+  /** Default (oldest) account email. */
   account: string | null;
-  sync: SyncStatus;
+  accounts: Account[];
   destroyOnClose: boolean;
   autostart: boolean;
   notifications: NotificationMode;
@@ -40,6 +91,8 @@ export interface AppStatus {
   version: string;
   /** Backend prefs (src-tauri/src/prefs.rs). */
   prefs: Prefs;
+  /** Database size in bytes. */
+  dbBytes: number;
 }
 
 export interface Prefs {
@@ -88,6 +141,7 @@ export interface Label {
 }
 
 export interface ThreadRow {
+  accountId: number;
   threadId: string;
   lastMessageId: string;
   subject: string;
@@ -127,6 +181,7 @@ export interface Message {
 }
 
 export interface OpenTarget {
+  accountId: number;
   threadId: string;
   messageId: string | null;
 }

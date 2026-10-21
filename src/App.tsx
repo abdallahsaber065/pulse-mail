@@ -3,7 +3,7 @@ import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import ThreadList, { type RowActions } from "./components/ThreadList";
 import Reader from "./components/Reader";
-import SetupCard from "./components/SetupCard";
+import Onboarding from "./components/Onboarding";
 import ShortcutsHelp from "./components/ShortcutsHelp";
 import SettingsPanel from "./components/SettingsPanel";
 import { TopProgress } from "./components/SyncIndicator";
@@ -13,10 +13,25 @@ import type { IconName } from "./components/Icon";
 import { api, onEvent } from "./lib/api";
 import { labelName } from "./lib/format";
 import { checkLink } from "./lib/links";
+import { combineSync, windowLabel } from "./lib/accounts";
 import { installShortcuts } from "./lib/shortcuts";
-import type { Activity, Attachment, Message, NotificationMode, OpenTarget, PrefKey, Prefs, SyncStatus, ThreadRow } from "./lib/types";
+import type {
+  Account,
+  Activity,
+  Attachment,
+  Message,
+  NotificationMode,
+  OpenTarget,
+  PrefKey,
+  Prefs,
+  SyncStatus,
+  SyncWindow,
+  ThreadRow,
+} from "./lib/types";
 
-type ThreadRef = Pick<ThreadRow, "threadId" | "unread" | "starred">;
+type ThreadRef = Pick<ThreadRow, "threadId" | "unread" | "starred"> & { accountId: number | null };
+
+const VIEW_KEY = "pm.accountView";
 
 /** Optimistic per-thread state shown until the next reload confirms it. */
 interface Override {
@@ -27,7 +42,18 @@ interface Override {
 
 export default function App() {
   const [status, { refetch: refetchStatus }] = createResource(api.status);
-  const [sync, setSync] = createSignal<SyncStatus | null>(null);
+  /** Live sync status per account (from sync-status events). */
+  const [syncs, setSyncs] = createSignal<Record<number, SyncStatus>>({});
+  /** Account in view; null = all inboxes. */
+  const [accountView, setAccountView] = createSignal<number | null>(
+    (() => {
+      const v = Number(localStorage.getItem(VIEW_KEY));
+      return Number.isFinite(v) && v > 0 ? v : null;
+    })(),
+  );
+  /** Account of the open thread. */
+  const [selectedAccount, setSelectedAccount] = createSignal<number | null>(null);
+  const [onboarding, setOnboarding] = createSignal<{ mode: "first" | "add"; resume?: { accountId: number; email: string } } | null>(null);
   const [activity, setActivity] = createSignal<Activity[]>([]);
   const [online, setOnline] = createSignal(navigator.onLine);
   const [label, setLabel] = createSignal("INBOX");
@@ -38,7 +64,6 @@ export default function App() {
   const [collapsed, setCollapsed] = createSignal(false);
   const [help, setHelp] = createSignal(false);
   const [settings, setSettings] = createSignal(false);
-  const [signInError, setSignInError] = createSignal<string | null>(null);
   const [tick, setTick] = createSignal(0); // bump to reload after "mail-updated"
   const [overrides, setOverrides] = createSignal<Record<string, Override>>({});
   const [msgs, setMsgs] = createSignal<Message[]>([]);
@@ -47,18 +72,45 @@ export default function App() {
   const [bodyError, setBodyError] = createSignal<string | null>(null);
   let searchInput: HTMLInputElement | undefined;
 
-  const signedIn = () => !!status()?.account;
+  /** Accounts with their live status merged in. */
+  const accounts = createMemo<Account[]>(() => {
+    const live = syncs();
+    return (status()?.accounts ?? []).map((a) => {
+      const sync = live[a.id] ?? a.sync;
+      const h = sync.history;
+      return {
+        ...a,
+        sync,
+        backfillState: h?.state ?? a.backfillState,
+        syncWindow: h?.window ?? a.syncWindow,
+      };
+    });
+  });
+  const sync = createMemo(() => combineSync(accounts().map((a) => a.sync)));
+  const signedIn = () => accounts().length > 0;
+  // Forget a view of an account that was removed.
+  createEffect(() => {
+    const v = accountView();
+    if (v != null && status() && !accounts().some((a) => a.id === v)) setAccountView(null);
+  });
+  createEffect(() => {
+    const v = accountView();
+    if (v == null) localStorage.removeItem(VIEW_KEY);
+    else localStorage.setItem(VIEW_KEY, String(v));
+  });
   const inInbox = () => label() === "INBOX" && !debounced().trim();
 
-  const [labels, { refetch: refetchLabels }] = createResource(() => (signedIn() ? tick() + 1 : false), () => api.labels(), {
-    initialValue: [],
-  });
+  const [labels, { refetch: refetchLabels }] = createResource(
+    () => (signedIn() ? { t: tick(), a: accountView() } : false),
+    ({ a }) => api.labels(a),
+    { initialValue: [] },
+  );
   // Infinite scroll: the list grows a page at a time as you near the end.
   const PAGE = 200;
   const [limit, setLimit] = createSignal(PAGE);
   const [threads] = createResource(
-    () => (signedIn() ? { label: label(), q: debounced(), t: tick(), n: limit() } : false),
-    ({ label, q, n }) => (q.trim() ? api.search(q) : api.threads(label, n)),
+    () => (signedIn() ? { label: label(), q: debounced(), t: tick(), n: limit(), a: accountView() } : false),
+    ({ label, q, n, a }) => (q.trim() ? api.search(q, 100, a) : api.threads(label, n, 0, a)),
     { initialValue: [] },
   );
   const loadMore = () => {
@@ -102,7 +154,7 @@ export default function App() {
   );
   createEffect(
     on(
-      [label, debounced],
+      [label, debounced, accountView],
       () => {
         setCursor(0);
         setLimit(PAGE);
@@ -112,7 +164,23 @@ export default function App() {
   );
   createEffect(() => {
     const s = status();
-    if (s) setSync(s.sync);
+    if (s) setSyncs(Object.fromEntries(s.accounts.map((a) => [a.id, a.sync])));
+  });
+  // First run: no account yet. Also resume an account whose setup was
+  // interrupted (signed in, but the download range was never chosen).
+  let resumeChecked = false;
+  createEffect(() => {
+    const s = status();
+    if (!s || onboarding()) return;
+    if (s.accounts.length === 0) {
+      setOnboarding({ mode: "first" });
+      return;
+    }
+    if (!resumeChecked) {
+      resumeChecked = true;
+      const pending = s.accounts.find((a) => a.backfillState === "setup");
+      if (pending) setOnboarding({ mode: "add", resume: { accountId: pending.id, email: pending.email } });
+    }
   });
   createEffect(
     on(signedIn, (yes) => {
@@ -124,13 +192,14 @@ export default function App() {
   let loadSeq = 0;
   const loadThread = async (id: string, fetchBodies: boolean) => {
     const seq = ++loadSeq;
-    const cached = await api.thread(id).catch(() => [] as Message[]);
+    const acct = selectedAccount();
+    const cached = await api.thread(id, acct).catch(() => [] as Message[]);
     if (seq !== loadSeq) return;
     if (cached.length) setMsgs(cached);
     if (fetchBodies && (cached.length === 0 || cached.some((m) => !m.bodyLoaded))) {
       setBodyError(null);
       try {
-        const full = await api.loadThread(id);
+        const full = await api.loadThread(id, acct);
         if (seq === loadSeq) setMsgs(full);
       } catch (e) {
         if (seq === loadSeq) setBodyError((e as Error).message);
@@ -217,7 +286,7 @@ export default function App() {
   const attachment = async (m: Message, a: Attachment, open: boolean) => {
     snack(open ? `Opening ${a.filename}…` : `Saving ${a.filename}…`);
     try {
-      const r = await api.saveAttachment(m.id, a.part, open);
+      const r = await api.saveAttachment(m.id, a.part, open, selectedAccount());
       if (r.blocked) snack(`${a.filename} can run programs, so it was saved but not opened.`, { duration: 7000 });
       else if (!r.opened) snack(`Saved to Downloads`);
     } catch (e) {
@@ -235,11 +304,12 @@ export default function App() {
   };
 
   // ---- Thread actions (optimistic, with rollback) ----
-  const modify = async (threadId: string, change: Override, add: string[], remove: string[]) => {
+  const modify = async (t: ThreadRef, change: Override, add: string[], remove: string[]) => {
+    const threadId = t.threadId;
     const prev = overrides()[threadId];
     setOverrides((o) => ({ ...o, [threadId]: { ...o[threadId], ...change } }));
     try {
-      await api.modifyThread(threadId, add, remove);
+      await api.modifyThread(threadId, add, remove, t.accountId);
       settled.add(threadId);
       setTick((n) => n + 1);
       return true;
@@ -257,20 +327,20 @@ export default function App() {
 
   const archive = (t: ThreadRef) => {
     if (selected() === t.threadId) setSelected(null);
-    void modify(t.threadId, { removed: true }, [], ["INBOX"]).then((ok) => {
+    void modify(t, { removed: true }, [], ["INBOX"]).then((ok) => {
       if (ok)
         snack("Conversation archived", {
-          action: { label: "Undo", run: () => void modify(t.threadId, { removed: false }, ["INBOX"], []) },
+          action: { label: "Undo", run: () => void modify(t, { removed: false }, ["INBOX"], []) },
         });
     });
   };
   const setRead = (t: ThreadRef, read: boolean) => {
     if (t.unread === !read) return;
     if (!read && selected() === t.threadId) setSelected(null); // Gmail closes on "mark unread"
-    void modify(t.threadId, { unread: !read }, read ? [] : ["UNREAD"], read ? ["UNREAD"] : []);
+    void modify(t, { unread: !read }, read ? [] : ["UNREAD"], read ? ["UNREAD"] : []);
   };
   const toggleStar = (t: ThreadRef) =>
-    void modify(t.threadId, { starred: !t.starred }, t.starred ? [] : ["STARRED"], t.starred ? ["STARRED"] : []);
+    void modify(t, { starred: !t.starred }, t.starred ? [] : ["STARRED"], t.starred ? ["STARRED"] : []);
 
   const actions: RowActions = {
     get archive() {
@@ -283,15 +353,20 @@ export default function App() {
   const current = (): ThreadRef | undefined => {
     const id = selected();
     if (!id) return rows()[cursor()];
-    const row = rows().find((r) => r.threadId === id);
+    const row = rows().find((r) => r.threadId === id && r.accountId === (selectedAccount() ?? r.accountId));
     if (row) return row;
     const m = messages();
-    return m.length ? { threadId: id, unread: m.some((x) => x.unread), starred: m.some((x) => x.starred) } : undefined;
+    return m.length
+      ? { threadId: id, accountId: selectedAccount(), unread: m.some((x) => x.unread), starred: m.some((x) => x.starred) }
+      : undefined;
   };
 
   const openThread = (t: ThreadRow, index: number) => {
     setCursor(index);
-    setSelected(t.threadId);
+    batch(() => {
+      setSelectedAccount(t.accountId);
+      setSelected(t.threadId);
+    });
     if (t.unread) setRead(t, true);
   };
 
@@ -300,6 +375,9 @@ export default function App() {
     batch(() => {
       setQuery("");
       setLabel("INBOX");
+      const v = accountView();
+      if (v != null && v !== t.accountId) setAccountView(t.accountId);
+      setSelectedAccount(t.accountId);
       setSelected(t.threadId);
     });
   };
@@ -317,7 +395,11 @@ export default function App() {
     let unlisteners: (() => void)[] = [];
     void Promise.all([
       onEvent<null>("mail-updated", () => setTick((n) => n + 1)),
-      onEvent<SyncStatus>("sync-status", (s) => setSync(s)),
+      onEvent<SyncStatus>("sync-status", (s) => {
+        setSyncs((m) => ({ ...m, [s.accountId]: s }));
+        // A status for an account we don't know yet (just added): reload.
+        if (status() && !status()!.accounts.some((a) => a.id === s.accountId)) void refetchStatus();
+      }),
       onEvent<Activity>("sync-activity", (a) => setActivity((xs) => [...xs.slice(-59), a])),
       onEvent<OpenTarget>("open-thread", (t) => {
         void api.takePendingOpen();
@@ -371,40 +453,58 @@ export default function App() {
     onCleanup(remove);
   });
 
-  const signIn = async () => {
-    setSignInError(null);
-    try {
-      await api.signIn();
-      await refetchStatus();
-      setTick((n) => n + 1);
-    } catch (e) {
-      setSignInError((e as Error).message);
-    }
-  };
-
-  const signOut = async () => {
-    const account = status()?.account;
+  const removeAccount = async (accountId: number) => {
+    const account = accounts().find((a) => a.id === accountId)?.email ?? "This account";
+    const only = accounts().length === 1;
     const ok = await confirmDialog({
       icon: "logout",
-      title: "Sign out of Pulse Mail?",
+      title: only ? "Sign out of Pulse Mail?" : "Remove this account?",
       body: (
         <>
-          <span class="font-medium text-text">{account}</span> will be signed out on this PC and the mail cached here will be
-          removed. Your Gmail account isn't affected, and you can sign back in anytime.
+          <span class="font-medium text-text">{account}</span> will be signed out on this PC and the mail cached here for it will be
+          removed. Your Gmail account isn't affected, and you can add it back anytime.
         </>
       ),
-      confirmLabel: "Sign out",
+      confirmLabel: only ? "Sign out" : "Remove",
       danger: true,
     });
     if (!ok) return;
     try {
-      await api.signOut();
-      snack("Signed out");
+      await api.signOut(accountId);
+      snack(only ? "Signed out" : `Removed ${account}`);
     } catch (e) {
       snack((e as Error).message);
     }
-    setSelected(null);
-    setActivity([]);
+    batch(() => {
+      if (selectedAccount() === accountId) setSelected(null);
+      if (accountView() === accountId) setAccountView(null);
+      setSyncs((m) => {
+        const n = { ...m };
+        delete n[accountId];
+        return n;
+      });
+    });
+    if (only) setActivity([]);
+    await refetchStatus();
+    setTick((n) => n + 1);
+  };
+
+  const pauseHistory = async (accountId: number, pause: boolean) => {
+    try {
+      if (pause) await api.pauseHistory(accountId);
+      else await api.resumeHistory(accountId);
+    } catch (e) {
+      snack((e as Error).message);
+    }
+  };
+
+  const setSyncWindow = async (accountId: number, w: SyncWindow) => {
+    try {
+      await api.setSyncWindow(accountId, w);
+      snack(`Downloading ${windowLabel(w).toLowerCase()} for this account`);
+    } catch (e) {
+      snack((e as Error).message);
+    }
     await refetchStatus();
   };
 
@@ -419,13 +519,13 @@ export default function App() {
 
   const empty = (): { icon: IconName; title: string; hint: string } => {
     const q = debounced().trim();
-    if (q) return { icon: "searchOff", title: `No results for "${q}"`, hint: "Search covers the mail saved on this PC (last 90 days)." };
+    if (q) return { icon: "searchOff", title: `No results for "${q}"`, hint: "Search covers the mail saved on this PC." };
     if (label() === "INBOX") return { icon: "doneAll", title: "You're all caught up", hint: "New mail shows up here the moment it arrives." };
     const name = labelName(label(), labels().find((l) => l.id === label())?.name ?? label());
-    return { icon: "inboxEmpty", title: `Nothing in ${name}`, hint: "Pulse keeps the last 90 days of mail on this PC." };
+    return { icon: "inboxEmpty", title: `Nothing in ${name}`, hint: "Older mail appears here as the download progresses." };
   };
   const listLoading = () =>
-    rows().length === 0 && (threads.loading || (!debounced().trim() && (!!sync()?.syncing || !!sync()?.progress)));
+    rows().length === 0 && (threads.loading || (!debounced().trim() && (!!sync()?.foreground || !!sync()?.progress)));
 
   return (
     <div class="flex h-full flex-col">
@@ -437,8 +537,17 @@ export default function App() {
         onRefresh={() => void api.syncNow()}
         onHelp={() => setHelp(true)}
         onSettings={() => setSettings(true)}
-        onSignOut={() => void signOut()}
-        account={status()?.account ?? null}
+        onSignOut={(id) => void removeAccount(id)}
+        accounts={accounts()}
+        currentAccount={accountView()}
+        onSelectAccount={(id) =>
+          batch(() => {
+            setAccountView(id);
+            setSelected(null);
+          })
+        }
+        onAddAccount={() => setOnboarding({ mode: "add" })}
+        onPauseHistory={(id, pause) => void pauseHistory(id, pause)}
         sync={sync()}
         online={online()}
         activity={activity()}
@@ -455,20 +564,7 @@ export default function App() {
           }}
         />
         <main class="mb-4 mr-4 flex min-w-0 flex-1 overflow-hidden rounded-2xl bg-surface">
-          <Show
-            when={status() && signedIn()}
-            fallback={
-              <Show when={status()}>
-                <SetupCard
-                  clientConfigured={status()!.clientConfigured}
-                  clientConfigPath={status()!.clientConfigPath}
-                  error={signInError()}
-                  onSignIn={signIn}
-                  onRecheck={() => void refetchStatus()}
-                />
-              </Show>
-            }
-          >
+          <Show when={status() && signedIn()}>
             <section class={`thread-list-pane min-w-0 border-r border-divider ${selected() ? "hidden w-[44%] max-w-[640px] lg:block" : "flex-1"}`}>
               <ThreadList
                 threads={rows()}
@@ -486,6 +582,7 @@ export default function App() {
               <section class="reader-pane min-w-0 flex-1">
                 <Reader
                   messages={messages()}
+                  accountId={selectedAccount()}
                   loading={msgLoading()}
                   error={bodyError()}
                   onRetry={() => {
@@ -532,6 +629,35 @@ export default function App() {
           onNotifications={(m: NotificationMode) => void updateSetting(() => api.setNotifications(m))}
           prefs={prefs() ?? status()!.prefs}
           onPref={(k, v) => void setPref(k, v)}
+          accounts={accounts()}
+          onAddAccount={() => {
+            setSettings(false);
+            setOnboarding({ mode: "add" });
+          }}
+          onRemoveAccount={(id) => void removeAccount(id)}
+          onSyncWindow={(id, w) => void setSyncWindow(id, w)}
+          onAccountNotify={(id, m) => void updateSetting(() => api.setNotifications(m, id))}
+          onPauseHistory={(id, pause) => void pauseHistory(id, pause)}
+        />
+      </Show>
+      <Show when={onboarding() && status()}>
+        <Onboarding
+          mode={onboarding()!.mode}
+          resume={onboarding()!.resume}
+          clientConfigured={status()!.clientConfigured}
+          clientConfigPath={status()!.clientConfigPath}
+          onRecheck={() => void refetchStatus()}
+          prefs={prefs() ?? status()!.prefs}
+          onPref={(k, v) => void setPref(k, v)}
+          history={(id) => syncs()[id]?.history ?? null}
+          onSignedIn={() => {
+            void refetchStatus();
+            setTick((n) => n + 1);
+          }}
+          onClose={() => {
+            setOnboarding(null);
+            void refetchStatus();
+          }}
         />
       </Show>
       <DialogHost />

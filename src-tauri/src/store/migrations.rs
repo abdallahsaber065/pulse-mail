@@ -113,4 +113,20 @@ pub const MIGRATIONS: &[&str] = &[
     UPDATE messages SET body_loaded = 0
      WHERE body_loaded = 1 AND (has_attachments = 1 OR body_html LIKE '%cid:%');
     "#,
+    // 4: multi-account + resumable history download (H1). Each account has its
+    // own download window, notification mode and backfill cursor.
+    r#"
+    ALTER TABLE accounts ADD COLUMN sync_window TEXT NOT NULL DEFAULT '90d';
+    ALTER TABLE accounts ADD COLUMN notify TEXT NOT NULL DEFAULT 'all';
+    -- setup | pending | running | paused | done
+    ALTER TABLE accounts ADD COLUMN backfill_state TEXT NOT NULL DEFAULT 'pending';
+    ALTER TABLE accounts ADD COLUMN backfill_page TEXT;
+    ALTER TABLE accounts ADD COLUMN backfill_done INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE accounts ADD COLUMN backfill_total INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE accounts ADD COLUMN messages_total INTEGER NOT NULL DEFAULT 0;
+
+    UPDATE accounts SET notify = COALESCE((SELECT value FROM settings WHERE key = 'notifications'), 'all');
+    UPDATE accounts SET backfill_state = 'done'
+     WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'backfill_done:' || accounts.id AND value = '1');
+    "#,
 ];

@@ -6,8 +6,13 @@
 //! - First sync is metadata-first: the 50 newest INBOX messages are fetched
 //!   with `format=metadata` (small) and streamed to the UI as they land; the
 //!   historyId is saved right after, so live mail works immediately. Then a
-//!   background task prefetches bodies of the newest messages and backfills
-//!   older mail. Other bodies load lazily when a thread is opened.
+//!   background task prefetches bodies of the newest messages and runs the
+//!   history download (H1): the message list for the account's chosen window
+//!   (30 days .. everything), page by page with a saved cursor so it resumes
+//!   after a restart, then offline copies of bodies newer than `offline_days`
+//!   within the storage budget. It can be paused and resumed. Other bodies
+//!   load lazily when a thread is opened.
+//! - One engine per account; all accounts sync and notify.
 //! - An unknown/expired historyId (HTTP 404) triggers a fresh first sync.
 //! - New unread INBOX messages raise a toast (with "Copy code" for OTPs).
 //! - A panic anywhere in a pass is caught, logged and reported; the loop
@@ -22,10 +27,10 @@ use crate::auth::TokenManager;
 use crate::auth::oauth::AuthError;
 use crate::auth::secret::Secret;
 use crate::notify::{self, NewMailToast};
-use crate::store::{LabelRow, Store};
+use crate::store::{Account, LabelRow, Store};
 use futures::{FutureExt, StreamExt};
 use gmail::{Gmail, GmailError, HistoryDelta};
-use status::StatusCell;
+use status::{History, StatusCell};
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -35,9 +40,10 @@ use tokio::sync::Notify;
 
 /// First page: what the user sees within a couple of seconds.
 const FIRST_PAGE: usize = 50;
-/// Background backfill window.
-const BACKFILL_MAX: usize = 500;
-const BACKFILL_QUERY: &str = "newer_than:90d -in:spam -in:trash";
+/// Ids per history-download page (Gmail's maximum).
+const HISTORY_PAGE: u32 = 500;
+/// Offline copies are fetched in chunks of this many ids.
+const BODY_CHUNK: i64 = 200;
 /// Bodies prefetched for the newest INBOX messages.
 const PREFETCH_BODIES: i64 = 12;
 /// Gmail allows 250 quota units/s per user; messages.get costs 5. Ten
@@ -101,6 +107,10 @@ impl SyncController {
         self.engine.clone()
     }
 
+    pub fn status(&self) -> Arc<StatusCell> {
+        self.engine.status.clone()
+    }
+
     pub fn stop(self) {
         self.engine.stopped.store(true, Ordering::Relaxed);
         for t in self.tasks {
@@ -127,6 +137,9 @@ pub fn spawn(
         status: status.clone(),
         stopped: AtomicBool::new(false),
         background_running: AtomicBool::new(false),
+        background_again: AtomicBool::new(false),
+        paused: AtomicBool::new(false),
+        hist: Mutex::new(HistSession::default()),
         manual: AtomicBool::new(false),
         failures: AtomicU32::new(0),
     });
@@ -145,6 +158,36 @@ pub fn spawn(
     }
 }
 
+/// Counters for the running history download (rate / ETA).
+#[derive(Default)]
+struct HistSession {
+    window: String,
+    phase: &'static str,
+    base: u32,
+    total: u32,
+    started: Option<Instant>,
+    session_done: u32,
+}
+
+/// Gmail search for an account's download window.
+pub fn window_query(window: &str) -> &'static str {
+    match window {
+        "30d" => "newer_than:30d",
+        "1y" => "newer_than:1y",
+        "all" => "",
+        _ => "newer_than:90d",
+    }
+}
+
+pub fn window_label(window: &str) -> &'static str {
+    match window {
+        "30d" => "the last 30 days",
+        "1y" => "the last year",
+        "all" => "all your mail",
+        _ => "the last 90 days",
+    }
+}
+
 pub struct Engine {
     app: AppHandle,
     store: Arc<Mutex<Store>>,
@@ -154,6 +197,11 @@ pub struct Engine {
     status: Arc<StatusCell>,
     stopped: AtomicBool,
     background_running: AtomicBool,
+    /// Background work was requested while it was running: run it again.
+    background_again: AtomicBool,
+    /// History download paused by the user.
+    paused: AtomicBool,
+    hist: Mutex<HistSession>,
     /// Set by a user-initiated refresh; consumed by the next pass.
     manual: AtomicBool,
     /// Consecutive failed passes; background failures surface after two.
@@ -162,9 +210,15 @@ pub struct Engine {
 
 impl Engine {
     async fn run(self: Arc<Self>, wake: Arc<Notify>) {
-        // Resume work an earlier run didn't finish (backfill, prefetch).
-        if matches!(self.db(|s| s.primary_account()), Ok(Some(a)) if a.history_id.is_some()) {
-            self.spawn_background();
+        // Resume work an earlier run didn't finish (history download, prefetch).
+        if let Ok(Some(a)) = self.db(|s| s.account(self.account_id)) {
+            if a.backfill_state == "paused" {
+                self.paused.store(true, Ordering::SeqCst);
+            }
+            self.publish_history(&a, "", 0.0, None);
+            if a.history_id.is_some() {
+                self.spawn_background();
+            }
         }
         let mut woke_by_push = false;
         loop {
@@ -192,7 +246,7 @@ impl Engine {
     /// One sync pass. Returns the number of newly added messages, or None on
     /// error. Never panics: a panic inside is caught and reported.
     async fn run_once(self: &Arc<Self>) -> Option<usize> {
-        let first = !matches!(self.db(|s| s.primary_account()), Ok(Some(a)) if a.history_id.is_some());
+        let first = !matches!(self.db(|s| s.account(self.account_id)), Ok(Some(a)) if a.history_id.is_some());
         let foreground = self.manual.swap(false, Ordering::SeqCst) || first;
         self.status.update(|s| {
             s.syncing = true;
@@ -257,7 +311,7 @@ impl Engine {
     }
 
     async fn sync(self: &Arc<Self>) -> Result<usize, SyncError> {
-        let history_id = self.db(|s| s.primary_account())?.and_then(|a| a.history_id);
+        let history_id = self.db(|s| s.account(self.account_id))?.and_then(|a| a.history_id);
         match history_id {
             None => self.first_sync().await,
             Some(h) => match self.delta_sync(&h).await {
@@ -265,7 +319,10 @@ impl Engine {
                     tracing::info!("history id expired, running a fresh first sync");
                     self.status.log("warn", "Been offline a while: refreshing your mail");
                     self.db(|s| s.clear_history_id(self.account_id))?;
-                    self.db(|s| s.set_setting(&self.backfill_key(), "0"))?;
+                    // Re-run the history download so anything missed lands
+                    // (messages already here are skipped quickly).
+                    let window = self.account()?.sync_window;
+                    self.db(|s| s.set_account_window(self.account_id, &window))?;
                     self.first_sync().await
                 }
                 r => r,
@@ -285,6 +342,7 @@ impl Engine {
             self.gmail.profile(&token),
             self.gmail.list_message_ids(&token, Some("INBOX"), None, FIRST_PAGE),
         )?;
+        self.db(|s| s.set_messages_total(self.account_id, profile.messages_total))?;
         let ids: Vec<String> = refs.into_iter().map(|r| r.id).collect();
         let n = self.fetch_metadata(&token, ids, false, LABEL).await?;
         let secs = t0.elapsed().as_secs_f64();
@@ -301,68 +359,233 @@ impl Engine {
         Ok(0)
     }
 
-    /// Prefetch bodies of the newest messages, then backfill older mail.
-    /// Runs alongside the main loop so live mail is never blocked.
-    fn spawn_background(self: &Arc<Self>) {
+    /// Prefetch bodies of the newest messages, then run the history
+    /// download. Runs alongside the main loop so live mail is never blocked.
+    /// Calling it while it runs schedules one more round.
+    pub fn spawn_background(self: &Arc<Self>) {
+        self.background_again.store(true, Ordering::SeqCst);
         if self.background_running.swap(true, Ordering::SeqCst) {
             return;
         }
         let me = self.clone();
         tauri::async_runtime::spawn(async move {
-            let r = AssertUnwindSafe(me.background()).catch_unwind().await;
-            match r {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    tracing::warn!(error = %e, "background sync stopped");
-                    me.status
-                        .log("warn", "Paused downloading older mail. It will resume automatically.");
+            while me.background_again.swap(false, Ordering::SeqCst) && !me.stopped.load(Ordering::Relaxed) {
+                let r = AssertUnwindSafe(me.background()).catch_unwind().await;
+                match r {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        tracing::warn!(error = %e, "background sync stopped");
+                        me.status
+                            .log("warn", "Paused downloading your mail. It will resume automatically.");
+                    }
+                    Err(p) => tracing::error!(panic = %panic_text(&p), "background sync panicked"),
                 }
-                Err(p) => tracing::error!(panic = %panic_text(&p), "background sync panicked"),
+                me.status.clear_progress(true);
+                if let Ok(a) = me.account() {
+                    me.publish_history(&a, "", 0.0, None);
+                }
             }
-            me.status.clear_progress(true);
             me.background_running.store(false, Ordering::SeqCst);
         });
     }
 
-    async fn background(&self) -> Result<(), SyncError> {
+    async fn background(self: &Arc<Self>) -> Result<(), SyncError> {
+        self.hist.lock().unwrap_or_else(|e| e.into_inner()).phase = "";
         let token = self.tokens.access_token().await?;
         let ids = self.db(|s| s.inbox_ids_without_body(self.account_id, PREFETCH_BODIES))?;
         if !ids.is_empty() {
             self.fetch_bodies(&token, ids, true, "Preparing your newest messages")
                 .await?;
         }
-        if self.db(|s| s.get_setting(&self.backfill_key()))?.as_deref() == Some("1") {
+        self.history_download().await
+    }
+
+    /// Pause the history download (state is saved; resumes from the cursor).
+    pub fn pause_history(&self) -> Result<(), SyncError> {
+        self.paused.store(true, Ordering::SeqCst);
+        self.db(|s| s.set_backfill_state(self.account_id, "paused"))?;
+        let a = self.account()?;
+        self.publish_history(&a, "", 0.0, None);
+        self.status.log("info", "Paused downloading your mail");
+        Ok(())
+    }
+
+    /// Resume (or start, after onboarding) the history download.
+    pub fn resume_history(self: &Arc<Self>) -> Result<(), SyncError> {
+        self.paused.store(false, Ordering::SeqCst);
+        let a = self.account()?;
+        if a.backfill_state != "done" {
+            self.db(|s| s.set_backfill_state(self.account_id, "pending"))?;
+        }
+        let a = self.account()?;
+        self.publish_history(&a, "", 0.0, None);
+        self.spawn_background();
+        Ok(())
+    }
+
+    fn account(&self) -> Result<Account, SyncError> {
+        self.db(|s| s.account(self.account_id))?
+            .ok_or(SyncError::Db(rusqlite::Error::QueryReturnedNoRows))
+    }
+
+    fn halted(&self) -> bool {
+        self.stopped.load(Ordering::Relaxed) || self.paused.load(Ordering::Relaxed)
+    }
+
+    /// Push the account's history state to the UI.
+    fn publish_history(&self, a: &Account, phase: &str, rate: f32, eta: Option<u32>) {
+        let state = if self.paused.load(Ordering::Relaxed) && a.backfill_state != "done" {
+            "paused".to_string()
+        } else {
+            a.backfill_state.clone()
+        };
+        self.status.history(History {
+            state,
+            window: a.sync_window.clone(),
+            phase: phase.to_string(),
+            done: a.backfill_done.max(0) as u32,
+            total: a.backfill_total.max(a.backfill_done).max(0) as u32,
+            rate,
+            eta_secs: eta,
+        });
+    }
+
+    fn hist_begin(&self, window: &str, phase: &'static str, base: u32, total: u32) {
+        let mut h = self.hist.lock().unwrap_or_else(|e| e.into_inner());
+        *h = HistSession {
+            window: window.to_string(),
+            phase,
+            base,
+            total,
+            started: Some(Instant::now()),
+            session_done: 0,
+        };
+        drop(h);
+        self.hist_emit();
+    }
+
+    /// `n` more messages handled in the current phase.
+    fn hist_tick(&self, n: u32) {
+        self.hist.lock().unwrap_or_else(|e| e.into_inner()).session_done += n;
+        self.hist_emit();
+    }
+
+    fn hist_set_total(&self, total: u32) {
+        self.hist.lock().unwrap_or_else(|e| e.into_inner()).total = total;
+    }
+
+    fn hist_emit(&self) {
+        let h = self.hist.lock().unwrap_or_else(|e| e.into_inner());
+        if h.phase.is_empty() {
+            return;
+        }
+        let done = h.base + h.session_done;
+        let total = h.total.max(done);
+        let secs = h.started.map(|t| t.elapsed().as_secs_f32()).unwrap_or(0.0);
+        let rate = if secs >= 2.0 { h.session_done as f32 / secs } else { 0.0 };
+        let eta = (rate > 0.1).then(|| ((total - done) as f32 / rate).round() as u32);
+        self.status.history(History {
+            state: "running".into(),
+            window: h.window.clone(),
+            phase: h.phase.to_string(),
+            done,
+            total,
+            rate,
+            eta_secs: eta,
+        });
+    }
+
+    /// H1: download the message list for the account's window, page by page
+    /// (cursor saved after each page), then offline copies of recent bodies.
+    async fn history_download(self: &Arc<Self>) -> Result<(), SyncError> {
+        let a = self.account()?;
+        if matches!(a.backfill_state.as_str(), "setup" | "done") || self.halted() {
             return Ok(());
         }
+        self.db(|s| s.set_backfill_state(self.account_id, "running"))?;
+        let window = a.sync_window.clone();
+        let q = window_query(&window);
         let t0 = Instant::now();
-        const LABEL: &str = "Downloading older mail";
-        self.status.progress(true, LABEL, 0, 0);
-        let refs = self
-            .gmail
-            .list_message_ids(&token, None, Some(BACKFILL_QUERY), BACKFILL_MAX)
-            .await?;
-        let mut missing = Vec::new();
-        for r in refs {
-            if !self.db(|s| s.has_message(self.account_id, &r.id))? {
-                missing.push(r.id);
+        let (mut page, mut done, mut total) = (a.backfill_page.clone(), a.backfill_done.max(0) as u32, a.backfill_total.max(0) as u32);
+        if done == 0 {
+            self.status
+                .log("info", format!("Downloading {} to this PC", window_label(&window)));
+        }
+        const LABEL: &str = "Downloading your mail";
+        self.hist_begin(&window, "list", done, total);
+        loop {
+            if self.halted() {
+                return Ok(());
+            }
+            let p = {
+                let page = page.clone();
+                self.with_token(|t| {
+                    let page = page.clone();
+                    async move { self.gmail.list_page(&t, q, page.as_deref(), HISTORY_PAGE).await }
+                })
+                .await?
+            };
+            // Gmail's estimate is rough; "everything" uses the profile total.
+            let estimate = if window == "all" { a.messages_total.max(p.estimate) } else { p.estimate };
+            total = total.max(estimate.max(0) as u32).max(done + p.ids.len() as u32);
+            self.hist_set_total(total);
+            let page_len = p.ids.len() as u32;
+            let mut missing = Vec::new();
+            for id in p.ids {
+                if !self.db(|s| s.has_message(self.account_id, &id))? {
+                    missing.push(id);
+                }
+            }
+            // Ids already here count straight away; fetched ones tick as they land.
+            self.hist_tick(page_len - missing.len() as u32);
+            let token = self.tokens.access_token().await?;
+            self.fetch_metadata(&token, missing, true, LABEL).await?;
+            if self.halted() {
+                // The page wasn't finished: keep the old cursor so it is redone.
+                return Ok(());
+            }
+            done += page_len;
+            page = p.next;
+            if page.is_none() {
+                total = done;
+            }
+            self.db(|s| s.set_backfill_progress(self.account_id, page.as_deref(), done as i64, total as i64))?;
+            if page.is_none() {
+                break;
             }
         }
-        if !missing.is_empty() {
-            self.status.log(
-                "info",
-                format!("Downloading {} older messages in the background", missing.len()),
-            );
+        tracing::info!(count = done, ms = t0.elapsed().as_millis() as u64, "history list done");
+
+        // Offline copies of recent bodies, within the storage budget.
+        let (days, budget_mb) = self.db(|s| Ok((crate::prefs::get_num(s, "offline_days"), crate::prefs::get_num(s, "storage_budget_mb"))))?;
+        let since = now_ms() - days as i64 * 86_400_000;
+        let pending = self.db(|s| s.ids_without_body_since(self.account_id, since, 100_000))?;
+        if !pending.is_empty() {
+            self.hist_begin(&window, "bodies", 0, pending.len() as u32);
+            for chunk in pending.chunks(BODY_CHUNK as usize) {
+                if self.halted() {
+                    return Ok(());
+                }
+                if self.db(|s| s.db_size())? >= budget_mb as i64 * 1024 * 1024 {
+                    self.status.log(
+                        "warn",
+                        "Storage budget reached: older messages will download when you open them",
+                    );
+                    break;
+                }
+                let token = self.tokens.access_token().await?;
+                self.fetch_bodies(&token, chunk.to_vec(), true, "Saving offline copies").await?;
+            }
+            if self.halted() {
+                return Ok(());
+            }
         }
-        let n = self.fetch_metadata(&token, missing, true, LABEL).await?;
-        if self.stopped.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-        self.db(|s| s.set_setting(&self.backfill_key(), "1"))?;
-        let total = self.db(|s| s.message_count(self.account_id))?;
-        tracing::info!(count = n, ms = t0.elapsed().as_millis() as u64, "backfill done");
+        self.hist.lock().unwrap_or_else(|e| e.into_inner()).phase = "";
+        self.db(|s| s.set_backfill_state(self.account_id, "done"))?;
+        let count = self.db(|s| s.message_count(self.account_id))?;
         self.status.log(
             "success",
-            format!("All recent mail is on this PC ({total} messages, last 90 days)"),
+            format!("Download complete: {count} messages from {} are on this PC", window_label(&window)),
         );
         Ok(())
     }
@@ -386,9 +609,10 @@ impl Engine {
         // units = Gmail's per-second budget, so batches are paced >= 1 s apart.
         let (mut done, mut stored) = (0u32, 0usize);
         for chunk in ids.chunks(gmail::BATCH_MAX) {
-            if self.stopped.load(Ordering::Relaxed) {
+            if self.stopped.load(Ordering::Relaxed) || (backfill && self.paused.load(Ordering::Relaxed)) {
                 break;
             }
+            let before = done;
             let started = Instant::now();
             let results = match self.gmail.get_metadata_batch(token, chunk).await {
                 Ok(r) => r,
@@ -435,6 +659,9 @@ impl Engine {
                     self.status.progress(backfill, label, done, total);
                 }
             }
+            if backfill {
+                self.hist_tick(done - before);
+            }
             let _ = self.app.emit("mail-updated", ());
             if done < total {
                 tokio::time::sleep(Duration::from_secs(1).saturating_sub(started.elapsed())).await;
@@ -473,6 +700,12 @@ impl Engine {
             }
             done += 1;
             self.status.progress(background, label, done, total);
+            if background {
+                self.hist_tick(1);
+                if self.halted() {
+                    break;
+                }
+            }
         }
         self.status.clear_progress(background);
         Ok(done as usize)
@@ -597,11 +830,12 @@ impl Engine {
         if total > 0 && visible {
             self.status.progress(false, &label, 0, total);
         }
-        let (notify_pref, autocopy, hide_locked) = self.db(|s| {
+        let (notify_pref, autocopy, hide_locked, multi) = self.db(|s| {
             Ok((
-                s.get_setting("notifications")?.unwrap_or_else(|| "all".into()),
+                s.account(self.account_id)?.map(|a| a.notify).unwrap_or_else(|| "all".into()),
                 crate::prefs::get(s, "otp_autocopy") == "1",
                 crate::prefs::get(s, "otp_lockscreen") == "hide",
+                s.accounts()?.len() > 1,
             ))
         })?;
         let mut added = 0;
@@ -641,6 +875,8 @@ impl Engine {
                 notify::show_new_mail(
                     &self.app,
                     NewMailToast {
+                        account_id: self.account_id,
+                        account: if multi { self.tokens.email.clone() } else { String::new() },
                         message_id: m.id.clone(),
                         thread_id: m.thread_id.clone(),
                         from: if m.from_name.is_empty() {
@@ -694,10 +930,6 @@ impl Engine {
             .collect();
         self.db(|s| s.replace_labels(self.account_id, &rows))?;
         Ok(())
-    }
-
-    fn backfill_key(&self) -> String {
-        format!("backfill_done:{}", self.account_id)
     }
 
     fn db<T>(&self, f: impl FnOnce(&mut Store) -> rusqlite::Result<T>) -> Result<T, SyncError> {

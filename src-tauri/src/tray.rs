@@ -43,7 +43,7 @@ fn sync_now(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let state = app.state::<AppState>();
-        if let Some(c) = state.sync.lock().await.as_ref() {
+        for c in state.syncs.lock().await.values() {
             c.sync_now(true);
         }
     });

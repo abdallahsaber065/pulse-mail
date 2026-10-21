@@ -11,6 +11,7 @@ pub const MAIN: &str = "main";
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenTarget {
+    pub account_id: i64,
     pub thread_id: String,
     pub message_id: Option<String>,
 }
@@ -45,8 +46,9 @@ fn create_main(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 
 /// Open a specific thread (from a toast click). The UI either receives the
 /// event (window alive) or pulls it with `take_pending_open` on mount.
-pub fn open_thread(app: &AppHandle, thread_id: &str, message_id: Option<&str>) {
+pub fn open_thread(app: &AppHandle, account_id: i64, thread_id: &str, message_id: Option<&str>) {
     let target = OpenTarget {
+        account_id,
         thread_id: thread_id.into(),
         message_id: message_id.map(Into::into),
     };

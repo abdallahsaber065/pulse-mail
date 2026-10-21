@@ -3,7 +3,10 @@ import { For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import Icon from "./Icon";
 import { theme, type ThemePref } from "../lib/theme";
 import { prefs, type Density } from "../lib/prefs";
-import type { AppStatus, NotificationMode, PrefKey, Prefs } from "../lib/types";
+import Avatar from "./Avatar";
+import { formatEta, historyFraction, phaseLabel, WINDOWS } from "../lib/accounts";
+import { formatSize } from "../lib/format";
+import type { Account, AppStatus, NotificationMode, PrefKey, Prefs, SyncWindow } from "../lib/types";
 
 interface Props {
   status: AppStatus;
@@ -13,6 +16,88 @@ interface Props {
   onNotifications(mode: NotificationMode): void;
   prefs: Prefs;
   onPref<K extends PrefKey>(key: K, value: Prefs[K]): void;
+  /** Accounts with live sync status. */
+  accounts: Account[];
+  onAddAccount(): void;
+  onRemoveAccount(accountId: number): void;
+  onSyncWindow(accountId: number, window: SyncWindow): void;
+  onAccountNotify(accountId: number, mode: NotificationMode): void;
+  onPauseHistory(accountId: number, pause: boolean): void;
+}
+
+function AccountCard(p: {
+  account: Account;
+  onRemove(): void;
+  onWindow(w: SyncWindow): void;
+  onNotify(m: NotificationMode): void;
+  onPause(pause: boolean): void;
+}) {
+  const h = () => p.account.sync.history;
+  const frac = () => historyFraction(h());
+  return (
+    <div class="mb-3 rounded-2xl border border-divider p-4">
+      <div class="mb-3 flex items-center gap-3">
+        <Avatar name={p.account.email} email={p.account.email} size={36} />
+        <div class="min-w-0 flex-1">
+          <div class="selectable truncate text-sm font-medium text-text">{p.account.email}</div>
+          <div class={`truncate text-xs ${p.account.sync.error ? "text-danger" : "text-muted"}`}>
+            {p.account.sync.error ?? (p.account.sync.imapConnected ? "Live" : p.account.sync.running ? "Connected" : "Not syncing")}
+          </div>
+        </div>
+        <button class="h-8 rounded-full px-3 text-xs font-medium text-danger hover:bg-danger/10" onClick={p.onRemove}>
+          Remove
+        </button>
+      </div>
+      <Show when={h() && h()!.state !== "setup"}>
+        <div class="mb-3 rounded-xl bg-surface-container px-3 py-2">
+          <div class="mb-1 flex items-center text-xs">
+            <span class="flex-1 text-text">{h()!.state === "done" ? "Download complete" : phaseLabel(h()!)}</span>
+            <span class="tabular-nums text-muted">
+              {h()!.done.toLocaleString()}
+              <Show when={h()!.total > 0}> / {h()!.total.toLocaleString()}</Show>
+            </span>
+            <Show when={h()!.state !== "done"}>
+              <button
+                class="ml-2 grid size-6 place-items-center rounded-full text-muted hover:bg-hover"
+                title={h()!.state === "paused" ? "Resume" : "Pause"}
+                onClick={() => p.onPause(h()!.state !== "paused")}
+              >
+                <Icon name={h()!.state === "paused" ? "play" : "pause"} size={16} />
+              </button>
+            </Show>
+          </div>
+          <Show when={h()!.state !== "done"}>
+            <div class="h-1 overflow-hidden rounded-full bg-surface">
+              <div class="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${(frac() ?? 0) * 100}%` }} />
+            </div>
+            <Show when={h()!.state === "running"}>
+              <div class="mt-1 text-[11px] text-muted">{formatEta(h()!.etaSecs)}</div>
+            </Show>
+          </Show>
+        </div>
+      </Show>
+      <Row title="Mail on this PC" stack>
+        <Segmented<SyncWindow>
+          label="Mail on this PC"
+          value={p.account.syncWindow}
+          options={WINDOWS.map((w) => [w.id, w.short] as [SyncWindow, string])}
+          onChange={p.onWindow}
+        />
+      </Row>
+      <Row title="Notifications" stack>
+        <Segmented<NotificationMode>
+          label="Notifications"
+          value={p.account.notify}
+          options={[
+            ["all", "All new mail"],
+            ["otp", "Codes only"],
+            ["off", "Off"],
+          ]}
+          onChange={p.onNotify}
+        />
+      </Row>
+    </div>
+  );
 }
 
 function Segmented<T extends string>(p: { value: T; options: [T, string][]; onChange(v: T): void; label: string }) {
@@ -23,7 +108,7 @@ function Segmented<T extends string>(p: { value: T; options: [T, string][]; onCh
           <button
             role="radio"
             aria-checked={p.value === v}
-            class={`flex h-8 flex-1 items-center justify-center gap-1 rounded-full px-3 text-xs font-medium transition-colors ${
+            class={`flex h-8 flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-medium transition-colors ${
               p.value === v ? "bg-secondary-container text-on-secondary-container" : "text-muted hover:bg-hover"
             }`}
             onClick={() => p.onChange(v)}
@@ -106,6 +191,51 @@ export default function SettingsPanel(p: Props) {
           </button>
         </header>
         <div class="flex-1 overflow-y-auto px-6 pb-8">
+          <Section title="Accounts">
+            <For each={p.accounts}>
+              {(a) => (
+                <AccountCard
+                  account={a}
+                  onRemove={() => p.onRemoveAccount(a.id)}
+                  onWindow={(w) => p.onSyncWindow(a.id, w)}
+                  onNotify={(m) => p.onAccountNotify(a.id, m)}
+                  onPause={(x) => p.onPauseHistory(a.id, x)}
+                />
+              )}
+            </For>
+            <button class="flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium text-primary hover:bg-primary/10" onClick={p.onAddAccount}>
+              <Icon name="add" size={20} /> Add another account
+            </button>
+          </Section>
+
+          <Section title="Storage">
+            <Row title="Full messages kept offline" desc="Older messages download when you open them." stack>
+              <Segmented<Prefs["offline_days"]>
+                label="Offline messages"
+                value={p.prefs.offline_days}
+                options={[
+                  ["30", "30 days"],
+                  ["90", "90 days"],
+                  ["365", "1 year"],
+                ]}
+                onChange={(v) => p.onPref("offline_days", v)}
+              />
+            </Row>
+            <Row title="Storage budget" desc={`Using ${formatSize(p.status.dbBytes)}. Offline copies stop when the budget is reached.`} stack>
+              <Segmented<Prefs["storage_budget_mb"]>
+                label="Storage budget"
+                value={p.prefs.storage_budget_mb}
+                options={[
+                  ["512", "512 MB"],
+                  ["1024", "1 GB"],
+                  ["2048", "2 GB"],
+                  ["5120", "5 GB"],
+                ]}
+                onChange={(v) => p.onPref("storage_budget_mb", v)}
+              />
+            </Row>
+          </Section>
+
           <Section title="General">
             <Row title="Start with Windows" desc="Opens minimized to the tray when you sign in to Windows.">
               <Toggle label="Start with Windows" checked={p.status.autostart} onChange={p.onAutostart} />
@@ -198,7 +328,7 @@ export default function SettingsPanel(p: Props) {
           </Section>
 
           <Section title="Notifications">
-            <Row title="Desktop notifications" desc="Verification codes always get a Copy button on the toast." stack>
+            <Row title="Desktop notifications (all accounts)" desc="Sets every account at once; change one account above. Codes always get a Copy button." stack>
               <Segmented<NotificationMode>
                 label="Notifications"
                 value={p.status.notifications}

@@ -65,7 +65,25 @@ pub struct Account {
     pub email: String,
     pub history_id: Option<String>,
     pub last_sync_at: Option<i64>,
+    /// "30d" | "90d" | "1y" | "all": how much history to download.
+    pub sync_window: String,
+    /// "all" | "otp" | "off"
+    pub notify: String,
+    /// "setup" (onboarding not finished) | "pending" | "running" | "paused" | "done"
+    pub backfill_state: String,
+    #[serde(skip)]
+    pub backfill_page: Option<String>,
+    pub backfill_done: i64,
+    pub backfill_total: i64,
+    /// Gmail profile `messagesTotal` at sign-in (for estimates).
+    pub messages_total: i64,
 }
+
+pub const SYNC_WINDOWS: &[&str] = &["30d", "90d", "1y", "all"];
+pub const BACKFILL_STATES: &[&str] = &["setup", "pending", "running", "paused", "done"];
+
+const ACCOUNT_COLS: &str = "id, email, history_id, last_sync_at, sync_window, notify, backfill_state, backfill_page, \
+                            backfill_done, backfill_total, messages_total";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,6 +98,8 @@ pub struct LabelRow {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadRow {
+    /// Owning account (threads from several accounts mix in the unified inbox).
+    pub account_id: i64,
     pub thread_id: String,
     pub last_message_id: String,
     pub subject: String,
@@ -173,7 +193,7 @@ impl Store {
 
     pub fn upsert_account(&self, email: &str, now_ms: i64) -> Result<Account> {
         self.conn.execute(
-            "INSERT INTO accounts(email, created_at) VALUES (?1, ?2)
+            "INSERT INTO accounts(email, created_at, backfill_state) VALUES (?1, ?2, 'setup')
              ON CONFLICT(email) DO NOTHING",
             params![email, now_ms],
         )?;
@@ -183,22 +203,80 @@ impl Store {
     pub fn account_by_email(&self, email: &str) -> Result<Option<Account>> {
         self.conn
             .query_row(
-                "SELECT id, email, history_id, last_sync_at FROM accounts WHERE email = ?1",
+                &format!("SELECT {ACCOUNT_COLS} FROM accounts WHERE email = ?1"),
                 [email],
                 map_account,
             )
             .optional()
     }
 
-    /// Phase 1 is single-account: the first account is the active one.
+    pub fn account(&self, account_id: i64) -> Result<Option<Account>> {
+        self.conn
+            .query_row(
+                &format!("SELECT {ACCOUNT_COLS} FROM accounts WHERE id = ?1"),
+                [account_id],
+                map_account,
+            )
+            .optional()
+    }
+
+    /// All accounts, oldest first (the first is the default account).
+    pub fn accounts(&self) -> Result<Vec<Account>> {
+        let mut stmt = self.conn.prepare_cached(&format!("SELECT {ACCOUNT_COLS} FROM accounts ORDER BY id"))?;
+        stmt.query_map([], map_account)?.collect()
+    }
+
+    /// The default account (the oldest), used when a caller names none.
     pub fn primary_account(&self) -> Result<Option<Account>> {
         self.conn
             .query_row(
-                "SELECT id, email, history_id, last_sync_at FROM accounts ORDER BY id LIMIT 1",
+                &format!("SELECT {ACCOUNT_COLS} FROM accounts ORDER BY id LIMIT 1"),
                 [],
                 map_account,
             )
             .optional()
+    }
+
+    pub fn set_account_window(&self, account_id: i64, window: &str) -> Result<()> {
+        debug_assert!(SYNC_WINDOWS.contains(&window));
+        // A new window restarts the history download from the newest page;
+        // messages already on this PC are skipped quickly.
+        self.conn.execute(
+            "UPDATE accounts SET sync_window = ?2, backfill_page = NULL, backfill_done = 0, backfill_total = 0,
+                    backfill_state = CASE WHEN backfill_state = 'setup' THEN 'setup' ELSE 'pending' END
+             WHERE id = ?1",
+            params![account_id, window],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_account_notify(&self, account_id: i64, mode: &str) -> Result<()> {
+        self.conn
+            .execute("UPDATE accounts SET notify = ?2 WHERE id = ?1", params![account_id, mode])?;
+        Ok(())
+    }
+
+    pub fn set_messages_total(&self, account_id: i64, total: i64) -> Result<()> {
+        self.conn
+            .execute("UPDATE accounts SET messages_total = ?2 WHERE id = ?1", params![account_id, total])?;
+        Ok(())
+    }
+
+    pub fn set_backfill_state(&self, account_id: i64, state: &str) -> Result<()> {
+        debug_assert!(BACKFILL_STATES.contains(&state));
+        self.conn
+            .execute("UPDATE accounts SET backfill_state = ?2 WHERE id = ?1", params![account_id, state])?;
+        Ok(())
+    }
+
+    /// Persist the history-download cursor after each page so it resumes
+    /// after a restart.
+    pub fn set_backfill_progress(&self, account_id: i64, page: Option<&str>, done: i64, total: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE accounts SET backfill_page = ?2, backfill_done = ?3, backfill_total = ?4 WHERE id = ?1",
+            params![account_id, page, done, total],
+        )?;
+        Ok(())
     }
 
     pub fn delete_account(&self, account_id: i64) -> Result<()> {
@@ -461,20 +539,22 @@ impl Store {
         Ok(())
     }
 
-    pub fn list_threads(&self, account_id: i64, label_id: &str, limit: i64, offset: i64) -> Result<Vec<ThreadRow>> {
+    /// Threads carrying `label_id`, newest first. `account_id` None = every
+    /// account (the unified inbox).
+    pub fn list_threads(&self, account_id: Option<i64>, label_id: &str, limit: i64, offset: i64) -> Result<Vec<ThreadRow>> {
         let mut stmt = self.conn.prepare_cached(
             "WITH lm AS (
                 SELECT m.*,
-                       ROW_NUMBER() OVER (PARTITION BY m.thread_id ORDER BY m.internal_date DESC) AS rn,
-                       COUNT(*)     OVER (PARTITION BY m.thread_id) AS cnt,
-                       MAX(m.is_unread)  OVER (PARTITION BY m.thread_id) AS any_unread,
-                       MAX(m.is_starred) OVER (PARTITION BY m.thread_id) AS any_starred
+                       ROW_NUMBER() OVER (PARTITION BY m.account_id, m.thread_id ORDER BY m.internal_date DESC) AS rn,
+                       COUNT(*)     OVER (PARTITION BY m.account_id, m.thread_id) AS cnt,
+                       MAX(m.is_unread)  OVER (PARTITION BY m.account_id, m.thread_id) AS any_unread,
+                       MAX(m.is_starred) OVER (PARTITION BY m.account_id, m.thread_id) AS any_starred
                 FROM messages m
                 JOIN message_labels ml ON ml.account_id = m.account_id AND ml.message_id = m.id
-                WHERE m.account_id = ?1 AND ml.label_id = ?2
+                WHERE (?1 IS NULL OR m.account_id = ?1) AND ml.label_id = ?2
              )
              SELECT thread_id, id, subject, from_name, from_email, snippet, internal_date,
-                    cnt, any_unread, any_starred, otp_code
+                    cnt, any_unread, any_starred, otp_code, account_id
              FROM lm WHERE rn = 1
              ORDER BY internal_date DESC
              LIMIT ?3 OFFSET ?4",
@@ -483,21 +563,58 @@ impl Store {
             .collect()
     }
 
-    /// Full-text search over cached mail (FTS5 query syntax, sanitized).
-    pub fn search(&self, account_id: i64, query: &str, limit: i64) -> Result<Vec<ThreadRow>> {
+    /// Full-text search over cached mail (FTS5 query syntax, sanitized),
+    /// one row per thread (its newest match). `account_id` None = all.
+    pub fn search(&self, account_id: Option<i64>, query: &str, limit: i64) -> Result<Vec<ThreadRow>> {
         let q = fts_query(query);
         if q.is_empty() {
             return Ok(Vec::new());
         }
         let mut stmt = self.conn.prepare_cached(
-            "SELECT m.thread_id, m.id, m.subject, m.from_name, m.from_email, m.snippet, m.internal_date,
-                    1, m.is_unread, m.is_starred, m.otp_code
-             FROM messages_fts f JOIN messages m ON m.rowid = f.rowid
-             WHERE messages_fts MATCH ?2 AND m.account_id = ?1
-             ORDER BY m.internal_date DESC
+            "WITH hits AS (
+                SELECT m.*,
+                       ROW_NUMBER() OVER (PARTITION BY m.account_id, m.thread_id ORDER BY m.internal_date DESC) AS rn,
+                       COUNT(*) OVER (PARTITION BY m.account_id, m.thread_id) AS cnt
+                FROM messages_fts f JOIN messages m ON m.rowid = f.rowid
+                WHERE messages_fts MATCH ?2 AND (?1 IS NULL OR m.account_id = ?1)
+             )
+             SELECT thread_id, id, subject, from_name, from_email, snippet, internal_date,
+                    cnt, is_unread, is_starred, otp_code, account_id
+             FROM hits WHERE rn = 1
+             ORDER BY internal_date DESC
              LIMIT ?3",
         )?;
         stmt.query_map(params![account_id, q, limit], map_thread)?.collect()
+    }
+
+    /// Unread INBOX threads per account (for the tray badge and the rail).
+    pub fn inbox_unread(&self) -> Result<Vec<(i64, i64)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT m.account_id, COUNT(DISTINCT m.thread_id)
+             FROM messages m
+             JOIN message_labels ml ON ml.account_id = m.account_id AND ml.message_id = m.id AND ml.label_id = 'INBOX'
+             WHERE m.is_unread = 1
+             GROUP BY m.account_id",
+        )?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect()
+    }
+
+    /// Messages newer than `since_ms` that have no body yet (offline copies).
+    pub fn ids_without_body_since(&self, account_id: i64, since_ms: i64, limit: i64) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id FROM messages WHERE account_id = ?1 AND body_loaded = 0 AND internal_date >= ?2
+             ORDER BY internal_date DESC LIMIT ?3",
+        )?;
+        stmt.query_map(params![account_id, since_ms, limit], |r| r.get(0))?.collect()
+    }
+
+    /// Size of the database file in bytes (page_count * page_size).
+    pub fn db_size(&self) -> Result<i64> {
+        self.conn.query_row(
+            "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()",
+            [],
+            |r| r.get(0),
+        )
     }
 
     pub fn get_thread(&self, account_id: i64, thread_id: &str) -> Result<Vec<MessageRow>> {
@@ -660,6 +777,13 @@ fn map_account(r: &rusqlite::Row<'_>) -> Result<Account> {
         email: r.get(1)?,
         history_id: r.get(2)?,
         last_sync_at: r.get(3)?,
+        sync_window: r.get(4)?,
+        notify: r.get(5)?,
+        backfill_state: r.get(6)?,
+        backfill_page: r.get(7)?,
+        backfill_done: r.get(8)?,
+        backfill_total: r.get(9)?,
+        messages_total: r.get(10)?,
     })
 }
 
@@ -676,6 +800,7 @@ fn map_thread(r: &rusqlite::Row<'_>) -> Result<ThreadRow> {
         unread: r.get(8)?,
         starred: r.get(9)?,
         otp_code: r.get(10)?,
+        account_id: r.get(11)?,
     })
 }
 
@@ -762,7 +887,7 @@ mod tests {
         s.upsert_message(id, &msg("m4", "t3", 300, &["SENT"], "Sent one"))
             .unwrap();
 
-        let threads = s.list_threads(id, "INBOX", 50, 0).unwrap();
+        let threads = s.list_threads(Some(id), "INBOX", 50, 0).unwrap();
         assert_eq!(threads.len(), 2);
         assert_eq!(threads[0].thread_id, "t1");
         assert_eq!(threads[0].last_message_id, "m2");
@@ -782,12 +907,12 @@ mod tests {
         s.upsert_message(id, &msg("m1", "t1", 100, &["INBOX", "UNREAD"], "Hi"))
             .unwrap();
         assert!(s.set_message_labels(id, "m1", &["INBOX".into()]).unwrap());
-        assert!(!s.list_threads(id, "INBOX", 10, 0).unwrap()[0].unread);
+        assert!(!s.list_threads(Some(id), "INBOX", 10, 0).unwrap()[0].unread);
         assert!(!s.set_message_labels(id, "missing", &["INBOX".into()]).unwrap());
 
         s.delete_message(id, "m1").unwrap();
         assert!(!s.has_message(id, "m1").unwrap());
-        assert!(s.list_threads(id, "INBOX", 10, 0).unwrap().is_empty());
+        assert!(s.list_threads(Some(id), "INBOX", 10, 0).unwrap().is_empty());
     }
 
     #[test]
@@ -797,16 +922,16 @@ mod tests {
             .unwrap();
         s.upsert_message(id, &msg("m2", "t2", 200, &["INBOX"], "Lunch plans"))
             .unwrap();
-        let hits = s.search(id, "invo", 10).unwrap();
+        let hits = s.search(Some(id), "invo", 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].last_message_id, "m1");
         // FTS operators in user input must not error
-        assert!(s.search(id, "\"unbalanced OR NEAR(", 10).is_ok());
-        assert!(s.search(id, "   ", 10).unwrap().is_empty());
+        assert!(s.search(Some(id), "\"unbalanced OR NEAR(", 10).is_ok());
+        assert!(s.search(Some(id), "   ", 10).unwrap().is_empty());
         // updates keep the index in sync
         s.upsert_message(id, &msg("m1", "t1", 100, &["INBOX"], "Renamed"))
             .unwrap();
-        assert!(s.search(id, "invoice", 10).unwrap().is_empty());
+        assert!(s.search(Some(id), "invoice", 10).unwrap().is_empty());
     }
 
     #[test]
@@ -863,14 +988,14 @@ mod tests {
             .modify_thread_labels(id, "t1", &["STARRED".into()], &["UNREAD".into(), "INBOX".into()])
             .unwrap();
         assert_eq!(n, 2);
-        assert!(s.list_threads(id, "INBOX", 10, 0).unwrap().is_empty());
-        let starred = s.list_threads(id, "STARRED", 10, 0).unwrap();
+        assert!(s.list_threads(Some(id), "INBOX", 10, 0).unwrap().is_empty());
+        let starred = s.list_threads(Some(id), "STARRED", 10, 0).unwrap();
         assert_eq!(starred.len(), 1);
         assert!(!starred[0].unread && starred[0].starred);
         // undo
         s.modify_thread_labels(id, "t1", &["INBOX".into(), "UNREAD".into()], &["STARRED".into()])
             .unwrap();
-        assert!(s.list_threads(id, "INBOX", 10, 0).unwrap()[0].unread);
+        assert!(s.list_threads(Some(id), "INBOX", 10, 0).unwrap()[0].unread);
     }
 
     #[test]
@@ -904,5 +1029,33 @@ mod tests {
         s.set_setting("close_behavior", "hide").unwrap();
         s.set_setting("close_behavior", "destroy").unwrap();
         assert_eq!(s.get_setting("close_behavior").unwrap().as_deref(), Some("destroy"));
+    }
+
+    #[test]
+    fn accounts_window_backfill_and_unified_inbox() {
+        let mut s = Store::open_in_memory().unwrap();
+        let a = s.upsert_account("a@example.com", 1).unwrap();
+        let b = s.upsert_account("b@example.com", 2).unwrap();
+        assert_eq!(a.backfill_state, "setup");
+        assert_eq!(s.accounts().unwrap().len(), 2);
+        s.set_account_window(a.id, "1y").unwrap();
+        s.set_backfill_progress(a.id, Some("tok"), 40, 100).unwrap();
+        let a2 = s.account(a.id).unwrap().unwrap();
+        assert_eq!((a2.sync_window.as_str(), a2.backfill_done, a2.backfill_page.as_deref()), ("1y", 40, Some("tok")));
+        s.set_account_window(a.id, "all").unwrap();
+        let a3 = s.account(a.id).unwrap().unwrap();
+        assert_eq!((a3.backfill_done, a3.backfill_page, a3.backfill_state.as_str()), (0, None, "setup"));
+        s.set_backfill_state(a.id, "running").unwrap();
+        s.set_account_window(a.id, "30d").unwrap();
+        assert_eq!(s.account(a.id).unwrap().unwrap().backfill_state, "pending");
+
+        s.upsert_message(a.id, &msg("m1", "t1", 10, &["INBOX", "UNREAD"], "hi")).unwrap();
+        s.upsert_message(b.id, &msg("m1", "t1", 20, &["INBOX"], "hi")).unwrap();
+        let all = s.list_threads(None, "INBOX", 10, 0).unwrap();
+        assert_eq!(all.len(), 2, "same Gmail ids in two accounts stay separate");
+        assert_eq!(all[0].account_id, b.id);
+        assert_eq!(s.list_threads(Some(a.id), "INBOX", 10, 0).unwrap().len(), 1);
+        assert_eq!(s.inbox_unread().unwrap(), vec![(a.id, 1)]);
+        assert!(s.db_size().unwrap() > 0);
     }
 }

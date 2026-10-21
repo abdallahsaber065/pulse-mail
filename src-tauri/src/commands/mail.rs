@@ -20,14 +20,8 @@ pub struct RenderedMessage {
     sender_allowed: bool,
 }
 
-fn account_id(state: &AppState) -> CmdResult<i64> {
-    state
-        .store
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .primary_account()?
-        .map(|a| a.id)
-        .ok_or_else(|| CmdError::new("Not signed in."))
+fn account_id(state: &AppState, account_id: Option<i64>) -> CmdResult<i64> {
+    Ok(super::resolve_account(state, account_id)?.id)
 }
 
 /// Sanitize and render one cached message for the reader's sandboxed frame.
@@ -39,9 +33,10 @@ pub async fn render_message(
     message_id: String,
     dark: bool,
     show_images: bool,
+    account_id: Option<i64>,
 ) -> CmdResult<RenderedMessage> {
     validate::gmail_id(&message_id)?;
-    let account = account_id(&state)?;
+    let account = self::account_id(&state, account_id)?;
     let (from, html, text, inline, always, original, allowed) = {
         let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
         let Some((from, html, text, _)) = store.message_body(account, &message_id)? else {
@@ -94,9 +89,14 @@ pub async fn render_message(
 
 /// Add/remove a sender from the "always show images" list.
 #[tauri::command]
-pub fn set_image_sender(state: State<'_, AppState>, email: String, allowed: bool) -> CmdResult<()> {
+pub fn set_image_sender(
+    state: State<'_, AppState>,
+    email: String,
+    allowed: bool,
+    account_id: Option<i64>,
+) -> CmdResult<()> {
     validate::email(&email)?;
-    let account = account_id(&state)?;
+    let account = self::account_id(&state, account_id)?;
     state
         .store
         .lock()
@@ -153,9 +153,10 @@ pub async fn save_attachment(
     message_id: String,
     part: u32,
     open: bool,
+    account_id: Option<i64>,
 ) -> CmdResult<SavedAttachment> {
     validate::gmail_id(&message_id)?;
-    let account = account_id(&state)?;
+    let account = self::account_id(&state, account_id)?;
     let meta = state
         .store
         .lock()
@@ -164,13 +165,7 @@ pub async fn save_attachment(
         .into_iter()
         .find(|a| a.part == part)
         .ok_or_else(|| CmdError::new("That attachment isn't available."))?;
-    let engine = state
-        .sync
-        .lock()
-        .await
-        .as_ref()
-        .map(|c| c.engine())
-        .ok_or_else(|| CmdError::new("Not signed in."))?;
+    let engine = super::engine_for(&state, Some(account)).await?;
     let raw = engine.fetch_raw(&message_id).await?;
     let bytes = tauri::async_runtime::spawn_blocking(move || {
         mail_parser::MessageParser::default()

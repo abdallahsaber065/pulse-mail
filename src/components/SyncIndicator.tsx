@@ -5,7 +5,8 @@ import Icon, { type IconName } from "./Icon";
 import Popover from "./ui/Popover";
 import { chipView, type ChipTone } from "../lib/sync-view";
 import { relative } from "../lib/format";
-import type { Activity, SyncStatus } from "../lib/types";
+import { formatEta, formatRate, historyFraction, phaseLabel, windowLabel } from "../lib/accounts";
+import type { Account, Activity, SyncStatus } from "../lib/types";
 
 const TONE: Record<ChipTone, { dot: string; chip: string; icon: IconName }> = {
   live: { dot: "bg-otp pulse-dot", chip: "text-text", icon: "bolt" },
@@ -86,7 +87,9 @@ export default function SyncIndicator(p: {
   sync: SyncStatus | null;
   online: boolean;
   activity: Activity[];
+  accounts: Account[];
   onRetry(): void;
+  onPauseHistory(accountId: number, pause: boolean): void;
 }) {
   const [open, setOpen] = createSignal(false);
   const [now, setNow] = createSignal(Date.now());
@@ -158,7 +161,52 @@ export default function SyncIndicator(p: {
           </div>
 
           <Show when={p.sync?.progress}>{(pr) => <Bar {...pr()} />}</Show>
-          <Show when={p.sync?.backfill}>{(pr) => <Bar {...pr()} />}</Show>
+
+          {/* History download per account (H1). */}
+          <For each={p.accounts.filter((a) => a.sync.history && a.sync.history.state !== "setup")}>
+            {(a) => {
+              const h = () => a.sync.history!;
+              const frac = () => historyFraction(h());
+              return (
+                <div class="mb-3 rounded-xl bg-surface-container px-3 py-2">
+                  <div class="mb-1 flex items-center gap-2 text-xs">
+                    <span class="min-w-0 flex-1 truncate text-text">
+                      <Show when={p.accounts.length > 1}>
+                        <span class="font-medium">{a.email} · </span>
+                      </Show>
+                      {h().state === "done" ? `${windowLabel(h().window)} on this PC` : phaseLabel(h())}
+                    </span>
+                    <Show when={h().state !== "done"}>
+                      <button
+                        class="grid size-6 place-items-center rounded-full text-muted hover:bg-hover"
+                        title={h().state === "paused" ? "Resume download" : "Pause download"}
+                        onClick={() => p.onPauseHistory(a.id, h().state !== "paused")}
+                      >
+                        <Icon name={h().state === "paused" ? "play" : "pause"} size={16} />
+                      </button>
+                    </Show>
+                  </div>
+                  <Show when={h().state !== "done"}>
+                    <div class="h-1 overflow-hidden rounded-full bg-surface">
+                      <div class="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${(frac() ?? 0) * 100}%` }} />
+                    </div>
+                    <div class="mt-1 flex gap-2 text-[11px] tabular-nums text-muted">
+                      <span>
+                        {h().done.toLocaleString()}
+                        <Show when={h().total > 0}> / {h().total.toLocaleString()}</Show>
+                      </span>
+                      <Show when={h().state === "running"}>
+                        <span>· {formatEta(h().etaSecs)}</span>
+                        <Show when={h().rate > 0}>
+                          <span>· {formatRate(h().rate)}</span>
+                        </Show>
+                      </Show>
+                    </div>
+                  </Show>
+                </div>
+              );
+            }}
+          </For>
 
           <div class="mb-2 flex items-center justify-between text-xs text-muted">
             <span>Last checked {p.sync?.lastSyncAt ? relative(p.sync.lastSyncAt, now()) : "never"}</span>
@@ -180,7 +228,12 @@ export default function SyncIndicator(p: {
                   {(a) => (
                     <li class="flex gap-2 py-1.5 text-xs">
                       <Icon name={LEVEL_ICON[a.level].icon} size={16} class={`mt-px shrink-0 ${LEVEL_ICON[a.level].cls}`} />
-                      <span class="selectable flex-1 text-text">{a.text}</span>
+                      <span class="selectable flex-1 text-text">
+                        <Show when={p.accounts.length > 1 && a.account}>
+                          <span class="text-muted">{a.account.split("@")[0]}: </span>
+                        </Show>
+                        {a.text}
+                      </span>
                       <span class="shrink-0 text-faint" title={new Date(a.at).toLocaleString()}>
                         {new Date(a.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                       </span>

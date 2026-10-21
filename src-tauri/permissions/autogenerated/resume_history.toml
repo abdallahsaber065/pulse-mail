@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resume-history"
+description = "Enables the resume_history command without any pre-configured scope."
+commands.allow = ["resume_history"]
+
+[[permission]]
+identifier = "deny-resume-history"
+description = "Denies the resume_history command without any pre-configured scope."
+commands.deny = ["resume_history"]

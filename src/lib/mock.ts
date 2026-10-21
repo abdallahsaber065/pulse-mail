@@ -1,5 +1,5 @@
 // Mock backend for browser-only UI work (`pnpm dev`). Never used in Tauri.
-import type { Activity, AppStatus, Label, Message, RenderedMessage, ThreadRow } from "./types";
+import type { Account, Activity, AppStatus, Label, Message, RenderedMessage, SyncStatus, ThreadRow } from "./types";
 
 const now = Date.now();
 const min = 60_000;
@@ -26,6 +26,7 @@ const people = [
 ] as const;
 
 const threads: ThreadRow[] = people.map(([fromName, fromEmail, subject, snippet, otp], i) => ({
+  accountId: 1,
   threadId: `t${i}`,
   lastMessageId: `m${i}`,
   subject,
@@ -68,11 +69,48 @@ function message(t: ThreadRow): Message {
   };
 }
 
+function syncOf(id: number, email: string): SyncStatus {
+  return {
+    accountId: id,
+    email,
+    running: true,
+    imapConnected: true,
+    syncing: false,
+    foreground: false,
+    lastSyncAt: now,
+    error: null,
+    progress: null,
+    backfill: null,
+    history: { state: "done", window: "90d", phase: "", done: 4210, total: 4210, rate: 0, etaSecs: null },
+  };
+}
+
+function accountOf(id: number, email: string): Account {
+  return {
+    id,
+    email,
+    historyId: "1",
+    lastSyncAt: now,
+    syncWindow: "90d",
+    notify: "all",
+    backfillState: "done",
+    backfillDone: 4210,
+    backfillTotal: 4210,
+    messagesTotal: 48_312,
+    sync: syncOf(id, email),
+    unread: 3,
+  };
+}
+
+// `?onboarding` in the URL starts with no account (first-run flow).
+const firstRun = typeof location !== "undefined" && location.search.includes("onboarding");
+
 const status: AppStatus = {
   clientConfigured: true,
   clientConfigPath: "%APPDATA%\\com.abdallah.pulsemail\\google-oauth-client.json",
-  account: "me@gmail.com",
-  sync: { running: true, imapConnected: true, syncing: false, foreground: false, lastSyncAt: now, error: null, progress: null, backfill: null },
+  account: firstRun ? null : "me@gmail.com",
+  accounts: firstRun ? [] : [accountOf(1, "me@gmail.com")],
+  dbBytes: 182_000_000,
   destroyOnClose: false,
   autostart: true,
   notifications: "all",
@@ -106,8 +144,8 @@ function mockRender(m: Message, dark: boolean): RenderedMessage {
 }
 
 const activity: Activity[] = [
-  { at: now - 60_000, level: "success", text: "Inbox ready: 50 newest messages in 1.0 s" },
-  { at: now - 30_000, level: "info", text: "Live: Gmail will push new mail instantly" },
+  { at: now - 60_000, account: "me@gmail.com", level: "success", text: "Inbox ready: 50 newest messages in 1.0 s" },
+  { at: now - 30_000, account: "me@gmail.com", level: "info", text: "Live: Gmail will push new mail instantly" },
 ];
 
 export async function handle(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
@@ -164,6 +202,40 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       return;
     case "open_external":
       window.open(String(args?.url), "_blank", "noopener");
+      return;
+    case "sign_in": {
+      const id = status.accounts.length + 1;
+      const email = id === 1 ? "me@gmail.com" : "work@example.com";
+      const a = accountOf(id, email);
+      a.backfillState = "setup";
+      a.sync.history = { state: "setup", window: "90d", phase: "", done: 0, total: 0, rate: 0, etaSecs: null };
+      status.accounts.push(a);
+      status.account ??= email;
+      await new Promise((r) => setTimeout(r, 900));
+      return { accountId: id, email, messagesTotal: a.messagesTotal, threadsTotal: 31_020, needsSetup: true };
+    }
+    case "account_estimates":
+      return [
+        { window: "30d", messages: 1_240, bytes: 1_240 * 48 * 1024 },
+        { window: "90d", messages: 4_210, bytes: 4_210 * 48 * 1024 },
+        { window: "1y", messages: 15_800, bytes: 15_800 * 3 * 1024 + 4_210 * 45 * 1024 },
+        { window: "all", messages: 48_312, bytes: 48_312 * 3 * 1024 + 4_210 * 45 * 1024 },
+      ];
+    case "finish_onboarding":
+    case "resume_history":
+    case "pause_history":
+    case "set_sync_window": {
+      const a = status.accounts.find((x) => x.id === args?.accountId);
+      if (a) {
+        if (args?.window) a.syncWindow = args.window as Account["syncWindow"];
+        if (args?.notify) a.notify = args.notify as Account["notify"];
+        const state = cmd === "pause_history" ? "paused" : "running";
+        a.backfillState = state;
+        a.sync.history = { state, window: a.syncWindow, phase: "list", done: 1_830, total: 15_800, rate: 46, etaSecs: 304 };
+      }
+      return;
+    }
+    case "sign_out":
       return;
     case "set_autostart":
       status.autostart = Boolean(args?.enabled);

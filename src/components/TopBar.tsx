@@ -3,7 +3,7 @@ import Icon from "./Icon";
 import AccountMenu from "./AccountMenu";
 import SyncIndicator from "./SyncIndicator";
 import { theme } from "../lib/theme";
-import type { Activity, SyncStatus } from "../lib/types";
+import type { Account, Activity, SyncStatus } from "../lib/types";
 
 interface Props {
   query: string;
@@ -12,8 +12,13 @@ interface Props {
   onRefresh(): void;
   onHelp(): void;
   onSettings(): void;
-  onSignOut(): void;
-  account: string | null;
+  onSignOut(accountId: number): void;
+  accounts: Account[];
+  /** Account in view; null = all inboxes. */
+  currentAccount: number | null;
+  onSelectAccount(accountId: number | null): void;
+  onAddAccount(): void;
+  onPauseHistory(accountId: number, pause: boolean): void;
   sync: SyncStatus | null;
   online: boolean;
   activity: Activity[];
@@ -56,11 +61,18 @@ export default function TopBar(p: Props) {
       </label>
 
       <div class="ml-auto flex items-center gap-1">
-        <Show when={p.account}>
-          <SyncIndicator sync={p.sync} online={p.online} activity={p.activity} onRetry={p.onRefresh} />
+        <Show when={p.accounts.length > 0}>
+          <SyncIndicator
+            sync={p.sync}
+            online={p.online}
+            activity={p.activity}
+            accounts={p.accounts}
+            onRetry={p.onRefresh}
+            onPauseHistory={p.onPauseHistory}
+          />
         </Show>
         <button class="grid size-10 place-items-center rounded-full text-muted hover:bg-hover" onClick={p.onRefresh} title="Check mail now (Shift+R)">
-          <Icon name="refresh" class={p.sync?.syncing ? "animate-spin-slow" : ""} />
+          <Icon name="refresh" class={p.sync?.syncing && p.sync.foreground ? "animate-spin-slow" : ""} />
         </button>
         <button class="grid size-10 place-items-center rounded-full text-muted hover:bg-hover" onClick={() => theme.cycle()} title={`Theme: ${theme.pref()}`}>
           <Icon name={theme.pref() === "dark" ? "moon" : theme.pref() === "light" ? "sun" : "auto"} />
@@ -68,10 +80,13 @@ export default function TopBar(p: Props) {
         <button class="grid size-10 place-items-center rounded-full text-muted hover:bg-hover" onClick={p.onSettings} title="Settings (,)">
           <Icon name="settings" />
         </button>
-        <Show when={p.account}>
+        <Show when={p.accounts.length > 0}>
           <AccountMenu
-            account={p.account!}
+            accounts={p.accounts}
+            current={p.currentAccount}
             live={!!p.sync?.imapConnected}
+            onSelect={p.onSelectAccount}
+            onAddAccount={p.onAddAccount}
             onSettings={p.onSettings}
             onShortcuts={p.onHelp}
             onSignOut={p.onSignOut}

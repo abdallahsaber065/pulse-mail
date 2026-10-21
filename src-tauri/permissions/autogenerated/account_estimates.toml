@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-account-estimates"
+description = "Enables the account_estimates command without any pre-configured scope."
+commands.allow = ["account_estimates"]
+
+[[permission]]
+identifier = "deny-account-estimates"
+description = "Denies the account_estimates command without any pre-configured scope."
+commands.deny = ["account_estimates"]
