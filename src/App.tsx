@@ -83,17 +83,26 @@ export default function App() {
     setSelected(t.threadId);
   };
 
-  onMount(async () => {
-    const unlisteners = await Promise.all([
+  onMount(() => {
+    // Register cleanups synchronously (inside the owner), then do async work.
+    let disposed = false;
+    let unlisteners: (() => void)[] = [];
+    void Promise.all([
       onEvent<null>("mail-updated", () => setTick((n) => n + 1)),
       onEvent<SyncStatus>("sync-status", (s) => setSync(s)),
       onEvent<OpenTarget>("open-thread", (t) => {
         void api.takePendingOpen();
         openTarget(t);
       }),
-    ]);
-    onCleanup(() => unlisteners.forEach((u) => u()));
-    openTarget(await api.takePendingOpen().catch(() => null));
+    ]).then((u) => {
+      if (disposed) u.forEach((f) => f());
+      else unlisteners = u;
+    });
+    onCleanup(() => {
+      disposed = true;
+      unlisteners.forEach((u) => u());
+    });
+    void api.takePendingOpen().catch(() => null).then(openTarget);
 
     const remove = installShortcuts({
       next: () => setCursor((c) => Math.min(c + 1, Math.max(0, threads().length - 1))),
