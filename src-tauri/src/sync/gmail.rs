@@ -97,6 +97,46 @@ impl RawMessage {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetaMessage {
+    pub id: String,
+    pub thread_id: String,
+    #[serde(default)]
+    pub label_ids: Vec<String>,
+    #[serde(default)]
+    pub snippet: String,
+    #[serde(default)]
+    pub internal_date: String,
+    #[serde(default)]
+    pub payload: MetaPayload,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct MetaPayload {
+    #[serde(default)]
+    pub headers: Vec<Header>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Header {
+    pub name: String,
+    pub value: String,
+}
+
+impl MetaMessage {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.payload
+            .headers
+            .iter()
+            .find(|h| h.name.eq_ignore_ascii_case(name))
+            .map(|h| h.value.as_str())
+    }
+    pub fn internal_date_ms(&self) -> i64 {
+        self.internal_date.parse().unwrap_or_default()
+    }
+}
+
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryPage {
@@ -181,8 +221,87 @@ impl HistoryDelta {
     }
 }
 
+const BATCH_URL: &str = "https://gmail.googleapis.com/batch/gmail/v1";
+/// Google recommends at most 50 calls per batch; more trips rate limits.
+pub const BATCH_MAX: usize = 50;
+/// Query for metadata-only gets: the three headers the list needs + snippet.
+const META_QUERY: &str = "format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject\
+                          &fields=id,threadId,labelIds,snippet,internalDate,payload/headers";
+
+/// Split a `multipart/mixed` batch response into per-request results, ordered
+/// by our `Content-ID: <m{i}>` (Google answers `<response-m{i}>`). Missing or
+/// unparseable parts become `Err(0)`.
+fn parse_batch_response(content_type: &str, body: &str, n: usize) -> Vec<Result<MetaMessage, u16>> {
+    let mut out: Vec<Result<MetaMessage, u16>> = (0..n).map(|_| Err(0)).collect();
+    let Some(boundary) = content_type
+        .split(';')
+        .filter_map(|p| p.trim().strip_prefix("boundary="))
+        .map(|b| b.trim_matches('"'))
+        .next()
+    else {
+        return out;
+    };
+    let delim = format!("--{boundary}");
+    for part in body.split(delim.as_str()) {
+        let Some(idx) = part
+            .find("<response-m")
+            .and_then(|p| part[p + 11..].split('>').next())
+            .and_then(|d| d.parse::<usize>().ok())
+            .filter(|&i| i < n)
+        else {
+            continue;
+        };
+        // Inner response: status line, headers, blank line, JSON.
+        let Some(http) = part.find("HTTP/") else { continue };
+        let inner = &part[http..];
+        let status = inner
+            .split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(0);
+        if !(200..300).contains(&status) {
+            out[idx] = Err(status);
+            continue;
+        }
+        let json = inner
+            .split_once("\r\n\r\n")
+            .or_else(|| inner.split_once("\n\n"))
+            .map(|(_, b)| b.trim())
+            .unwrap_or_default();
+        out[idx] = serde_json::from_str(json).map_err(|_| 0);
+    }
+    out
+}
+
 pub struct Gmail {
     http: reqwest::Client,
+}
+
+/// Map a non-2xx response to an error. Gmail reports quota/concurrency limits
+/// either as 429 or as 403 with reason `rateLimitExceeded` /
+/// `userRateLimitExceeded`; both are retryable. Only Google's machine-readable
+/// reason is logged (never headers or tokens).
+async fn classify_error(resp: reqwest::Response) -> GmailError {
+    let status = resp.status().as_u16();
+    if status == 401 {
+        return GmailError::Unauthorized;
+    }
+    let body = resp.text().await.unwrap_or_default();
+    let reason = error_reason(&body);
+    if status == 429 || (status == 403 && reason.as_deref().is_some_and(|r| r.contains("ateLimitExceeded"))) {
+        return GmailError::RateLimited;
+    }
+    tracing::warn!(status, reason = reason.as_deref().unwrap_or("-"), "Gmail API error");
+    GmailError::Status(status)
+}
+
+fn error_reason(body: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let e = &v["error"];
+    e["errors"][0]["reason"]
+        .as_str()
+        .or_else(|| e["status"].as_str())
+        .map(str::to_owned)
 }
 
 impl Gmail {
@@ -190,7 +309,29 @@ impl Gmail {
         Self { http }
     }
 
+    /// GET with retry on 429 / 5xx (exponential backoff, 3 attempts), as
+    /// Gmail's quota docs recommend.
     async fn get<T: serde::de::DeserializeOwned>(
+        &self,
+        token: &Secret,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<T, GmailError> {
+        let mut delay = std::time::Duration::from_millis(400);
+        let mut attempt = 0;
+        loop {
+            match self.get_once(token, path, query).await {
+                Err(GmailError::RateLimited | GmailError::Status(500..=599)) if attempt < 3 => {
+                    attempt += 1;
+                    tokio::time::sleep(delay).await;
+                    delay *= 2;
+                }
+                r => return r,
+            }
+        }
+    }
+
+    async fn get_once<T: serde::de::DeserializeOwned>(
         &self,
         token: &Secret,
         path: &str,
@@ -205,10 +346,8 @@ impl Gmail {
             .await?;
         match resp.status().as_u16() {
             200..=299 => Ok(resp.json().await?),
-            401 => Err(GmailError::Unauthorized),
             404 if path == "/history" => Err(GmailError::HistoryExpired),
-            429 => Err(GmailError::RateLimited),
-            s => Err(GmailError::Status(s)),
+            _ => Err(classify_error(resp).await),
         }
     }
 
@@ -220,13 +359,26 @@ impl Gmail {
         Ok(self.get::<LabelList>(token, "/labels", &[]).await?.labels)
     }
 
-    /// Ids of the newest messages matching `q` (e.g. `in:inbox newer_than:30d`).
-    pub async fn list_message_ids(&self, token: &Secret, q: &str, max: usize) -> Result<Vec<MessageRef>, GmailError> {
+    /// Ids of the newest messages, optionally limited to a label and/or a
+    /// search query (e.g. `newer_than:60d`). Newest first.
+    pub async fn list_message_ids(
+        &self,
+        token: &Secret,
+        label: Option<&str>,
+        q: Option<&str>,
+        max: usize,
+    ) -> Result<Vec<MessageRef>, GmailError> {
         let mut out = Vec::new();
         let mut page: Option<String> = None;
         while out.len() < max {
             let per_page = (max - out.len()).min(500).to_string();
-            let mut query = vec![("q", q), ("maxResults", per_page.as_str())];
+            let mut query = vec![("maxResults", per_page.as_str())];
+            if let Some(l) = label {
+                query.push(("labelIds", l));
+            }
+            if let Some(q) = q {
+                query.push(("q", q));
+            }
             if let Some(p) = page.as_deref() {
                 query.push(("pageToken", p));
             }
@@ -243,6 +395,90 @@ impl Gmail {
 
     pub async fn get_raw(&self, token: &Secret, id: &str) -> Result<RawMessage, GmailError> {
         self.get(token, &format!("/messages/{id}"), &[("format", "raw")]).await
+    }
+
+    /// Headers + snippet + labels only: ~1-2 KB instead of the full message.
+    pub async fn get_metadata(&self, token: &Secret, id: &str) -> Result<MetaMessage, GmailError> {
+        self.get(
+            token,
+            &format!("/messages/{id}"),
+            &[
+                ("format", "metadata"),
+                ("metadataHeaders", "From"),
+                ("metadataHeaders", "To"),
+                ("metadataHeaders", "Subject"),
+                ("fields", "id,threadId,labelIds,snippet,internalDate,payload/headers"),
+            ], // keep in sync with META_QUERY
+        )
+        .await
+    }
+
+    /// Up to 50 metadata gets in ONE HTTP round trip via Gmail's batch
+    /// endpoint. Quota is still charged per inner request (5 units each).
+    /// Returns one entry per id, in order: the message or the inner HTTP
+    /// status (e.g. 404 deleted, 429 throttled -> caller retries singly).
+    pub async fn get_metadata_batch(
+        &self,
+        token: &Secret,
+        ids: &[String],
+    ) -> Result<Vec<Result<MetaMessage, u16>>, GmailError> {
+        debug_assert!(ids.len() <= BATCH_MAX);
+        let boundary = "pulse_mail_batch";
+        let mut body = String::with_capacity(ids.len() * 220);
+        for (i, id) in ids.iter().enumerate() {
+            // Ids are hex from Gmail; refuse anything else rather than escape it.
+            if !id.bytes().all(|b| b.is_ascii_alphanumeric()) {
+                return Err(GmailError::Status(400));
+            }
+            body.push_str(&format!(
+                "--{boundary}\r\nContent-Type: application/http\r\nContent-ID: <m{i}>\r\n\r\n\
+                 GET /gmail/v1/users/me/messages/{id}?{META_QUERY}\r\n\r\n"
+            ));
+        }
+        body.push_str(&format!("--{boundary}--\r\n"));
+        let resp = self
+            .http
+            .post(BATCH_URL)
+            .bearer_auth(token.expose())
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                format!("multipart/mixed; boundary={boundary}"),
+            )
+            .body(body)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            return Err(classify_error(resp).await);
+        }
+        let ct = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        let text = resp.text().await?;
+        Ok(parse_batch_response(&ct, &text, ids.len()))
+    }
+
+    /// Add/remove labels on a whole thread (archive, star, read/unread).
+    pub async fn modify_thread(
+        &self,
+        token: &Secret,
+        thread_id: &str,
+        add: &[String],
+        remove: &[String],
+    ) -> Result<(), GmailError> {
+        let resp = self
+            .http
+            .post(format!("{BASE}/threads/{thread_id}/modify"))
+            .bearer_auth(token.expose())
+            .json(&serde_json::json!({ "addLabelIds": add, "removeLabelIds": remove }))
+            .send()
+            .await?;
+        match resp.status().as_u16() {
+            200..=299 => Ok(()),
+            _ => Err(classify_error(resp).await),
+        }
     }
 
     /// All history pages since `start_history_id`. Returns the records and
@@ -297,6 +533,54 @@ mod tests {
         assert_eq!(d.deleted, vec!["b".to_string()]);
         // "a" is fetched fresh anyway, so only "old" needs a label update
         assert_eq!(d.relabeled, vec![("old".to_string(), vec!["INBOX".to_string()])]);
+    }
+
+    #[test]
+    fn parses_batch_response_out_of_order_with_errors() {
+        let ct = "multipart/mixed; boundary=batch_abc";
+        let body = "--batch_abc\r\nContent-Type: application/http\r\nContent-ID: <response-m1>\r\n\r\n\
+            HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n\
+            {\"id\":\"b2\",\"threadId\":\"t\",\"labelIds\":[\"INBOX\"],\"snippet\":\"hi\",\"internalDate\":\"5\",\
+            \"payload\":{\"headers\":[{\"name\":\"Subject\",\"value\":\"S\"}]}}\r\n\
+            --batch_abc\r\nContent-Type: application/http\r\nContent-ID: <response-m0>\r\n\r\n\
+            HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n\r\n{\"error\":{}}\r\n\
+            --batch_abc--\r\n";
+        let r = parse_batch_response(ct, body, 3);
+        assert_eq!(r[0].as_ref().err(), Some(&404));
+        let m = r[1].as_ref().expect("parsed");
+        assert_eq!(m.id, "b2");
+        assert_eq!(m.header("subject"), Some("S"));
+        assert_eq!(r[2].as_ref().err(), Some(&0));
+        // No boundary -> all missing, never panics.
+        assert!(
+            parse_batch_response("text/html", "<html>", 2)
+                .iter()
+                .all(|x| x.is_err())
+        );
+    }
+
+    #[test]
+    fn reads_google_error_reason() {
+        let body =
+            r#"{"error":{"code":403,"errors":[{"reason":"userRateLimitExceeded"}],"status":"PERMISSION_DENIED"}}"#;
+        assert_eq!(error_reason(body).as_deref(), Some("userRateLimitExceeded"));
+        assert_eq!(
+            error_reason(r#"{"error":{"status":"FAILED_PRECONDITION"}}"#).as_deref(),
+            Some("FAILED_PRECONDITION")
+        );
+        assert_eq!(error_reason("<html>"), None);
+    }
+
+    #[test]
+    fn parses_metadata_message() {
+        let json = r#"{"id":"m","threadId":"t","labelIds":["INBOX","UNREAD"],"snippet":"Your code is 1234",
+            "internalDate":"1729500000000","payload":{"headers":[
+              {"name":"From","value":"\"GitHub\" <noreply@github.com>"},{"name":"subject","value":"Verify"}]}}"#;
+        let m: MetaMessage = serde_json::from_str(json).unwrap();
+        assert_eq!(m.header("Subject"), Some("Verify"));
+        assert_eq!(m.header("from"), Some("\"GitHub\" <noreply@github.com>"));
+        assert_eq!(m.header("To"), None);
+        assert_eq!(m.internal_date_ms(), 1_729_500_000_000);
     }
 
     #[test]

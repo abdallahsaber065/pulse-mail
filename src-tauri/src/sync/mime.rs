@@ -1,6 +1,6 @@
 //! RFC 822 -> cached message conversion (mail-parser), plus OTP detection.
 
-use super::gmail::RawMessage;
+use super::gmail::{MetaMessage, RawMessage};
 use crate::otp;
 use crate::store::NewMessage;
 use mail_parser::{Address, MessageParser};
@@ -39,10 +39,56 @@ pub fn to_new_message(raw: &RawMessage, bytes: &[u8]) -> NewMessage {
         .or_else(|| html.as_deref().map(otp::html_to_text))
         .unwrap_or_default();
     m.has_attachments = p.attachment_count() > 0;
-    m.otp_code = otp::extract(&m.subject, &text).map(|o| o.code);
+    m.otp_code = safe_otp(&m.subject, &text);
     m.body_text = truncate(text, MAX_TEXT_BYTES);
     m.body_html = html.filter(|h| h.len() <= MAX_HTML_BYTES);
     m
+}
+
+/// Message from `format=metadata`: headers, snippet and labels; no body.
+/// Headers go through mail-parser so RFC 2047 encoded words are decoded.
+pub fn from_metadata(meta: &MetaMessage) -> NewMessage {
+    let mut m = NewMessage {
+        id: meta.id.clone(),
+        thread_id: meta.thread_id.clone(),
+        internal_date: meta.internal_date_ms(),
+        snippet: decode_snippet(&meta.snippet),
+        label_ids: meta.label_ids.clone(),
+        ..Default::default()
+    };
+    let mut head = String::new();
+    for name in ["From", "To", "Subject"] {
+        if let Some(v) = meta.header(name) {
+            // header values never legitimately contain CR/LF
+            let v: String = v
+                .chars()
+                .map(|c| if c == '\r' || c == '\n' { ' ' } else { c })
+                .collect();
+            head.push_str(&format!("{name}: {v}\r\n"));
+        }
+    }
+    head.push_str("\r\n");
+    if let Some(p) = MessageParser::default().parse(head.as_bytes()) {
+        m.subject = p.subject().unwrap_or_default().to_string();
+        if let Some(addr) = p.from().and_then(Address::first) {
+            m.from_name = addr.name().unwrap_or_default().to_string();
+            m.from_email = addr.address().unwrap_or_default().to_string();
+        }
+        if let Some(to) = p.to() {
+            m.to_list = to.iter().filter_map(|a| a.address()).collect::<Vec<_>>().join(", ");
+        }
+    }
+    // Most OTP mails put the code in the first line, which is in the snippet.
+    m.otp_code = safe_otp(&m.subject, &m.snippet);
+    m
+}
+
+/// OTP detection must never take sync down, whatever the input.
+fn safe_otp(subject: &str, text: &str) -> Option<String> {
+    std::panic::catch_unwind(|| otp::extract(subject, text).map(|o| o.code)).unwrap_or_else(|_| {
+        tracing::error!("otp extractor panicked; skipping code detection for one message");
+        None
+    })
 }
 
 fn truncate(mut s: String, max: usize) -> String {
@@ -99,6 +145,35 @@ mod tests {
         assert!(m.body_html.as_deref().unwrap_or_default().contains("<h1>551203</h1>"));
         assert!(m.body_text.contains("551203"));
         assert_eq!(m.otp_code.as_deref(), Some("551203"));
+    }
+
+    #[test]
+    fn metadata_decodes_encoded_words_and_finds_otp_in_snippet() {
+        let json = r#"{"id":"m","threadId":"t","labelIds":["INBOX","UNREAD"],
+            "snippet":"Your verification code is 482913. It expires in 10 minutes.","internalDate":"5",
+            "payload":{"headers":[
+              {"name":"From","value":"=?UTF-8?B?2LPYp9ix2Kk=?= <sara@example.com>"},
+              {"name":"To","value":"me@example.com, Other <o@example.com>"},
+              {"name":"Subject","value":"=?utf-8?Q?Verify_=F0=9F=94=90?="}]}}"#;
+        let meta: MetaMessage = serde_json::from_str(json).unwrap();
+        let m = from_metadata(&meta);
+        assert_eq!(m.from_name, "سارة");
+        assert_eq!(m.from_email, "sara@example.com");
+        assert_eq!(m.subject, "Verify 🔐");
+        assert_eq!(m.to_list, "me@example.com, o@example.com");
+        assert_eq!(m.otp_code.as_deref(), Some("482913"));
+        assert!(m.body_text.is_empty());
+    }
+
+    #[test]
+    fn metadata_with_plain_utf8_headers() {
+        let json = r#"{"id":"m","threadId":"t","snippet":"hi\u00a0there","internalDate":"5",
+            "payload":{"headers":[{"name":"From","value":"Facebook <security@facebookmail.com>"},
+            {"name":"Subject","value":"Did you just log in near Sidi Bishr?"}]}}"#;
+        let m = from_metadata(&serde_json::from_str(json).unwrap());
+        assert_eq!(m.from_name, "Facebook");
+        assert_eq!(m.subject, "Did you just log in near Sidi Bishr?");
+        assert_eq!(m.otp_code, None);
     }
 
     #[test]

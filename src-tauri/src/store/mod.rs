@@ -83,6 +83,7 @@ pub struct MessageRow {
     pub starred: bool,
     pub has_attachments: bool,
     pub otp_code: Option<String>,
+    pub body_loaded: bool,
 }
 
 pub struct Store {
@@ -231,14 +232,15 @@ impl Store {
         tx.execute(
             "INSERT INTO messages(account_id, id, thread_id, internal_date, from_name, from_email, to_list,
                                   subject, snippet, body_text, body_html, is_unread, is_starred,
-                                  has_attachments, otp_code)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                                  has_attachments, otp_code, body_loaded)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 1)
              ON CONFLICT(account_id, id) DO UPDATE SET
                 thread_id = excluded.thread_id, internal_date = excluded.internal_date,
                 from_name = excluded.from_name, from_email = excluded.from_email, to_list = excluded.to_list,
                 subject = excluded.subject, snippet = excluded.snippet, body_text = excluded.body_text,
                 body_html = excluded.body_html, is_unread = excluded.is_unread, is_starred = excluded.is_starred,
-                has_attachments = excluded.has_attachments, otp_code = excluded.otp_code",
+                has_attachments = excluded.has_attachments, otp_code = excluded.otp_code,
+                body_loaded = 1",
             params![
                 account_id,
                 m.id,
@@ -259,6 +261,113 @@ impl Store {
         )?;
         write_labels(&tx, account_id, &m.id, &m.label_ids)?;
         tx.commit()
+    }
+
+    /// Insert or refresh a message from `format=metadata` (headers, snippet,
+    /// labels). Never overwrites a body that is already cached.
+    pub fn upsert_metadata(&mut self, account_id: i64, m: &NewMessage) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        let unread = m.label_ids.iter().any(|l| l == "UNREAD");
+        let starred = m.label_ids.iter().any(|l| l == "STARRED");
+        tx.execute(
+            "INSERT INTO messages(account_id, id, thread_id, internal_date, from_name, from_email, to_list,
+                                  subject, snippet, body_text, is_unread, is_starred, otp_code, body_loaded)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10, ?11, ?12, 0)
+             ON CONFLICT(account_id, id) DO UPDATE SET
+                thread_id = excluded.thread_id, internal_date = excluded.internal_date,
+                from_name = excluded.from_name, from_email = excluded.from_email, to_list = excluded.to_list,
+                subject = excluded.subject, snippet = excluded.snippet,
+                is_unread = excluded.is_unread, is_starred = excluded.is_starred,
+                otp_code = COALESCE(messages.otp_code, excluded.otp_code)",
+            params![
+                account_id,
+                m.id,
+                m.thread_id,
+                m.internal_date,
+                m.from_name,
+                m.from_email,
+                m.to_list,
+                m.subject,
+                m.snippet,
+                unread,
+                starred,
+                m.otp_code
+            ],
+        )?;
+        write_labels(&tx, account_id, &m.id, &m.label_ids)?;
+        tx.commit()
+    }
+
+    /// Message ids in a thread whose body hasn't been downloaded yet.
+    pub fn ids_without_body(&self, account_id: i64, thread_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id FROM messages WHERE account_id = ?1 AND thread_id = ?2 AND body_loaded = 0
+             ORDER BY internal_date DESC",
+        )?;
+        stmt.query_map(params![account_id, thread_id], |r| r.get(0))?.collect()
+    }
+
+    /// Newest INBOX messages still missing a body (for prefetch).
+    pub fn inbox_ids_without_body(&self, account_id: i64, limit: i64) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT m.id FROM messages m
+             JOIN message_labels ml ON ml.account_id = m.account_id AND ml.message_id = m.id AND ml.label_id = 'INBOX'
+             WHERE m.account_id = ?1 AND m.body_loaded = 0
+             ORDER BY m.internal_date DESC LIMIT ?2",
+        )?;
+        stmt.query_map(params![account_id, limit], |r| r.get(0))?.collect()
+    }
+
+    pub fn message_count(&self, account_id: i64) -> Result<i64> {
+        self.conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE account_id = ?1",
+            [account_id],
+            |r| r.get(0),
+        )
+    }
+
+    /// Add/remove labels on every message of a thread (optimistic local
+    /// update before the Gmail call). Returns how many messages changed.
+    pub fn modify_thread_labels(
+        &mut self,
+        account_id: i64,
+        thread_id: &str,
+        add: &[String],
+        remove: &[String],
+    ) -> Result<usize> {
+        let tx = self.conn.transaction()?;
+        let rows: Vec<(String, Option<String>)> = {
+            let mut stmt = tx.prepare(
+                "SELECT m.id, (SELECT group_concat(label_id, ' ') FROM message_labels ml
+                                WHERE ml.account_id = m.account_id AND ml.message_id = m.id)
+                 FROM messages m WHERE m.account_id = ?1 AND m.thread_id = ?2",
+            )?;
+            stmt.query_map(params![account_id, thread_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<Result<_>>()?
+        };
+        for (id, labels) in &rows {
+            let mut set: Vec<String> = labels
+                .as_deref()
+                .unwrap_or_default()
+                .split(' ')
+                .filter(|l| !l.is_empty() && !remove.iter().any(|r| r == l))
+                .map(str::to_owned)
+                .collect();
+            for a in add {
+                if !set.contains(a) {
+                    set.push(a.clone());
+                }
+            }
+            let unread = set.iter().any(|l| l == "UNREAD");
+            let starred = set.iter().any(|l| l == "STARRED");
+            tx.execute(
+                "UPDATE messages SET is_unread = ?3, is_starred = ?4 WHERE account_id = ?1 AND id = ?2",
+                params![account_id, id, unread, starred],
+            )?;
+            write_labels(&tx, account_id, id, &set)?;
+        }
+        tx.commit()?;
+        Ok(rows.len())
     }
 
     /// Apply a label change from history sync without refetching the body.
@@ -338,14 +447,14 @@ impl Store {
     pub fn get_thread(&self, account_id: i64, thread_id: &str) -> Result<Vec<MessageRow>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT id, thread_id, internal_date, from_name, from_email, to_list, subject, snippet,
-                    body_text, body_html, is_unread, is_starred, has_attachments, otp_code,
+                    body_text, body_html, is_unread, is_starred, has_attachments, otp_code, body_loaded,
                     (SELECT group_concat(label_id, ' ') FROM message_labels ml
                       WHERE ml.account_id = m.account_id AND ml.message_id = m.id)
              FROM messages m WHERE account_id = ?1 AND thread_id = ?2
              ORDER BY internal_date ASC",
         )?;
         stmt.query_map(params![account_id, thread_id], |r| {
-            let labels: Option<String> = r.get(14)?;
+            let labels: Option<String> = r.get(15)?;
             Ok(MessageRow {
                 id: r.get(0)?,
                 thread_id: r.get(1)?,
@@ -361,6 +470,7 @@ impl Store {
                 starred: r.get(11)?,
                 has_attachments: r.get(12)?,
                 otp_code: r.get(13)?,
+                body_loaded: r.get(14)?,
                 label_ids: labels
                     .map(|s| s.split(' ').map(str::to_owned).collect())
                     .unwrap_or_default(),
@@ -583,6 +693,50 @@ mod tests {
             .unwrap();
         s.upsert_message(id, &msg("m2", "t2", 100, &["INBOX"], "b")).unwrap();
         assert_eq!(s.list_labels(id).unwrap()[0].unread, 1);
+    }
+
+    #[test]
+    fn metadata_then_body_then_metadata_keeps_body() {
+        let (mut s, id) = setup();
+        let mut meta = msg("m1", "t1", 100, &["INBOX", "UNREAD"], "Hi");
+        meta.body_text = String::new();
+        s.upsert_metadata(id, &meta).unwrap();
+        assert_eq!(s.ids_without_body(id, "t1").unwrap(), vec!["m1".to_string()]);
+        assert_eq!(s.inbox_ids_without_body(id, 10).unwrap().len(), 1);
+        assert!(!s.get_thread(id, "t1").unwrap()[0].body_loaded);
+
+        s.upsert_message(id, &msg("m1", "t1", 100, &["INBOX", "UNREAD"], "Hi"))
+            .unwrap();
+        assert!(s.get_thread(id, "t1").unwrap()[0].body_loaded);
+
+        // a later metadata refresh (labels changed) must not drop the body
+        s.upsert_metadata(id, &msg("m1", "t1", 100, &["INBOX"], "Hi")).unwrap();
+        let m = &s.get_thread(id, "t1").unwrap()[0];
+        assert!(m.body_loaded);
+        assert_eq!(m.body_text, "body of Hi");
+        assert!(!m.unread);
+        assert_eq!(s.message_count(id).unwrap(), 1);
+    }
+
+    #[test]
+    fn modify_thread_labels_archive_star_read() {
+        let (mut s, id) = setup();
+        s.upsert_message(id, &msg("m1", "t1", 100, &["INBOX", "UNREAD"], "a"))
+            .unwrap();
+        s.upsert_message(id, &msg("m2", "t1", 200, &["INBOX", "UNREAD"], "b"))
+            .unwrap();
+        let n = s
+            .modify_thread_labels(id, "t1", &["STARRED".into()], &["UNREAD".into(), "INBOX".into()])
+            .unwrap();
+        assert_eq!(n, 2);
+        assert!(s.list_threads(id, "INBOX", 10, 0).unwrap().is_empty());
+        let starred = s.list_threads(id, "STARRED", 10, 0).unwrap();
+        assert_eq!(starred.len(), 1);
+        assert!(!starred[0].unread && starred[0].starred);
+        // undo
+        s.modify_thread_labels(id, "t1", &["INBOX".into(), "UNREAD".into()], &["STARRED".into()])
+            .unwrap();
+        assert!(s.list_threads(id, "INBOX", 10, 0).unwrap()[0].unread);
     }
 
     #[test]

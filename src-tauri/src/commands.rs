@@ -46,6 +46,7 @@ friendly!(keyring::Error, _e => "Couldn't access Windows Credential Manager.");
 friendly!(tauri::Error, _e => "Something went wrong. Please try again.");
 friendly!(tauri_plugin_opener::Error, _e => "Couldn't open your browser.");
 friendly!(GmailError, _e => "Couldn't reach Gmail. Check your connection and try again.");
+friendly!(sync::SyncError, e => e.friendly());
 friendly!(ConfigError, e => match e {
     ConfigError::Missing(_) => "Pulse Mail isn't connected to a Google OAuth client yet. See the setup steps.",
     ConfigError::Invalid(_) => "The Google OAuth client file isn't valid. Download it again from Google Cloud.",
@@ -70,13 +71,23 @@ pub struct AppStatus {
     sync: SyncStatus,
     destroy_on_close: bool,
     autostart: bool,
+    /// "all" | "otp" | "off"
+    notifications: String,
+    data_dir: String,
+    version: &'static str,
 }
 
 #[tauri::command]
 pub fn get_status(app: AppHandle, state: State<'_, AppState>) -> CmdResult<AppStatus> {
     let path = client_config::resolve_path(&state.config_dir);
     let configured = client_config::load(&path).is_ok();
-    let account = state.store.lock().unwrap().primary_account()?.map(|a| a.email);
+    let (account, notifications) = {
+        let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+        (
+            store.primary_account()?.map(|a| a.email),
+            store.get_setting("notifications")?.unwrap_or_else(|| "all".into()),
+        )
+    };
     Ok(AppStatus {
         client_configured: configured,
         client_config_path: path.display().to_string(),
@@ -84,6 +95,13 @@ pub fn get_status(app: AppHandle, state: State<'_, AppState>) -> CmdResult<AppSt
         sync: state.status.get(),
         destroy_on_close: state.destroy_on_close.load(Ordering::Relaxed),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
+        notifications,
+        data_dir: app
+            .path()
+            .app_data_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default(),
+        version: env!("CARGO_PKG_VERSION"),
     })
 }
 
@@ -101,7 +119,11 @@ pub async fn sign_in(app: AppHandle, state: State<'_, AppState>) -> CmdResult<St
     let profile = Gmail::new(state.http.clone()).profile(&tokens.access_token).await?;
     let email = profile.email_address;
     token_store::save_refresh_token(&email, &refresh)?;
-    let account = state.store.lock().unwrap().upsert_account(&email, now_ms())?;
+    let account = state
+        .store
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .upsert_account(&email, now_ms())?;
     tracing::info!("signed in");
 
     let manager = TokenManager::new(email.clone(), client, state.http.clone(), refresh);
@@ -114,14 +136,22 @@ pub async fn sign_out(state: State<'_, AppState>) -> CmdResult<()> {
     if let Some(c) = state.sync.lock().await.take() {
         c.stop();
     }
-    let account = state.store.lock().unwrap().primary_account()?;
+    let account = state
+        .store
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .primary_account()?;
     if let Some(a) = account {
         if let Ok(Some(rt)) = token_store::load_refresh_token(&a.email) {
             // Best effort: also revoke at Google.
             let _ = oauth::revoke(&state.http, &rt).await;
         }
         token_store::delete_refresh_token(&a.email)?;
-        state.store.lock().unwrap().delete_account(a.id)?;
+        state
+            .store
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .delete_account(a.id)?;
     }
     state.status.update(|s| *s = SyncStatus::default());
     Ok(())
@@ -129,7 +159,7 @@ pub async fn sign_out(state: State<'_, AppState>) -> CmdResult<()> {
 
 #[tauri::command]
 pub fn list_labels(state: State<'_, AppState>) -> CmdResult<Vec<LabelRow>> {
-    let store = state.store.lock().unwrap();
+    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
     match store.primary_account()? {
         Some(a) => Ok(store.list_labels(a.id)?),
         None => Ok(Vec::new()),
@@ -143,7 +173,7 @@ pub fn list_threads(
     limit: i64,
     offset: i64,
 ) -> CmdResult<Vec<ThreadRow>> {
-    let store = state.store.lock().unwrap();
+    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
     match store.primary_account()? {
         Some(a) => Ok(store.list_threads(a.id, &label_id, limit.clamp(1, 500), offset.max(0))?),
         None => Ok(Vec::new()),
@@ -152,7 +182,7 @@ pub fn list_threads(
 
 #[tauri::command]
 pub fn search(state: State<'_, AppState>, query: String, limit: i64) -> CmdResult<Vec<ThreadRow>> {
-    let store = state.store.lock().unwrap();
+    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
     match store.primary_account()? {
         Some(a) => Ok(store.search(a.id, &query, limit.clamp(1, 200))?),
         None => Ok(Vec::new()),
@@ -161,7 +191,7 @@ pub fn search(state: State<'_, AppState>, query: String, limit: i64) -> CmdResul
 
 #[tauri::command]
 pub fn get_thread(state: State<'_, AppState>, thread_id: String) -> CmdResult<Vec<MessageRow>> {
-    let store = state.store.lock().unwrap();
+    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
     match store.primary_account()? {
         Some(a) => Ok(store.get_thread(a.id, &thread_id)?),
         None => Ok(Vec::new()),
@@ -219,6 +249,66 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> CmdResult<bool> {
     Ok(al.is_enabled().unwrap_or(enabled))
 }
 
+/// Thread for the reader. Downloads any missing bodies first (metadata-only
+/// rows from the fast first sync), then returns the cached thread.
+#[tauri::command]
+pub async fn load_thread(state: State<'_, AppState>, thread_id: String) -> CmdResult<Vec<MessageRow>> {
+    let engine = state.sync.lock().await.as_ref().map(|c| c.engine());
+    if let Some(engine) = engine
+        && let Err(e) = engine.load_thread_bodies(&thread_id).await
+    {
+        // Still show what we have (headers + snippet); the UI offers retry.
+        tracing::warn!(error = %e, "loading thread bodies failed");
+    }
+    get_thread(state, thread_id)
+}
+
+/// Add/remove Gmail labels on a thread: archive (-INBOX), star (+STARRED),
+/// read (-UNREAD), unread (+UNREAD). Optimistic; rolled back on failure.
+#[tauri::command]
+pub async fn modify_thread(
+    state: State<'_, AppState>,
+    thread_id: String,
+    add: Vec<String>,
+    remove: Vec<String>,
+) -> CmdResult<()> {
+    const ALLOWED: &[&str] = &["INBOX", "STARRED", "UNREAD", "IMPORTANT", "SPAM", "TRASH"];
+    if add
+        .iter()
+        .chain(&remove)
+        .any(|l| !ALLOWED.contains(&l.as_str()) && !l.starts_with("Label_"))
+    {
+        return Err(CmdError::new("That action isn't supported."));
+    }
+    let engine = state
+        .sync
+        .lock()
+        .await
+        .as_ref()
+        .map(|c| c.engine())
+        .ok_or_else(|| CmdError::new("Not signed in."))?;
+    engine.modify_thread(&thread_id, &add, &remove).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_activity(state: State<'_, AppState>) -> Vec<crate::sync::status::Activity> {
+    state.status.activity()
+}
+
+#[tauri::command]
+pub fn set_notifications(state: State<'_, AppState>, mode: String) -> CmdResult<()> {
+    if !matches!(mode.as_str(), "all" | "otp" | "off") {
+        return Err(CmdError::new("Unknown notification setting."));
+    }
+    state
+        .store
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .set_setting("notifications", &mode)?;
+    Ok(())
+}
+
 /// (Re)start the sync engine for an account.
 pub async fn start_sync(app: &AppHandle, state: &AppState, tokens: TokenManager, account_id: i64) {
     let mut slot = state.sync.lock().await;
@@ -239,7 +329,7 @@ pub async fn start_sync(app: &AppHandle, state: &AppState, tokens: TokenManager,
 /// refresh token in Credential Manager. Silent if anything is missing.
 pub async fn resume(app: AppHandle) {
     let state = app.state::<AppState>();
-    let Ok(Some(account)) = state.store.lock().unwrap().primary_account() else {
+    let Ok(Some(account)) = state.store.lock().unwrap_or_else(|e| e.into_inner()).primary_account() else {
         return;
     };
     let Ok(client) = client_config::load(&client_config::resolve_path(&state.config_dir)) else {

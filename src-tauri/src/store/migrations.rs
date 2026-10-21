@@ -76,4 +76,10 @@ pub const MIGRATIONS: &[&str] = &[
         value TEXT NOT NULL
     );
     "#,
+    // 2: metadata-first sync. Rows fetched with format=metadata have no body
+    // yet; bodies load lazily on open (or by prefetch).
+    r#"
+    ALTER TABLE messages ADD COLUMN body_loaded INTEGER NOT NULL DEFAULT 1;
+    CREATE INDEX messages_nobody ON messages(account_id, body_loaded) WHERE body_loaded = 0;
+    "#,
 ];

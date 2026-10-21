@@ -211,7 +211,14 @@ fn looks_numeric_context(text: &str, start: usize, end: usize) -> bool {
 }
 
 fn in_url_token(text: &str, start: usize, end: usize) -> bool {
-    let tok_start = text[..start].rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0);
+    // Byte index *after* the whitespace char: whitespace can be multi-byte
+    // (NBSP, U+2003...), so never assume `+ 1`.
+    let tok_start = text[..start]
+        .char_indices()
+        .rev()
+        .find(|(_, c)| c.is_whitespace())
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
     let tok_end = text[end..]
         .find(char::is_whitespace)
         .map(|i| end + i)
@@ -386,6 +393,46 @@ mod tests {
     fn ignores_newsletters() {
         let body = "This week in Rust 612. 25 new crates, 1500 contributors. Read more at the blog.";
         assert_eq!(code("This Week in Rust", body), None);
+    }
+
+    #[test]
+    fn nbsp_before_code_does_not_panic() {
+        // Regression: in_url_token sliced inside a 2-byte NBSP.
+        let body = "Your verification code is\u{a0}482913\u{a0}and expires soon";
+        assert_eq!(code("Verify", body), Some("482913".into()));
+    }
+
+    #[test]
+    fn emoji_and_wide_spaces_around_code() {
+        let body = "🔐 Your login code:\u{2003}731590 ✅\u{3000}thanks 🙏";
+        assert_eq!(code("Sign in 🔑", body), Some("731590".into()));
+    }
+
+    #[test]
+    fn arabic_text_with_nbsp_and_ascii_digits() {
+        let body = "مرحبا،\u{a0}رمز\u{a0}التحقق:\u{a0}558812\u{a0}صالح لمدة ١٠ دقائق";
+        assert_eq!(code("رمز التحقق", body), Some("558812".into()));
+    }
+
+    /// Insert awkward multi-byte characters at every position around a code
+    /// and make sure nothing panics (char-boundary safety for all slicing).
+    #[test]
+    fn never_panics_on_multibyte_text() {
+        let tricky = [
+            '\u{a0}', '\u{2003}', '\u{3000}', '\u{200b}', 'é', 'ر', '٤', '🔐', '\u{200d}', '\u{feff}',
+        ];
+        let base = "Your code is 482913. Visit https://x.y/a?b=1 or call +1 800 555 0199. Total $12.50 in 2026.";
+        let chars: Vec<char> = base.chars().collect();
+        for t in tricky {
+            for i in 0..=chars.len() {
+                let mut s: String = chars[..i].iter().collect();
+                s.push(t);
+                s.extend(&chars[i..]);
+                let _ = extract("verification code", &s);
+                let _ = extract(&s, &s);
+                let _ = html_to_text(&s);
+            }
+        }
     }
 
     #[test]

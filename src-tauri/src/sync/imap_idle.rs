@@ -50,26 +50,43 @@ enum ImapError {
 
 /// Runs forever (until the task is aborted), reconnecting with backoff.
 pub async fn run(tokens: Arc<TokenManager>, wake: Arc<Notify>, status: Arc<StatusCell>) {
+    use futures::FutureExt;
     let mut backoff = Duration::from_secs(1);
     loop {
-        match watch_once(&tokens, &wake, &status).await {
-            Ok(()) => backoff = Duration::from_secs(1),
-            Err(e) => {
-                status.set_imap_connected(false);
-                tracing::warn!(error = %e, retry_in = ?backoff, "imap idle connection lost");
-                if matches!(e, ImapError::Imap(async_imap::error::Error::No(_))) {
-                    // Most likely an expired access token: force a refresh.
-                    tokens.invalidate().await;
-                }
-                if let ImapError::Auth(crate::auth::oauth::AuthError::InvalidGrant) = e {
-                    // Sign-in revoked: the engine reports it; check rarely.
-                    tokio::time::sleep(Duration::from_secs(15 * 60)).await;
-                    continue;
-                }
-                tokio::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(MAX_BACKOFF);
+        let attempt = std::panic::AssertUnwindSafe(watch_once(&tokens, &wake, &status))
+            .catch_unwind()
+            .await;
+        let was_live = status.imap_connected();
+        let e = match attempt {
+            Ok(Ok(())) => {
+                backoff = Duration::from_secs(1);
+                continue;
             }
+            Ok(Err(e)) => e,
+            Err(p) => {
+                tracing::error!(panic = %super::panic_text(&p), "imap task panicked");
+                ImapError::Closed
+            }
+        };
+        status.set_imap_connected(false);
+        tracing::warn!(error = %e, retry_in = ?backoff, "imap idle connection lost");
+        if was_live {
+            status.log(
+                "warn",
+                "Live connection dropped. Reconnecting; checking every minute meanwhile.",
+            );
         }
+        if matches!(e, ImapError::Imap(async_imap::error::Error::No(_))) {
+            // Most likely an expired access token: force a refresh.
+            tokens.invalidate().await;
+        }
+        if let ImapError::Auth(crate::auth::oauth::AuthError::InvalidGrant) = e {
+            // Sign-in revoked: the engine reports it; check rarely.
+            tokio::time::sleep(Duration::from_secs(15 * 60)).await;
+            continue;
+        }
+        tokio::time::sleep(backoff).await;
+        backoff = (backoff * 2).min(MAX_BACKOFF);
     }
 }
 
@@ -81,6 +98,7 @@ async fn watch_once(tokens: &TokenManager, wake: &Notify, status: &StatusCell) -
     session.select("INBOX").await?;
     status.set_imap_connected(true);
     tracing::info!("imap idle connected");
+    status.log("success", "Live: Gmail will push new mail instantly");
     // Catch up on anything that arrived while we were disconnected.
     wake.notify_one();
 

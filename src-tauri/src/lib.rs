@@ -3,6 +3,8 @@
 
 mod auth;
 mod commands;
+#[doc(hidden)]
+pub mod devtools;
 mod notify;
 mod otp;
 mod store;
@@ -115,6 +117,10 @@ pub fn run() {
             commands::open_external,
             commands::set_destroy_on_close,
             commands::set_autostart,
+            commands::load_thread,
+            commands::modify_thread,
+            commands::get_activity,
+            commands::set_notifications,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pulse Mail");
