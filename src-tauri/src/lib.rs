@@ -9,6 +9,7 @@ mod notify;
 mod otp;
 mod prefs;
 mod render;
+mod security;
 mod store;
 mod sync;
 mod tray;

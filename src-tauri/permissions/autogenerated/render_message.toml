@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-render-message"
+description = "Enables the render_message command without any pre-configured scope."
+commands.allow = ["render_message"]
+
+[[permission]]
+identifier = "deny-render-message"
+description = "Denies the render_message command without any pre-configured scope."
+commands.deny = ["render_message"]

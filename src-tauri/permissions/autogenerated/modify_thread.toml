@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-modify-thread"
+description = "Enables the modify_thread command without any pre-configured scope."
+commands.allow = ["modify_thread"]
+
+[[permission]]
+identifier = "deny-modify-thread"
+description = "Denies the modify_thread command without any pre-configured scope."
+commands.deny = ["modify_thread"]

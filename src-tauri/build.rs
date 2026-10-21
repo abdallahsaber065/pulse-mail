@@ -1,5 +1,34 @@
+/// Every IPC command the web UI may call. Each one gets an `allow-<name>`
+/// permission that `capabilities/default.json` must grant explicitly; a
+/// command missing from either list is unreachable from the UI. Kept in sync
+/// with `generate_handler!` by `security::tests::command_allowlist_in_sync`.
+const COMMANDS: &[&str] = &[
+    "get_status",
+    "sign_in",
+    "sign_out",
+    "list_labels",
+    "list_threads",
+    "search",
+    "get_thread",
+    "sync_now",
+    "take_pending_open",
+    "copy_text",
+    "open_external",
+    "set_destroy_on_close",
+    "set_autostart",
+    "load_thread",
+    "modify_thread",
+    "get_activity",
+    "set_notifications",
+    "render_message",
+    "set_image_sender",
+    "set_pref",
+    "save_attachment",
+];
+
 fn main() {
-    let mut attrs = tauri_build::Attributes::new();
+    let mut attrs = tauri_build::Attributes::new()
+        .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS));
 
     // Tauri embeds its Common-Controls v6 manifest into the app binary only.
     // Test harnesses link the same code (TaskDialogIndirect & co.) and then die
