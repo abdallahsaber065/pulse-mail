@@ -72,7 +72,7 @@ const status: AppStatus = {
   clientConfigured: true,
   clientConfigPath: "%APPDATA%\\com.abdallah.pulsemail\\google-oauth-client.json",
   account: "me@gmail.com",
-  sync: { running: true, imapConnected: true, syncing: false, lastSyncAt: now, error: null, progress: null, backfill: null },
+  sync: { running: true, imapConnected: true, syncing: false, foreground: false, lastSyncAt: now, error: null, progress: null, backfill: null },
   destroyOnClose: false,
   autostart: true,
   notifications: "all",

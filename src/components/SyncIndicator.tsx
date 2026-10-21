@@ -1,6 +1,6 @@
 // Transparency UI: a thin progress bar pinned to the top of the window, a
 // status chip, and a details popover with the live activity log + retry.
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import Icon, { type IconName } from "./Icon";
 import Popover from "./ui/Popover";
 import { chipView, type ChipTone } from "../lib/sync-view";
@@ -23,18 +23,58 @@ const LEVEL_ICON: Record<Activity["level"], { icon: IconName; cls: string }> = {
   error: { icon: "error", cls: "text-danger" },
 };
 
+/** Bar timing: sub-second work never flashes it. */
+export const BAR_SHOW_DELAY_MS = 400;
+export const BAR_MIN_VISIBLE_MS = 600;
+
 export function TopProgress(p: { sync: SyncStatus | null; online: boolean }) {
   const v = createMemo(() => chipView(p.sync, p.online));
+  const active = createMemo(() => v().bar !== undefined);
+  // Appear only after BAR_SHOW_DELAY_MS of continuous work; once shown, stay
+  // at least BAR_MIN_VISIBLE_MS so it never blinks.
+  const [shown, setShown] = createSignal(false);
+  let showTimer: number | undefined;
+  let hideTimer: number | undefined;
+  let shownAt = 0;
+  createEffect(() => {
+    if (active()) {
+      clearTimeout(hideTimer);
+      hideTimer = undefined;
+      if (!shown() && showTimer === undefined) {
+        showTimer = window.setTimeout(() => {
+          showTimer = undefined;
+          shownAt = Date.now();
+          setShown(true);
+        }, BAR_SHOW_DELAY_MS);
+      }
+    } else {
+      clearTimeout(showTimer);
+      showTimer = undefined;
+      if (shown() && hideTimer === undefined) {
+        hideTimer = window.setTimeout(
+          () => {
+            hideTimer = undefined;
+            setShown(false);
+          },
+          Math.max(0, BAR_MIN_VISIBLE_MS - (Date.now() - shownAt)),
+        );
+      }
+    }
+  });
+  onCleanup(() => {
+    clearTimeout(showTimer);
+    clearTimeout(hideTimer);
+  });
   return (
     <div class="pointer-events-none fixed inset-x-0 top-0 z-[80] h-[3px] overflow-hidden" aria-hidden="true">
-      <Show when={v().bar !== undefined}>
+      <Show when={shown()}>
         <Show
           when={v().bar !== null}
           fallback={<div class={`progress-indeterminate h-full bg-primary ${v().barSubtle ? "opacity-50" : ""}`} />}
         >
           <div
             class={`h-full bg-primary transition-[width] duration-300 ease-out ${v().barSubtle ? "opacity-50" : ""}`}
-            style={{ width: `${Math.max(4, (v().bar ?? 0) * 100)}%` }}
+            style={{ width: `${Math.max(4, (v().bar ?? 1) * 100)}%` }}
           />
         </Show>
       </Show>

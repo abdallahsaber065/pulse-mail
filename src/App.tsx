@@ -329,7 +329,7 @@ export default function App() {
     });
     const goOnline = () => {
       setOnline(true);
-      void api.syncNow();
+      void api.syncNow(false);
     };
     const goOffline = () => setOnline(false);
     window.addEventListener("online", goOnline);

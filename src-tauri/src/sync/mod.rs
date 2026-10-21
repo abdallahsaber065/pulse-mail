@@ -27,7 +27,7 @@ use futures::{FutureExt, StreamExt};
 use gmail::{Gmail, GmailError, HistoryDelta};
 use status::StatusCell;
 use std::panic::AssertUnwindSafe;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -45,6 +45,9 @@ const PREFETCH_BODIES: i64 = 12;
 /// retried. Only used for the few batch parts that come back throttled.
 const META_CONCURRENCY: usize = 10;
 const RAW_CONCURRENCY: usize = 6;
+/// A push/poll delta at least this big is shown in the UI (catch-up after
+/// being offline); smaller ones are applied quietly.
+const LOUD_DELTA: u32 = 25;
 /// Fallback polling when IMAP is down / healthy.
 const POLL_IMAP_DOWN: Duration = Duration::from_secs(60);
 const POLL_IMAP_UP: Duration = Duration::from_secs(15 * 60);
@@ -85,7 +88,12 @@ pub struct SyncController {
 }
 
 impl SyncController {
-    pub fn sync_now(&self) {
+    /// Wake the engine. `manual` marks the pass as user-initiated so the UI
+    /// shows it; automatic wake-ups (network back, push) stay quiet.
+    pub fn sync_now(&self, manual: bool) {
+        if manual {
+            self.engine.manual.store(true, Ordering::SeqCst);
+        }
         self.wake.notify_one();
     }
 
@@ -119,6 +127,8 @@ pub fn spawn(
         status: status.clone(),
         stopped: AtomicBool::new(false),
         background_running: AtomicBool::new(false),
+        manual: AtomicBool::new(false),
+        failures: AtomicU32::new(0),
     });
     status.update(|s| {
         s.running = true;
@@ -144,6 +154,10 @@ pub struct Engine {
     status: Arc<StatusCell>,
     stopped: AtomicBool,
     background_running: AtomicBool,
+    /// Set by a user-initiated refresh; consumed by the next pass.
+    manual: AtomicBool,
+    /// Consecutive failed passes; background failures surface after two.
+    failures: AtomicU32,
 }
 
 impl Engine {
@@ -178,7 +192,12 @@ impl Engine {
     /// One sync pass. Returns the number of newly added messages, or None on
     /// error. Never panics: a panic inside is caught and reported.
     async fn run_once(self: &Arc<Self>) -> Option<usize> {
-        self.status.update(|s| s.syncing = true);
+        let first = !matches!(self.db(|s| s.primary_account()), Ok(Some(a)) if a.history_id.is_some());
+        let foreground = self.manual.swap(false, Ordering::SeqCst) || first;
+        self.status.update(|s| {
+            s.syncing = true;
+            s.foreground = foreground;
+        });
         let pass = async {
             match self.sync().await {
                 Err(SyncError::Gmail(GmailError::Unauthorized)) => {
@@ -192,8 +211,10 @@ impl Engine {
         let now = now_ms();
         match result {
             Ok(Ok(added)) => {
+                self.failures.store(0, Ordering::SeqCst);
                 self.status.update(|s| {
                     s.syncing = false;
+                    s.foreground = false;
                     s.error = None;
                     s.progress = None;
                     s.last_sync_at = Some(now);
@@ -203,20 +224,30 @@ impl Engine {
             Ok(Err(e)) => {
                 tracing::warn!(error = %e, "sync failed");
                 let msg = e.friendly();
-                self.status.log("error", msg.clone());
+                let fails = self.failures.fetch_add(1, Ordering::SeqCst) + 1;
+                // A single failed background check is logged but not shown on
+                // the chip: the next poll usually succeeds. Sign-in problems,
+                // user-initiated passes and repeated failures are shown.
+                let show = foreground || fails >= 2 || matches!(e, SyncError::Auth(AuthError::InvalidGrant));
+                self.status.log(if show { "error" } else { "warn" }, msg.clone());
                 self.status.update(|s| {
                     s.syncing = false;
+                    s.foreground = false;
                     s.progress = None;
-                    s.error = Some(msg);
+                    if show {
+                        s.error = Some(msg);
+                    }
                 });
                 None
             }
             Err(panic) => {
                 tracing::error!(panic = %panic_text(&panic), "sync pass panicked; will retry");
                 let msg = "Something went wrong while syncing. Retrying shortly.".to_string();
+                self.failures.fetch_add(1, Ordering::SeqCst);
                 self.status.log("error", msg.clone());
                 self.status.update(|s| {
                     s.syncing = false;
+                    s.foreground = false;
                     s.progress = None;
                     s.error = Some(msg);
                 });
@@ -560,7 +591,10 @@ impl Engine {
         } else {
             format!("Getting {total} new messages")
         };
-        if total > 0 {
+        // Small deltas (the usual push/poll case) are quiet: no bar, no chip
+        // text. Large catch-ups (back from offline) or a manual refresh show.
+        let visible = total >= LOUD_DELTA || self.status.get().foreground;
+        if total > 0 && visible {
             self.status.progress(false, &label, 0, total);
         }
         let (notify_pref, autocopy, hide_locked) = self.db(|s| {
@@ -588,7 +622,9 @@ impl Engine {
             let existed = self.db(|s| s.has_message(self.account_id, &m.id))?;
             self.db(|s| s.upsert_message(self.account_id, &m))?;
             added += 1;
-            self.status.progress(false, &label, added as u32, total);
+            if visible {
+                self.status.progress(false, &label, added as u32, total);
+            }
 
             let is_new_inbox = m.label_ids.iter().any(|l| l == "INBOX") && m.label_ids.iter().any(|l| l == "UNREAD");
             let wanted = match notify_pref.as_str() {

@@ -6,6 +6,7 @@ const base: SyncStatus = {
   running: true,
   imapConnected: false,
   syncing: false,
+  foreground: false,
   lastSyncAt: null,
   error: null,
   progress: null,
@@ -26,16 +27,22 @@ describe("chipView", () => {
     expect(v.text).toBe("Getting your newest mail 20/50");
     expect(v.bar).toBeCloseTo(0.4);
   });
-  it("syncing without totals is indeterminate", () => {
-    expect(chipView({ ...base, syncing: true }, true, now).bar).toBeNull();
+  it("a manual check is indeterminate", () => {
+    expect(chipView({ ...base, syncing: true, foreground: true }, true, now).bar).toBeNull();
   });
-  it("backfill shows Syncing n/m with a subtle bar", () => {
-    const v = chipView({ ...base, backfill: { label: "Older mail", done: 120, total: 300 } }, true, now);
-    expect(v).toMatchObject({ text: "Syncing 120/300", barSubtle: true });
+  it("background checks are quiet: no bar, chip stays Live", () => {
+    const v = chipView({ ...base, imapConnected: true, syncing: true, lastSyncAt: now - 2 * 60_000 }, true, now);
+    expect(v).toMatchObject({ text: "Live · 2m", tone: "live" });
+    expect(v.bar).toBeUndefined();
+  });
+  it("history download keeps the chip and draws a subtle bar", () => {
+    const v = chipView({ ...base, imapConnected: true, lastSyncAt: now, backfill: { label: "Older mail", done: 120, total: 300 } }, true, now);
+    expect(v).toMatchObject({ text: "Live · now", barSubtle: true });
+    expect(v.bar).toBeCloseTo(0.4);
   });
   it("idle states", () => {
-    expect(chipView({ ...base, imapConnected: true, lastSyncAt: now - 5_000 }, true, now).text).toBe("Live · just now");
-    expect(chipView({ ...base, lastSyncAt: now - 3 * 60_000 }, true, now).text).toBe("Up to date · 3 minutes ago");
+    expect(chipView({ ...base, imapConnected: true, lastSyncAt: now - 5_000 }, true, now).text).toBe("Live · now");
+    expect(chipView({ ...base, lastSyncAt: now - 3 * 60_000 }, true, now).text).toBe("Up to date · 3m");
     expect(chipView({ ...base, running: false }, true, now).retry).toBe(true);
   });
 });

@@ -209,9 +209,9 @@ pub fn get_thread(state: State<'_, AppState>, thread_id: String) -> CmdResult<Ve
 }
 
 #[tauri::command]
-pub async fn sync_now(state: State<'_, AppState>) -> CmdResult<()> {
+pub async fn sync_now(state: State<'_, AppState>, manual: Option<bool>) -> CmdResult<()> {
     if let Some(c) = state.sync.lock().await.as_ref() {
-        c.sync_now();
+        c.sync_now(manual.unwrap_or(true));
     }
     Ok(())
 }

@@ -10,6 +10,8 @@ export interface SyncStatus {
   running: boolean;
   imapConnected: boolean;
   syncing: boolean;
+  /** The current pass is user-initiated (or the first sync); otherwise quiet. */
+  foreground: boolean;
   lastSyncAt: number | null;
   error: string | null;
   /** Foreground work the user is waiting on (first page, new mail). */

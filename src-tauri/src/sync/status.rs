@@ -28,6 +28,9 @@ pub struct SyncStatus {
     pub running: bool,
     pub imap_connected: bool,
     pub syncing: bool,
+    /// The current pass was asked for by the user (or is the first sync), so
+    /// the UI may show it. Background checks (push, poll, retries) are quiet.
+    pub foreground: bool,
     pub last_sync_at: Option<i64>,
     /// Friendly, non-technical message for the UI.
     pub error: Option<String>,

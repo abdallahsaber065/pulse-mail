@@ -43,7 +43,8 @@ export const api = {
   modifyThread: (threadId: string, add: string[], remove: string[]) => call<void>("modify_thread", { threadId, add, remove }),
   activity: () => call<Activity[]>("get_activity"),
   setNotifications: (mode: NotificationMode) => call<void>("set_notifications", { mode }),
-  syncNow: () => call<void>("sync_now"),
+  /** `manual` = the user asked; automatic wake-ups pass false and stay quiet. */
+  syncNow: (manual = true) => call<void>("sync_now", { manual }),
   takePendingOpen: () => call<OpenTarget | null>("take_pending_open"),
   /** `secret`: a verification code; cleared from the clipboard later (pref). */
   copyText: (text: string, secret = false) => call<void>("copy_text", { text, secret }),
