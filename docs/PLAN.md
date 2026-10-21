@@ -13,6 +13,7 @@ cached messages). "p50/p95" are over at least 20 samples.
 
 | Metric | Target | How to measure |
 | --- | --- | --- |
+| First 50 inbox rows on a fresh sign-in | ≤ 1.5 s | `cargo run --example sync_bench` (in `src-tauri`), or the activity line "Inbox ready: N newest messages in X s" |
 | New-mail toast latency (Gmail receives it, toast shows) | p50 ≤ 3 s, p95 ≤ 6 s | Send a test mail with a timestamp in the subject; compare with the log line `toast shown` |
 | Latency with IMAP down (fallback polling) | ≤ 65 s | Block imap.gmail.com in the firewall, repeat |
 | Idle RAM, tray only (window destroyed) | ≤ 25 MB private working set for `pulse-mail.exe` | Task Manager → Details, or `Get-Process pulse-mail` (WS / PM) after 10 min idle |
@@ -48,18 +49,22 @@ Goal: useful on day one even before the inbox UI is polished.
 - [x] SQLite cache with migrations, FTS5 search, label table, settings table
 - [x] OTP extractor (English + Arabic, Arabic-Indic digits, spaced and hyphenated codes, rejects promos, amounts, years, URLs) with unit tests
 - [x] Gmail REST client: profile, labels, messages.list, messages.get (raw), history.list with paging; history folding into a delta (unit tested)
-- [x] Sync engine: full sync (60 days, 300 messages), history delta, 404 → full resync, 401 → token refresh and retry, empty-wake retry
+- [x] Sync engine: history delta, 404 → full resync, 401 → token refresh and retry, empty-wake retry
+- [x] Fast first sync (2026-10-21): 50 newest INBOX messages as metadata in one Gmail batch request, rows stream to the UI; bodies prefetched for the top 12 and loaded lazily on open; older mail (90 days, up to 500) backfilled in the background at ≤ 250 quota units/s
+- [x] Sync resilience: each pass runs under `catch_unwind`, status always resets, panics are logged and retried; 429 / 403 rate-limit → backoff and retry
 - [x] IMAP IDLE doorbell over XOAUTH2 + rustls; re-IDLE every 20 min; reconnect with exponential backoff (1 s → 60 s); polling fallback 60 s when IMAP is down
 - [x] Windows toasts via WinRT with "Copy code" and "Open" buttons; click opens that thread
 - [x] Tray icon + menu (Open, Check mail now, Quit); single instance; start at login with `--minimized`
 - [x] Window lifecycle: hide on close by default; destroy on close as a setting; app keeps running with no window
 - [x] First-pass Gmail-like UI: top bar with search, sidebar with labels and unread counts, virtualized thread list with OTP chips, reader pane with sandboxed HTML, image blocking, OTP banner, light/dark, shortcuts, setup and sign-in screens, browser mock mode
-- [ ] **User:** create Google OAuth client and save the JSON (see `SETUP-GOOGLE-OAUTH.md`)
-- [ ] First real sign-in and full sync on the user's PC
+- [x] **User:** create Google OAuth client and save the JSON (see `SETUP-GOOGLE-OAUTH.md`)
+- [x] First real sign-in and full sync on the user's PC
 - [ ] Measure toast latency (p50/p95) and fix whatever is slow
 - [ ] Verify toasts and "Copy code" with an installed (NSIS) build: dev builds show the PowerShell name/icon
 - [ ] Measure idle RAM in both close modes; pick the default (ADR 0004)
-- [ ] Settings UI for: start with Windows, close behavior
+- [x] Settings UI for: start with Windows, close behavior (plus theme, density, notifications all / codes only / off)
+- [x] Transparency: top progress bar, status chip (Syncing n/m, Live, Up to date, offline, error + Retry), activity popover
+- [x] No native `alert`/`confirm`/`prompt`: M3 dialog with scrim + animation, snackbar queue with Undo
 
 Acceptance: a code sent to Gmail shows on a toast within the latency target,
 "Copy code" puts it on the clipboard without opening a window, clicking the
@@ -68,7 +73,8 @@ Wi-Fi drop.
 
 ### Phase 2: daily driver (read and triage)
 
-- Mark read on open (Gmail `messages.modify`), star, archive, delete, mark unread, with optimistic UI
+- [x] Mark read on open, star, archive, mark unread (Gmail `threads.modify`), optimistic with rollback, Undo for archive; hover row actions + reader action bar + shortcuts (e, s, Shift+I, Shift+U)
+- Delete (trash), snooze
 - Thread view polish: collapse older messages, quoted text folding, attachments list with save
 - Inline `cid:` images from attachments; "always show images from this sender"
 - Search: local FTS first, then "search all mail on Gmail" fallback
@@ -99,5 +105,15 @@ Wi-Fi drop.
 
 ## Progress log
 
+- **2026-10-21 (later):** Fixed the OTP panic (byte index inside a NBSP in
+  `in_url_token`; it killed the first sync, leaving 7 messages and a stuck
+  "Checking for mail…"). Rewrote first sync. Measured with
+  `examples/sync_bench` on the user's PC/account: old path (list 60 days, `raw`
+  at 6 in flight, UI refresh only at the end) showed rows after 8.8–20.0 s
+  (116 messages, 5.7–6.1 MB); new path lists the 50 newest INBOX ids (0.4 s)
+  and fetches their metadata in one batch call (0.6 s), so the first 50 rows
+  show after ≈1.0 s. Single metadata gets would take 2.6–3.2 s. UI: dialog,
+  snackbars with Undo, account menu, settings sheet, sync chip + activity,
+  skeletons, empty states, density, hover actions.
 - **2026-10-21:** Phase 0 done. Phase 1 core implemented and compiling with
   unit tests; waiting on the user's OAuth client to run end to end.

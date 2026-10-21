@@ -69,7 +69,7 @@ an empty delta the engine retries twice, 1.5 s apart.
 
 | Situation | Behavior |
 | --- | --- |
-| No saved historyId (first run, after sign-in) | Full sync: profile historyId snapshot → labels → newest 300 messages from the last 60 days → save historyId. No toasts. |
+| No saved historyId (first run, after sign-in) | First sync: profile historyId snapshot + list the 50 newest INBOX ids in parallel → one Gmail batch request of `format=metadata` gets (headers + snippet, `body_loaded = 0`) → rows stream to the UI → labels → save historyId. Then in the background: prefetch bodies for the newest 12, backfill the last 90 days (≤ 500 messages, metadata in batches of 50, ≥ 1 s apart = 250 quota units/s). Bodies of other messages load on open (`load_thread`). No toasts. |
 | Saved historyId | Delta via `history.list` (all pages) |
 | `history.list` 404 (historyId too old, about a week offline) | Clear historyId, full sync |
 | 401 | Drop cached access token, refresh, retry once |
