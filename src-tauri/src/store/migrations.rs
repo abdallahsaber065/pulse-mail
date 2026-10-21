@@ -129,4 +129,12 @@ pub const MIGRATIONS: &[&str] = &[
     UPDATE accounts SET backfill_state = 'done'
      WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'backfill_done:' || accounts.id AND value = '1');
     "#,
+    // 5: the pre-H1 backfill was capped (500 messages, metadata only), so an
+    // account it marked done still needs the real download of its range
+    // (and its offline bodies). Only rows the new job never touched.
+    r#"
+    UPDATE accounts SET backfill_state = 'pending'
+     WHERE backfill_state = 'done' AND backfill_total = 0 AND backfill_done = 0
+       AND backfill_page IS NULL;
+    "#,
 ];
