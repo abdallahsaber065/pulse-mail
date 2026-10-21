@@ -153,7 +153,7 @@ the bar is only for user-started or long work (after 400 ms, ≥ 600 ms).
 
 <a id="r1"></a>
 
-### R1. Reading pane modes 🧑 · P0
+### R1. Reading pane modes 🧑 · P0 · ✅ built (`a26a03b`, right/bottom/full; separate window open)
 Like Gmail's "Reading pane" setting:
 - **Right split** (today's behavior, resizable divider, width remembered).
 - **Bottom split** (list on top, reader below; good on portrait screens).
@@ -205,7 +205,7 @@ A compact always-on-top window (inbox + codes only), toggled from the tray.
 
 <a id="s1"></a>
 
-### S1. Search: Gmail operators + server search 💡 · P0
+### S1. Search: Gmail operators + server search 💡 · P0 · ✅ built (`a5ee937`, chips/advanced filter open)
 - **Design:** parse Gmail operators (`from:`, `to:`, `subject:`,
   `has:attachment`, `is:unread`, `label:`, `before:`/`after:`, `newer_than:`)
   into SQL filters for the local cache; at the same time call
@@ -225,7 +225,7 @@ Pin a query to the sidebar like a label.
 
 <a id="c1"></a>
 
-### C1. Compose, reply, forward 💡 · P0
+### C1. Compose, reply, forward 💡 · P0 · ✅ built (`feee336`, plain text; rich text open)
 - **Design:** compose as a docked sheet (bottom right, like Gmail) or full
   window; reply inline at the bottom of a thread. Rich text with a small
   editor (bold, italic, lists, links, quote) emitting simple HTML + plain-text
@@ -239,7 +239,7 @@ Pin a query to the sidebar like a label.
 
 <a id="c2"></a>
 
-### C2. Undo send and send later 💡 · P1
+### C2. Undo send and send later 💡 · P1 · undo send ✅ (`feee336`); send later open
 Undo send: hold the message locally for 5–30 s (setting) before calling
 `messages.send`. Send later: keep a local outbox with a send time; the core
 sends it even if the window is closed (the app is always on). Gmail's own
@@ -392,7 +392,7 @@ in Settings.
 
 <a id="w1"></a>
 
-### W1. Identity: icon, AUMID, installer 💡 · P1
+### W1. Identity: icon, AUMID, installer 💡 · P1 · tray/taskbar unread badge ✅ (`79cfd04`)
 Real Pulse icon set (tray light/dark variants, unread overlay); register
 an AppUserModelID + Start-menu shortcut so toasts show "Pulse Mail" in dev
 too (or test only with the installed build); NSIS installer tested on the
@@ -420,7 +420,7 @@ Register as a `mailto:` handler (opens compose), `pulsemail://thread/<id>` links
 
 <a id="k1"></a>
 
-### K1. Command palette 💡 · P1
+### K1. Command palette 💡 · P1 · ✅ built (`31f6643`, contacts/recents open)
 Ctrl+K: jump to label/account, run any action (archive, snooze, settings),
 search contacts, "copy last code". Fuzzy match, recent commands first.
 

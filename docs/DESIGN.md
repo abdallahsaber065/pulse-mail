@@ -131,7 +131,11 @@ animation off.
 | `Enter` / `o` | open |
 | `u` / `Esc` | back to list |
 | `/` | focus search |
-| `c` | copy verification code (Pulse-specific; Gmail's `c` = compose, planned as `Shift+C`) |
+| `c` | compose |
+| `r` / `a` / `f` | reply / reply all / forward |
+| `Ctrl+Enter` | send (in compose); `Esc` saves and closes |
+| `Shift+C` | copy verification code |
+| `Ctrl+K` | command palette |
 | `e` | archive (Inbox) |
 | `s` | star / unstar |
 | `Shift+I` / `Shift+U` | mark read / unread |
@@ -140,7 +144,9 @@ animation off.
 | `,` | settings |
 | `?` | shortcut help |
 
-Shortcuts are ignored while typing and while a modal dialog/sheet is open.
+Shortcuts are ignored while typing and while a modal dialog/sheet is open
+(Ctrl+K works everywhere). In full-page reading, `j` / `k` open the
+next / previous conversation.
 
 ## Toasts (Windows)
 
@@ -156,6 +162,11 @@ Shortcuts are ignored while typing and while a modal dialog/sheet is open.
 Not built yet; see [ROADMAP.md](ROADMAP.md) for priorities.
 
 ## Reading pane modes
+
+**Built (`a26a03b`):** Settings → Reading mail → Reading pane: Right ·
+Bottom · Full page, also in the palette. Right needs ≥ 1024 px width and
+Bottom ≥ 640 px height, otherwise Full page. Dividers aren't draggable yet;
+the separate thread window isn't built.
 
 Setting **Reading pane: Right · Bottom · No split** + a top-bar toggle
 ([ADR 0013](decisions/0013-reading-pane-modes.md)).
@@ -229,10 +240,23 @@ still the target.
 
 ## Command palette (Ctrl+K)
 
+**Built (`31f6643`):** flat fuzzy-ranked list (actions on the open
+conversation, compose/reply, go to folders and labels, accounts, layout,
+theme, settings, shortcuts, "Search mail for…"). Contacts and recents are
+still open. Target design:
+
 Centered 560 px dialog, search field, grouped results (Go to · Actions ·
 Accounts · Contacts · Recent), keyboard only, Enter runs, Esc closes.
 
 ## Compose
+
+**Built (`feee336`):** docked 560 px sheet bottom-right; From picker (several
+accounts), To, Cc/Bcc toggle, Subject, plain-text body, quoted text behind
+"•••" with "Remove quoted text"; "Saving… / Draft saved" status; Send
+(Ctrl+Enter), discard (trash). Sending shows "Sending…" with Undo for the
+undo delay; Undo reopens the draft. Not yet: rich text toolbar,
+attachments, stacked/minimized sheets, pop-out, inline reply, send later.
+Target design:
 
 Docked sheet bottom-right (520×560, minimizable, up to 3 stacked) or
 pop-out window; inline reply at the end of a thread. Toolbar: bold, italic,

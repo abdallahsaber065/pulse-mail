@@ -131,6 +131,15 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-21 (late night):** `5a375d5` migration 5. `79cfd04` taskbar
+  overlay + tray unread badge; codes copied with clipboard-history/cloud
+  exclusion formats. `a26a03b` reading pane modes (right/bottom/full page).
+  `a5ee937` Gmail server search merged with local FTS (local operator
+  parser). `31f6643` Ctrl+K command palette. `feee336` compose, reply,
+  reply all, forward, Gmail drafts autosave, undo send, `mailto:`. Gates:
+  107 Rust tests, 34 UI tests, clippy clean. DB encryption documented as
+  the next step (SECURITY.md), not built.
+
 - **2026-10-21 (night):** `66dcd8a` settings crash, infinite scroll, body
   retry. `15529c1` safe rendering (Rust sanitizer, sandboxed srcdoc frame,
   hash-pinned script, image proxy, trackers), attachments, reading prefs,

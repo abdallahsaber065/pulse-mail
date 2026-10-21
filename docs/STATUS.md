@@ -1,7 +1,7 @@
 # Status: what works today
 
 An honest snapshot of the code at `HEAD` (2026-10-21, v0.1.0, through commit
-`38b1870` plus later commits listed in [PLAN.md](PLAN.md#progress-log)). It
+`feee336` plus later commits listed in [PLAN.md](PLAN.md#progress-log)). It
 describes what the code does, not what is planned. Plans live in
 [ROADMAP.md](ROADMAP.md) and [PLAN.md](PLAN.md).
 
@@ -14,10 +14,10 @@ yet exercised against the real account.
 
 | Topic | Default | Where it can change |
 | --- | --- | --- |
-| Reading pane | Right of the list; full-page option | Settings → Reading (planned R1) |
+| Reading pane | Right of the list; bottom and full-page options | Settings → Reading mail → Reading pane |
 | Offline bodies | Last 90 days; older on demand; 1 GB budget | Settings → Storage (`offline_days`, `storage_budget_mb`) |
 | Accounts | Several accounts, per-account inboxes + "All inboxes"; every account notifies | Settings → Accounts (per-account notifications) |
-| Shortcuts | `c` compose, `Shift+C` copy code | `src/lib/shortcuts.ts` |
+| Shortcuts | `c` compose, `Shift+C` copy code, `r`/`a`/`f` reply / reply all / forward, Ctrl+K palette | `src/lib/shortcuts.ts` |
 | Codes | Not auto-copied (`otp_autocopy=0`); clipboard cleared after 60 s; codes hidden on the lock screen | Settings → Codes |
 | Close button | Hides to the tray | Settings → General |
 | Google scopes | No new scopes (`https://mail.google.com/` only) | — |
@@ -66,12 +66,14 @@ yet exercised against the real account.
 | Links | Done | Opened in the system browser via `open_external` (http/https/mailto only); warns when the visible text names a different domain | `lib/links.ts` |
 | Attachments | Done | Listed with size/type; Open / Save (Mark-of-the-Web written; dangerous types are never opened directly); `cid:` inline images render | `commands/mail.rs`, `sync/mime.rs` |
 | Print | Done | From the reader | `Reader.tsx` |
-| Reading pane modes | Partial | Right split at ≥ 1024 px, reader replaces the list below that. Right / full-page setting is planned (R1) | `App.tsx` |
+| Reading pane modes | Done | Right / bottom / full page (Settings → Reading mail). Falls back to full page when the window is too small (right needs ≥ 1024 px wide, bottom ≥ 640 px tall). In full page, j/k open the next/previous conversation | `lib/pane.ts`, `App.tsx` |
 | Archive, star, read/unread | Done | Optimistic with rollback; Undo for archive | `Engine::modify_thread` |
 | Delete / trash, spam, snooze, label editing | Not started | | |
-| Search | Partial | Local FTS5 across all cached accounts, grouped by thread. No server search or Gmail operators yet (S1) | `store::search` |
-| Compose / reply / forward | Stubbed | Compose button disabled | `Sidebar.tsx` |
-| Keyboard shortcuts | Done | j/k, o/Enter, u/Esc, /, e, s, Shift+I/U, g+i/s/t/d, Shift+R, `,`, ?, Shift+C copy code | `lib/shortcuts.ts` |
+| Search | Done (untested live) | Local FTS5 first (understands `from:`, `subject:`, `is:unread/read/starred`, `has:attachment`, phrases). 450 ms later Gmail's own search runs on every account with the full query (all Gmail operators: `in:`, `label:`, `before:`, `-x`, `OR`…); missing messages are fetched as metadata and merged by thread. Banner: "Searching all of Gmail…" / "Results from Gmail and this PC". Spam/trash excluded locally | `store/query.rs`, `Engine::server_search`, `lib/search.ts` |
+| Compose / reply / reply all / forward | Done (untested live: no real send made) | Docked sheet; From picker with several accounts; To/Cc/Bcc, subject, plain-text body (an HTML alternative is generated from escaped text); quoted text behind "•••" with "Remove quoted text". Autosaves to Gmail Drafts 2 s after edits; Esc saves and closes; trash discards the draft. Reply honours Reply-To, reply all drops your own address, keeps `In-Reply-To`/`References` and the thread. MIME built in Rust (`mail-builder`); limits 100 recipients, 1 MB body. `mailto:` links open compose | `compose/`, `commands/compose.rs`, `Compose.tsx` |
+| Undo send | Done | Send saves the draft, then waits the undo delay (setting `undo_send_secs`) before `drafts.send`; Undo in the snackbar cancels and reopens the draft. Result arrives as a `send-result` event | `commands/compose.rs::send_message`, `cancel_send` |
+| Keyboard shortcuts | Done | j/k, o/Enter, u/Esc, /, e, s, Shift+I/U, g+i/s/t/d, Shift+R, `,`, ?, c compose, r/a/f reply / reply all / forward, Ctrl+Enter send, Shift+C copy code, Ctrl+K palette | `lib/shortcuts.ts` |
+| Command palette (Ctrl+K) | Done | Fuzzy-ranked: conversation actions, compose/reply, go to folder or label, switch account, layout, theme, settings, shortcuts, "Search mail for…" | `CommandPalette.tsx`, `lib/palette.ts` |
 
 ### Notifications and codes
 
@@ -80,7 +82,7 @@ yet exercised against the real account.
 | Windows toasts | Partial | New unread INBOX mail < 15 min old, per account; with several accounts the toast says "To <account>". Dev builds show PowerShell as the sender (no AUMID) | `notify/mod.rs` |
 | Notification mode per account | Done | All / codes only / off, chosen in onboarding and in Settings → Accounts | `accounts.notify` |
 | OTP extraction | Done | English + Arabic, Arabic-Indic digits, char-boundary safe | `otp/mod.rs` |
-| Copy code (toast, chip, banner, Shift+C) | Done | Clipboard cleared after 60 s if unchanged (setting); auto-copy off by default (setting) | `lib.rs::copy_code` |
+| Copy code (toast, chip, banner, Shift+C) | Done | Written with the Windows formats that keep it out of Clipboard History, cloud clipboard and clipboard monitors; cleared after 60 s if unchanged (setting); auto-copy off by default (setting) | `secure_clipboard.rs`, `lib.rs::copy_secret` |
 | Codes off the lock screen | Done | While the session is locked the toast hides the code | `notify::session_locked` |
 
 ### App shell and settings
@@ -94,15 +96,15 @@ yet exercised against the real account.
 | Sync chip + popover | Done | Per-account history rows with pause/resume; activity list names the account |
 | App icon | Stubbed | Default Tauri icon |
 | Installer (NSIS, per-user) | Partial | Configured, never installed on the PC |
-| Tray unread badge, Ctrl+K palette | Not started | |
+| Tray unread badge | Done | Taskbar overlay with the unread count ("9+" above nine), a dot on the tray icon, per-account tooltip; updates 400 ms after mail changes | `badge.rs`, `tray.rs` |
 | Auto-update, code signing | Not started | |
 
 ### Engineering
 
 | Item | State | Notes |
 | --- | --- | --- |
-| Rust unit tests | Done | 94 tests, offline |
-| UI unit tests | Done | 25 tests (vitest) |
+| Rust unit tests | Done | 107 tests, offline |
+| UI unit tests | Done | 34 tests (vitest) |
 | Clippy / fmt | Done | `-D warnings`, `--all-targets` |
 | Security invariant tests | Done | IPC allowlist in sync, devtools off in release, log calls never format secrets (`security.rs`) |
 | Dependency audit | Done | `cargo audit`: no vulnerabilities; 5 allowed warnings, all Linux-only GTK/zbus crates not built on Windows. `pnpm audit`: none |
@@ -119,12 +121,12 @@ yet exercised against the real account.
 
 ## Known bugs and limitations
 
-1. **Search is local only** (S1): no Gmail operators, no server results for mail outside the downloaded range.
-2. **Second account untested live.** The multi-account path is unit-tested and the existing account migrated (range 90 days); adding a real second account hasn't been tried.
-3. **Unread counts lag** local actions until the next sync.
-4. **Dev toasts show PowerShell** as the sender.
-5. **Compose disabled**; no reply, forward or drafts yet.
+1. **Compose and server search untested live.** Both are unit-tested and run against the mock UI; no real message has been sent from the app yet.
+2. **Compose is plain text**: no rich text, no attachments; forwards don't carry the original attachments; existing Gmail drafts can't be reopened from the Drafts folder yet.
+3. **Second account untested live.** The multi-account path is unit-tested and the existing account migrated (range 90 days); adding a real second account hasn't been tried.
+4. **Unread counts lag** local actions until the next sync.
+5. **Dev toasts show PowerShell** as the sender.
 6. **IMAP watches INBOX only**; other labels catch up on the 15-min poll.
-7. **Cache not encrypted at rest** (relies on the Windows account / BitLocker). Next step: SQLCipher with a DPAPI-protected key (V2).
-8. **Default Tauri icon**; no tray unread badge yet.
+7. **Cache not encrypted at rest** (relies on the Windows account / BitLocker). Next step: SQLCipher with a DPAPI-protected key (V2), see SECURITY.md.
+8. **Default Tauri icon.** Account rail and Ctrl+1…9 account switching not built.
 9. **Body eviction** above the storage budget isn't implemented; the download simply stops adding bodies at the budget.

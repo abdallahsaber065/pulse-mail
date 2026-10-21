@@ -74,6 +74,17 @@ For Desktop-app clients Google treats the client secret as non-confidential
   concurrent requests never race two refreshes.
 - Single instance, per-user NSIS install, no admin rights.
 
+**Sending mail** (`feee336`)
+- The webview never builds MIME: it sends structured fields; Rust validates
+  addresses (≤ 100 recipients, subject ≤ 500, body ≤ 1 MB) and builds the
+  message with `mail-builder`, so header injection via CR/LF is impossible.
+- The HTML alternative is generated from HTML-escaped plain text; quoted
+  originals are escaped text, never the sender's HTML.
+- Every send goes through a Gmail draft and waits the undo delay; nothing is
+  sent by background code.
+- Server search passes the user's query only to Gmail's `q` parameter;
+  local FTS input is parsed into quoted terms (no raw FTS syntax).
+
 **Verification codes**
 - Not auto-copied unless the user turns it on. A copied code is cleared from
   the clipboard after 60 s (setting) if it's still there, and is excluded
@@ -100,6 +111,7 @@ For Desktop-app clients Google treats the client secret as non-confidential
 | 2026-10-21 | `cargo audit` (cargo-audit 0.22.2, 614 crates) | No vulnerabilities. 5 allowed warnings: `proc-macro-error` (RUSTSEC-2024-0370), `zbus_names`, `zvariant`, `zvariant_derive` (RUSTSEC-2026-0370/0371/0372) unmaintained, `glib` 0.18 unsound iterator (RUSTSEC-2024-0429). All are Tauri's Linux (GTK/D-Bus) dependencies, not compiled for Windows |
 | 2026-10-21 | `pnpm audit` | No known vulnerabilities |
 | 2026-10-21 | Secret scan of the repo (`client_secret`, `refresh_token` values, `ya29.`, `1//`) | Nothing committed |
+| 2026-10-21 (late) | `cargo test` 107, `clippy -D warnings`, vitest 34, IPC allowlist test with the 6 new commands | Pass. No new dependencies since the audit above except `windows-sys` features (`DataExchange`, `Memory`, `Ole`). `cargo audit` and `pnpm audit` re-run: same result (no vulnerabilities, same 5 Linux-only warnings) |
 | 2026-10-21 | Rendering: injected script, inline handler, `javascript:` link, meta refresh, form, remote CSS/image | All blocked (unit tests in `render/tests.rs` + manual check in Chrome) |
 
 ## Reporting / checking
