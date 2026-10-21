@@ -185,3 +185,53 @@ export interface OpenTarget {
   threadId: string;
   messageId: string | null;
 }
+
+export type ComposeMode = "new" | "reply" | "reply_all" | "forward";
+
+/** Prefill from Rust for a reply / reply all / forward. */
+export interface ComposeInit {
+  to: string;
+  cc: string;
+  subject: string;
+  inReplyTo: string;
+  references: string;
+  threadId: string | null;
+  originalFrom: string;
+  originalTo: string;
+  originalCc: string;
+  originalDate: number;
+  originalSubject: string;
+  originalText: string;
+}
+
+export interface Quote {
+  header: string;
+  text: string;
+  forward: boolean;
+}
+
+/** What a compose window holds; sent as-is to save_draft / send_message. */
+export interface Draft {
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+  quote: Quote | null;
+  inReplyTo: string;
+  references: string;
+  threadId: string | null;
+  draftId: string | null;
+}
+
+export interface Sending {
+  sendId: number;
+  draftId: string;
+  delaySecs: number;
+}
+
+export interface SendResult {
+  sendId: number;
+  status: "sent" | "failed";
+  message: string | null;
+}

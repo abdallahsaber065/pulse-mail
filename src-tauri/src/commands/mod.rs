@@ -1,6 +1,7 @@
 //! IPC commands for the UI. Errors are mapped to short, friendly messages;
 //! technical details only go to the log (never secrets).
 
+pub mod compose;
 pub mod mail;
 pub mod validate;
 

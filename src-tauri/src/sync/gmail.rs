@@ -57,8 +57,17 @@ struct LabelList {
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct DraftRef {
+    pub id: String,
+    pub message: MessageRef,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct MessageRef {
     pub id: String,
+    #[serde(default)]
+    pub thread_id: Option<String>,
     #[serde(default)]
     pub label_ids: Vec<String>,
 }
@@ -510,6 +519,67 @@ impl Gmail {
             .await?;
         match resp.status().as_u16() {
             200..=299 => Ok(()),
+            _ => Err(classify_error(resp).await),
+        }
+    }
+
+    /// POST/PUT a JSON body (no automatic retry: sends must not repeat).
+    async fn write_json<T: serde::de::DeserializeOwned>(
+        &self,
+        token: &Secret,
+        method: reqwest::Method,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<T, GmailError> {
+        let resp = self
+            .http
+            .request(method, format!("{BASE}{path}"))
+            .bearer_auth(token.expose())
+            .json(body)
+            .send()
+            .await?;
+        match resp.status().as_u16() {
+            200..=299 => Ok(resp.json().await?),
+            _ => Err(classify_error(resp).await),
+        }
+    }
+
+    /// Create (`draft_id` None) or replace a draft with this RFC 822 message.
+    pub async fn save_draft(
+        &self,
+        token: &Secret,
+        draft_id: Option<&str>,
+        raw: &[u8],
+        thread_id: Option<&str>,
+    ) -> Result<DraftRef, GmailError> {
+        let mut message = serde_json::json!({ "raw": URL_SAFE_NO_PAD.encode(raw) });
+        if let Some(t) = thread_id {
+            message["threadId"] = t.into();
+        }
+        let body = serde_json::json!({ "message": message });
+        match draft_id {
+            Some(id) => self.write_json(token, reqwest::Method::PUT, &format!("/drafts/{id}"), &body).await,
+            None => self.write_json(token, reqwest::Method::POST, "/drafts", &body).await,
+        }
+    }
+
+    /// Send a saved draft (Gmail moves it to Sent).
+    pub async fn send_draft(&self, token: &Secret, draft_id: &str) -> Result<MessageRef, GmailError> {
+        self.write_json(token, reqwest::Method::POST, "/drafts/send", &serde_json::json!({ "id": draft_id }))
+            .await
+    }
+
+    /// Delete a draft (only drafts this app created in a compose session the
+    /// user discarded).
+    pub async fn delete_draft(&self, token: &Secret, draft_id: &str) -> Result<(), GmailError> {
+        let resp = self
+            .http
+            .delete(format!("{BASE}/drafts/{draft_id}"))
+            .bearer_auth(token.expose())
+            .send()
+            .await?;
+        match resp.status().as_u16() {
+            200..=299 | 404 => Ok(()),
             _ => Err(classify_error(resp).await),
         }
     }

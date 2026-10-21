@@ -521,6 +521,17 @@ impl Store {
         Ok(changed > 0)
     }
 
+    /// Thread id of a cached message.
+    pub fn message_thread(&self, account_id: i64, message_id: &str) -> Result<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT thread_id FROM messages WHERE account_id = ?1 AND id = ?2",
+                params![account_id, message_id],
+                |r| r.get(0),
+            )
+            .optional()
+    }
+
     pub fn has_message(&self, account_id: i64, message_id: &str) -> Result<bool> {
         self.conn
             .query_row(

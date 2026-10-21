@@ -6,6 +6,8 @@ import Reader from "./components/Reader";
 import Onboarding from "./components/Onboarding";
 import ShortcutsHelp from "./components/ShortcutsHelp";
 import CommandPalette from "./components/CommandPalette";
+import Compose from "./components/Compose";
+import { draftFrom, emptyDraft, hasContent, parseMailto } from "./lib/compose";
 import type { Command } from "./lib/palette";
 import { theme } from "./lib/theme";
 import SettingsPanel from "./components/SettingsPanel";
@@ -21,6 +23,8 @@ import { installShortcuts } from "./lib/shortcuts";
 import { effectivePane, prefs as uiPrefs } from "./lib/prefs";
 import { mergeResults, needsServer, serverSearchable } from "./lib/search";
 import type {
+  Draft,
+  SendResult,
   Account,
   Activity,
   Attachment,
@@ -70,6 +74,13 @@ export default function App() {
   const [help, setHelp] = createSignal(false);
   const [settings, setSettings] = createSignal(false);
   const [palette, setPalette] = createSignal(false);
+  const [compose, setCompose] = createSignal<{
+    key: number;
+    title: string;
+    initial: Draft;
+    accountId: number | null;
+    canPick: boolean;
+  } | null>(null);
   const [tick, setTick] = createSignal(0); // bump to reload after "mail-updated"
   const [overrides, setOverrides] = createSignal<Record<string, Override>>({});
   const [msgs, setMsgs] = createSignal<Message[]>([]);
@@ -278,9 +289,75 @@ export default function App() {
   };
 
   /** Link clicked inside an email: phishing check, then the system browser. */
+  // ---- Compose: one docked window at a time; drafts autosave to Gmail.
+  let composeKey = 0;
+  const defaultAccount = () => accountView() ?? selectedAccount() ?? accounts()[0]?.id ?? null;
+  const openCompose = (initial: Draft, title: string, accountId: number | null, canPick: boolean) => {
+    if (compose()) {
+      snack("Finish or close the message you're writing first.");
+      return;
+    }
+    setCompose({ key: ++composeKey, title, initial, accountId, canPick });
+  };
+  const newMessage = (initial: Draft = emptyDraft()) => openCompose(initial, "New message", defaultAccount(), true);
+  const answer = async (m: Message, mode: "reply" | "reply_all" | "forward") => {
+    if (compose()) return snack("Finish or close the message you're writing first.");
+    const acct = selectedAccount();
+    try {
+      const init = await api.composeContext(m.id, mode, acct);
+      openCompose(draftFrom(init, mode), mode === "forward" ? "Forward" : mode === "reply_all" ? "Reply all" : "Reply", acct, false);
+    } catch (e) {
+      snack((e as Error).message);
+    }
+  };
+  const sends = new Map<number, { draft: Draft; accountId: number | null; title: string }>();
+  const sendDraft = async (d: Draft, accountId: number | null) => {
+    const c = compose();
+    setCompose(null);
+    try {
+      const s = await api.sendMessage(d, accountId);
+      const kept = { draft: { ...d, draftId: s.draftId }, accountId, title: c?.title ?? "New message" };
+      sends.set(s.sendId, kept);
+      if (s.delaySecs > 0)
+        snack("Sending…", {
+          duration: s.delaySecs * 1000,
+          action: {
+            label: "Undo",
+            run: () =>
+              void api.cancelSend(s.sendId).then((undone) => {
+                if (!undone) return snack("Already sent");
+                sends.delete(s.sendId);
+                setCompose({ key: ++composeKey, title: kept.title, initial: kept.draft, accountId, canPick: false });
+                snack("Sending undone");
+              }),
+          },
+        });
+      else snack("Sending…");
+    } catch (e) {
+      setCompose({ key: ++composeKey, title: c?.title ?? "New message", initial: d, accountId, canPick: c?.canPick ?? false });
+      snack((e as Error).message);
+    }
+  };
+  const closeCompose = (_d: Draft, _a: number | null, saved: boolean) => {
+    setCompose(null);
+    if (saved) snack("Saved to Drafts");
+  };
+  const discardCompose = async (d: Draft, accountId: number | null) => {
+    setCompose(null);
+    if (d.draftId) {
+      try {
+        await api.deleteDraft(d.draftId, accountId);
+      } catch (e) {
+        return snack((e as Error).message);
+      }
+    }
+    if (d.draftId || hasContent(d)) snack("Draft discarded");
+  };
+
   const openLink = async (href: string, text: string) => {
-    if (/^mailto:/i.test(href)) {
-      void api.openExternal(href).catch((e: Error) => snack(e.message));
+    const mail = parseMailto(href);
+    if (mail) {
+      newMessage(mail);
       return;
     }
     const c = checkLink(href, text);
@@ -432,6 +509,15 @@ export default function App() {
         // A status for an account we don't know yet (just added): reload.
         if (status() && !status()!.accounts.some((a) => a.id === s.accountId)) void refetchStatus();
       }),
+      onEvent<SendResult>("send-result", (r) => {
+        const kept = sends.get(r.sendId);
+        sends.delete(r.sendId);
+        if (r.status === "sent") snack("Message sent");
+        else
+          snack(`Couldn't send. ${r.message ?? ""} It's saved in Drafts.`, {
+            action: kept ? { label: "Open", run: () => openCompose(kept.draft, kept.title, kept.accountId, false) } : undefined,
+          });
+      }),
       onEvent<Activity>("sync-activity", (a) => setActivity((xs) => [...xs.slice(-59), a])),
       onEvent<OpenTarget>("open-thread", (t) => {
         void api.takePendingOpen();
@@ -479,6 +565,11 @@ export default function App() {
       copyCode: () => {
         const code = [...messages()].reverse().find((m) => m.otpCode)?.otpCode ?? rows()[cursor()]?.otpCode;
         if (code) void copyCode(code);
+      },
+      compose: () => newMessage(),
+      reply: (mode) => {
+        const last = messages()[messages().length - 1];
+        if (selected() && last) void answer(last, mode);
       },
       refresh: () => void api.syncNow(),
       toggleHelp: () => setHelp((h) => !h),
@@ -611,6 +702,13 @@ export default function App() {
       for (const a of accounts()) add({ group: "Accounts", title: a.email, icon: "person", hint: a.unread ? `${a.unread} unread` : undefined, words: "switch account", run: () => batch(() => (setAccountView(a.id), setSelected(null))) });
     }
     add({ group: "Accounts", title: "Add another account", icon: "add", words: "sign in google", run: () => setOnboarding({ mode: "add" }) });
+    add({ group: "Actions", title: "Compose", icon: "pencil", keys: "c", words: "new write email message", run: () => newMessage() });
+    if (selected() && messages().length) {
+      const last = messages()[messages().length - 1];
+      add({ group: "Conversation", title: "Reply", icon: "reply", keys: "r", run: () => void answer(last, "reply") });
+      add({ group: "Conversation", title: "Reply all", icon: "replyAll", keys: "a", run: () => void answer(last, "reply_all") });
+      add({ group: "Conversation", title: "Forward", icon: "forward", keys: "f", run: () => void answer(last, "forward") });
+    }
     add({ group: "Actions", title: "Check mail now", icon: "refresh", keys: "Shift+R", words: "sync refresh", run: () => void api.syncNow() });
     add({ group: "Actions", title: "Search mail", icon: "search", keys: "/", run: () => searchInput?.focus() });
     add({ group: "Layout", title: "Reading pane: right of list", icon: "splitRight", words: "split side", run: () => uiPrefs.setPane("right") });
@@ -683,6 +781,7 @@ export default function App() {
           labels={labels()}
           current={label()}
           collapsed={collapsed()}
+          onCompose={() => newMessage()}
           onSelect={(id) => {
             goto(id);
             void refetchLabels();
@@ -756,6 +855,7 @@ export default function App() {
                   onLink={(href, text) => void openLink(href, text)}
                   onAttachment={(m, a, open) => void attachment(m, a, open)}
                   emailDark={prefs()?.email_dark ?? "smart"}
+                  onCompose={(m, mode) => void answer(m, mode)}
                   onToggleEmailDark={() => void setPref("email_dark", prefs()?.email_dark === "original" ? "smart" : "original")}
                 />
               </section>
@@ -763,6 +863,20 @@ export default function App() {
           </Show>
         </main>
       </div>
+      <Show when={compose()} keyed>
+        {(c) => (
+          <Compose
+            title={c.title}
+            initial={c.initial}
+            accountId={c.accountId}
+            accounts={accounts()}
+            canPickAccount={c.canPick}
+            onSend={(d, a) => void sendDraft(d, a)}
+            onClose={closeCompose}
+            onDiscard={(d, a) => void discardCompose(d, a)}
+          />
+        )}
+      </Show>
       <Show when={palette()}>
         <CommandPalette
           commands={paletteCommands()}

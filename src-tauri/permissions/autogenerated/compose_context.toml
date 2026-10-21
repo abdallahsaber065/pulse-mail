@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-compose-context"
+description = "Enables the compose_context command without any pre-configured scope."
+commands.allow = ["compose_context"]
+
+[[permission]]
+identifier = "deny-compose-context"
+description = "Denies the compose_context command without any pre-configured scope."
+commands.deny = ["compose_context"]

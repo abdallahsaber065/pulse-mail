@@ -2,6 +2,10 @@
 // browser) it falls back to mock data so the UI can be designed quickly.
 import type {
   Activity,
+  ComposeInit,
+  ComposeMode,
+  Draft,
+  Sending,
   AppStatus,
   Label,
   Message,
@@ -50,6 +54,13 @@ export const api = {
   threads: (labelId: string, limit = 200, offset = 0, accountId: Acct = null) =>
     call<ThreadRow[]>("list_threads", { labelId, limit, offset, accountId }),
   search: (query: string, limit = 100, accountId: Acct = null) => call<ThreadRow[]>("search", { query, limit, accountId }),
+  composeContext: (messageId: string, mode: Exclude<ComposeMode, "new">, accountId: Acct = null) =>
+    call<ComposeInit>("compose_context", { messageId, mode, accountId }),
+  saveDraft: (draft: Draft, accountId: Acct = null) =>
+    call<{ draftId: string; threadId: string | null }>("save_draft", { draft, accountId }),
+  deleteDraft: (draftId: string, accountId: Acct = null) => call<void>("delete_draft", { draftId, accountId }),
+  sendMessage: (draft: Draft, accountId: Acct = null) => call<Sending>("send_message", { draft, accountId }),
+  cancelSend: (sendId: number) => call<boolean>("cancel_send", { sendId }),
   /** Gmail server search (all mail, every operator); rows are cached locally. */
   searchServer: (query: string, limit = 50, accountId: Acct = null) =>
     call<ThreadRow[]>("search_server", { query, limit, accountId }),
@@ -79,7 +90,7 @@ export const api = {
 
 type Unlisten = () => void;
 
-export async function onEvent<T>(name: "mail-updated" | "sync-status" | "sync-activity" | "open-thread", cb: (payload: T) => void): Promise<Unlisten> {
+export async function onEvent<T>(name: "mail-updated" | "sync-status" | "sync-activity" | "open-thread" | "send-result", cb: (payload: T) => void): Promise<Unlisten> {
   if (!inTauri) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen<T>(name, (e) => cb(e.payload));

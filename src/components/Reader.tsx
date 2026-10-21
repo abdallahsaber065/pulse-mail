@@ -28,6 +28,8 @@ interface Props {
   /** Dark-theme email colors: smart invert or the sender's own. */
   emailDark: "smart" | "original";
   onToggleEmailDark(): void;
+  /** Reply / reply all / forward a message. */
+  onCompose(m: Message, mode: "reply" | "reply_all" | "forward"): void;
 }
 
 const HIDDEN_LABELS = new Set(["UNREAD", "STARRED", "CATEGORY_PERSONAL", "CATEGORY_UPDATES", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS", "IMPORTANT", "SENT"]);
@@ -158,6 +160,10 @@ export default function Reader(p: Props) {
                         <span class="selectable truncate font-semibold text-text" dir="auto">{m.fromName || m.fromEmail}</span>
                         <span class="selectable truncate text-xs text-muted">&lt;{m.fromEmail}&gt;</span>
                         <span class="ml-auto shrink-0 text-xs text-muted">{fullDate(m.internalDate)}</span>
+                        <span class="no-print -my-2 flex shrink-0 items-center">
+                          <Btn icon="reply" title="Reply (r)" onClick={() => p.onCompose(m, "reply")} />
+                          <Btn icon="forward" title="Forward (f)" onClick={() => p.onCompose(m, "forward")} />
+                        </span>
                       </div>
                       <div class="truncate text-xs text-muted">
                         to {m.toList || "me"}
@@ -254,6 +260,28 @@ export default function Reader(p: Props) {
               );
             }}
           </For>
+          <Show when={p.messages.length > 0}>
+            <div class="no-print ml-14 mt-2 flex flex-wrap gap-2">
+              <For
+                each={
+                  [
+                    ["reply", "Reply", "reply"],
+                    ["reply_all", "Reply all", "replyAll"],
+                    ["forward", "Forward", "forward"],
+                  ] as const
+                }
+              >
+                {([mode, label, icon]) => (
+                  <button
+                    class="flex h-10 items-center gap-2 rounded-full border border-outline px-5 text-sm font-medium text-text hover:bg-hover"
+                    onClick={() => p.onCompose(p.messages[p.messages.length - 1], mode)}
+                  >
+                    <Icon name={icon} size={18} /> {label}
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
         </div>
       </div>
     </Show>

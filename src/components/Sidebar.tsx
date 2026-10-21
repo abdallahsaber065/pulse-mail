@@ -18,6 +18,7 @@ interface Props {
   current: string;
   collapsed: boolean;
   onSelect(id: string): void;
+  onCompose(): void;
 }
 
 export default function Sidebar(p: Props) {
@@ -55,8 +56,8 @@ export default function Sidebar(p: Props) {
           class={`flex h-14 items-center gap-3 rounded-2xl bg-primary-container text-sm font-medium text-on-primary-container shadow-sm hover:shadow-md ${
             p.collapsed ? "w-14 justify-center" : "px-4 pr-6"
           }`}
-          title="Compose is coming in a later phase"
-          disabled
+          title="Compose (c)"
+          onClick={() => p.onCompose()}
         >
           <Icon name="pencil" size={22} />
           <Show when={!p.collapsed}>Compose</Show>

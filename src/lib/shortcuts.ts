@@ -8,6 +8,8 @@ export interface ShortcutHandlers {
   focusSearch(): void;
   goto(labelId: string): void;
   copyCode(): void;
+  compose(): void;
+  reply(mode: "reply" | "reply_all" | "forward"): void;
   refresh(): void;
   toggleHelp(): void;
   archive(): void;
@@ -22,7 +24,9 @@ export const SHORTCUTS: [string, string][] = [
   ["Enter or o", "Open conversation"],
   ["u or Esc", "Back to list"],
   ["/", "Search mail"],
-  ["c", "Copy verification code"],
+  ["c", "Compose"],
+  ["r / a / f", "Reply / reply all / forward"],
+  ["Shift + c", "Copy verification code"],
   ["e", "Archive"],
   ["s", "Star / unstar"],
   ["Shift + i", "Mark as read"],
@@ -68,7 +72,11 @@ export function installShortcuts(h: ShortcutHandlers): () => void {
       case "u":
       case "Escape": h.back(); break;
       case "/": h.focusSearch(); break;
-      case "c": h.copyCode(); break;
+      case "c": h.compose(); break;
+      case "C": h.copyCode(); break;
+      case "r": h.reply("reply"); break;
+      case "a": h.reply("reply_all"); break;
+      case "f": h.reply("forward"); break;
       case "R": h.refresh(); break;
       case "e": h.archive(); break;
       case "s": h.star(); break;

@@ -4,6 +4,7 @@
 mod auth;
 mod badge;
 mod commands;
+mod compose;
 #[doc(hidden)]
 pub mod devtools;
 mod notify;
@@ -185,6 +186,11 @@ pub fn run() {
             commands::set_sync_window,
             commands::pause_history,
             commands::resume_history,
+            commands::compose::compose_context,
+            commands::compose::save_draft,
+            commands::compose::delete_draft,
+            commands::compose::send_message,
+            commands::compose::cancel_send,
             commands::mail::render_message,
             commands::mail::set_image_sender,
             commands::mail::set_pref,

@@ -160,6 +160,33 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       const q = String(args?.query ?? "").toLowerCase();
       return threads.filter((t) => `${t.subject} ${t.fromName} ${t.snippet}`.toLowerCase().includes(q));
     }
+    case "compose_context": {
+      const t = threads.find((x) => x.lastMessageId === args?.messageId) ?? threads[0];
+      const mode = args?.mode;
+      return {
+        to: mode === "forward" ? "" : `"${t.fromName}" <${t.fromEmail}>`,
+        cc: mode === "reply_all" ? "team@example.com" : "",
+        subject: `${mode === "forward" ? "Fwd" : "Re"}: ${t.subject}`,
+        inReplyTo: "<mock@example.com>",
+        references: "<mock@example.com>",
+        threadId: mode === "forward" ? null : t.threadId,
+        originalFrom: `"${t.fromName}" <${t.fromEmail}>`,
+        originalTo: "me@gmail.com",
+        originalCc: "",
+        originalDate: t.internalDate,
+        originalSubject: t.subject,
+        originalText: t.snippet,
+      };
+    }
+    case "save_draft":
+      await new Promise((r) => setTimeout(r, 300));
+      return { draftId: (args?.draft as { draftId?: string })?.draftId ?? "r-mock-draft", threadId: null };
+    case "delete_draft":
+      return null;
+    case "send_message":
+      return { sendId: 1, draftId: "r-mock-draft", delaySecs: 5 };
+    case "cancel_send":
+      return true;
     case "search_server": {
       await new Promise((r) => setTimeout(r, 700));
       const q = String(args?.query ?? "").toLowerCase().replace(/\b\w+:/g, "");
