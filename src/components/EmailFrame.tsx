@@ -1,59 +1,80 @@
-import { createMemo, onCleanup } from "solid-js";
-import { emailSrcdoc, textSrcdoc } from "../lib/email-frame";
+import { createEffect, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { api } from "../lib/api";
+import type { RenderedMessage } from "../lib/types";
 
 interface Props {
-  html: string | null;
-  text: string;
+  messageId: string;
   dark: boolean;
-  allowRemoteImages: boolean;
+  showImages: boolean;
+  /** Re-render when this changes (e.g. after allowlisting the sender). */
+  version: number;
+  onRendered(r: RenderedMessage): void;
+  onLink(href: string, text: string): void;
 }
 
 /**
- * Sandboxed email body. `allow-same-origin` without `allow-scripts` lets us
- * size the frame and route link clicks to the system browser, while nothing
- * inside the email can execute.
+ * Sandboxed email body.
+ *
+ * The document comes from Rust already sanitized (ammonia), with a strict CSP
+ * and no remote resources. The iframe is `sandbox="allow-scripts"` WITHOUT
+ * `allow-same-origin`: it runs in an opaque origin, so nothing in it can
+ * reach the app, its storage or the IPC bridge. The only script the CSP
+ * allows is our own (hash-pinned); it posts the content height and link
+ * clicks here, and folds quoted text.
  */
 export default function EmailFrame(p: Props) {
   let frame!: HTMLIFrameElement;
-  let observer: ResizeObserver | undefined;
+  const [doc, setDoc] = createSignal<string | null>(null);
+  const [height, setHeight] = createSignal(120);
+  const [error, setError] = createSignal<string | null>(null);
 
-  const srcdoc = createMemo(() => {
-    const opts = { dark: p.dark, allowRemoteImages: p.allowRemoteImages };
-    return p.html ? emailSrcdoc(p.html, opts) : textSrcdoc(p.text, opts);
+  let seq = 0;
+  createEffect(
+    on(
+      () => [p.messageId, p.dark, p.showImages, p.version] as const,
+      ([id, dark, images]) => {
+        const n = ++seq;
+        setError(null);
+        api.renderMessage(id, dark, images).then(
+          (r) => {
+            if (n !== seq) return;
+            setDoc(r.srcdoc);
+            p.onRendered(r);
+          },
+          (e: Error) => n === seq && setError(e.message),
+        );
+      },
+    ),
+  );
+
+  onMount(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== frame?.contentWindow) return;
+      const d = e.data as { pm?: number; t?: string; v?: unknown; href?: unknown; text?: unknown } | null;
+      if (!d || d.pm !== 1) return;
+      if (d.t === "h" && typeof d.v === "number" && Number.isFinite(d.v)) {
+        setHeight(Math.min(Math.max(Math.ceil(d.v) + 4, 40), 200_000));
+      } else if (d.t === "link" && typeof d.href === "string") {
+        p.onLink(d.href.slice(0, 4096), typeof d.text === "string" ? d.text.slice(0, 300) : "");
+      }
+    };
+    window.addEventListener("message", onMessage);
+    onCleanup(() => window.removeEventListener("message", onMessage));
   });
 
-  const onLoad = () => {
-    const doc = frame.contentDocument;
-    if (!doc) return;
-    const fit = () => {
-      frame.style.height = `${Math.max(doc.documentElement.scrollHeight, doc.body?.scrollHeight ?? 0) + 8}px`;
-    };
-    fit();
-    observer?.disconnect();
-    observer = new ResizeObserver(fit);
-    if (doc.body) observer.observe(doc.body);
-    doc.addEventListener("click", (e) => {
-      const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
-      if (!a) return;
-      e.preventDefault();
-      const href = a.getAttribute("href") ?? "";
-      if (/^(https?:|mailto:)/i.test(href)) void api.openExternal(href).catch(() => {});
-    });
-  };
-
-  onCleanup(() => observer?.disconnect());
-
   return (
-    <iframe
-      ref={frame}
-      title="Email content"
-      sandbox="allow-same-origin"
-      referrerpolicy="no-referrer"
-      class="selectable block w-full border-0"
-      style={{ "min-height": "120px", "color-scheme": p.dark ? "dark" : "light" }}
-      srcdoc={srcdoc()}
-      onLoad={onLoad}
-    />
+    <Show when={!error()} fallback={<p class="text-sm text-danger">{error()}</p>}>
+      <Show when={doc()} fallback={<div class="skeleton h-24 rounded-xl" aria-label="Rendering message" />}>
+        <iframe
+          ref={frame}
+          title="Email content"
+          sandbox="allow-scripts"
+          referrerpolicy="no-referrer"
+          class={`email-frame block w-full border-0 ${p.dark ? "rounded-xl" : ""}`}
+          style={{ height: `${height()}px` }}
+          srcdoc={doc()!}
+        />
+      </Show>
+    </Show>
   );
 }

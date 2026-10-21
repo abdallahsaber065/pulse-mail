@@ -1,6 +1,19 @@
 // Thin typed wrapper over Tauri IPC. Outside Tauri (plain `pnpm dev` in a
 // browser) it falls back to mock data so the UI can be designed quickly.
-import type { Activity, AppStatus, Label, Message, NotificationMode, OpenTarget, SyncStatus, ThreadRow } from "./types";
+import type {
+  Activity,
+  AppStatus,
+  Label,
+  Message,
+  NotificationMode,
+  OpenTarget,
+  PrefKey,
+  Prefs,
+  RenderedMessage,
+  SavedAttachment,
+  SyncStatus,
+  ThreadRow,
+} from "./types";
 import * as mock from "./mock";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -32,7 +45,14 @@ export const api = {
   setNotifications: (mode: NotificationMode) => call<void>("set_notifications", { mode }),
   syncNow: () => call<void>("sync_now"),
   takePendingOpen: () => call<OpenTarget | null>("take_pending_open"),
-  copyText: (text: string) => call<void>("copy_text", { text }),
+  /** `secret`: a verification code; cleared from the clipboard later (pref). */
+  copyText: (text: string, secret = false) => call<void>("copy_text", { text, secret }),
+  renderMessage: (messageId: string, dark: boolean, showImages: boolean) =>
+    call<RenderedMessage>("render_message", { messageId, dark, showImages }),
+  setImageSender: (email: string, allowed: boolean) => call<void>("set_image_sender", { email, allowed }),
+  setPref: <K extends PrefKey>(key: K, value: Prefs[K]) => call<void>("set_pref", { key, value }),
+  saveAttachment: (messageId: string, part: number, open: boolean) =>
+    call<SavedAttachment>("save_attachment", { messageId, part, open }),
   openExternal: (url: string) => call<void>("open_external", { url }),
   setDestroyOnClose: (enabled: boolean) => call<void>("set_destroy_on_close", { enabled }),
   setAutostart: (enabled: boolean) => call<boolean>("set_autostart", { enabled }),

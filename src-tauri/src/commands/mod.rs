@@ -1,6 +1,9 @@
 //! IPC commands for the UI. Errors are mapped to short, friendly messages;
 //! technical details only go to the log (never secrets).
 
+pub mod mail;
+pub mod validate;
+
 use crate::AppState;
 use crate::auth::client_config::{self, ConfigError};
 use crate::auth::oauth::{self, AuthError};
@@ -23,7 +26,7 @@ pub struct CmdError {
 }
 
 impl CmdError {
-    fn new(message: impl Into<String>) -> Self {
+    pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
         }
@@ -60,7 +63,7 @@ friendly!(AuthError, e => match e {
     _ => "Sign-in didn't work. Please try again.",
 });
 
-type CmdResult<T> = Result<T, CmdError>;
+pub(crate) type CmdResult<T> = Result<T, CmdError>;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,17 +78,20 @@ pub struct AppStatus {
     notifications: String,
     data_dir: String,
     version: &'static str,
+    /// Backend prefs (see prefs.rs), current values.
+    prefs: std::collections::BTreeMap<&'static str, String>,
 }
 
 #[tauri::command]
 pub fn get_status(app: AppHandle, state: State<'_, AppState>) -> CmdResult<AppStatus> {
     let path = client_config::resolve_path(&state.config_dir);
     let configured = client_config::load(&path).is_ok();
-    let (account, notifications) = {
+    let (account, notifications, prefs) = {
         let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
         (
             store.primary_account()?.map(|a| a.email),
             store.get_setting("notifications")?.unwrap_or_else(|| "all".into()),
+            crate::prefs::all(&store),
         )
     };
     Ok(AppStatus {
@@ -102,6 +108,7 @@ pub fn get_status(app: AppHandle, state: State<'_, AppState>) -> CmdResult<AppSt
             .map(|p| p.display().to_string())
             .unwrap_or_default(),
         version: env!("CARGO_PKG_VERSION"),
+        prefs,
     })
 }
 
@@ -173,6 +180,7 @@ pub fn list_threads(
     limit: i64,
     offset: i64,
 ) -> CmdResult<Vec<ThreadRow>> {
+    validate::label_id(&label_id)?;
     let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
     match store.primary_account()? {
         Some(a) => Ok(store.list_threads(a.id, &label_id, limit.clamp(1, 5000), offset.max(0))?),
@@ -182,6 +190,7 @@ pub fn list_threads(
 
 #[tauri::command]
 pub fn search(state: State<'_, AppState>, query: String, limit: i64) -> CmdResult<Vec<ThreadRow>> {
+    validate::text(&query, 500)?;
     let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
     match store.primary_account()? {
         Some(a) => Ok(store.search(a.id, &query, limit.clamp(1, 200))?),
@@ -191,6 +200,7 @@ pub fn search(state: State<'_, AppState>, query: String, limit: i64) -> CmdResul
 
 #[tauri::command]
 pub fn get_thread(state: State<'_, AppState>, thread_id: String) -> CmdResult<Vec<MessageRow>> {
+    validate::gmail_id(&thread_id)?;
     let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
     match store.primary_account()? {
         Some(a) => Ok(store.get_thread(a.id, &thread_id)?),
@@ -212,8 +222,14 @@ pub fn take_pending_open(state: State<'_, AppState>) -> Option<OpenTarget> {
 }
 
 #[tauri::command]
-pub fn copy_text(app: AppHandle, text: String) {
-    crate::copy_to_clipboard(&app, &text);
+pub fn copy_text(app: AppHandle, text: String, secret: Option<bool>) -> CmdResult<()> {
+    validate::text(&text, 10_000)?;
+    if secret.unwrap_or(false) {
+        crate::copy_secret(&app, &text);
+    } else {
+        crate::copy_to_clipboard(&app, &text);
+    }
+    Ok(())
 }
 
 /// Open a link from an email in the default browser. Only web and mail links.
@@ -253,6 +269,7 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> CmdResult<bool> {
 /// rows from the fast first sync), then returns the cached thread.
 #[tauri::command]
 pub async fn load_thread(state: State<'_, AppState>, thread_id: String) -> CmdResult<Vec<MessageRow>> {
+    validate::gmail_id(&thread_id)?;
     let engine = state.sync.lock().await.as_ref().map(|c| c.engine());
     if let Some(engine) = engine {
         // On failure the UI keeps the cached headers + snippet and shows an
@@ -272,6 +289,13 @@ pub async fn modify_thread(
     remove: Vec<String>,
 ) -> CmdResult<()> {
     const ALLOWED: &[&str] = &["INBOX", "STARRED", "UNREAD", "IMPORTANT", "SPAM", "TRASH"];
+    validate::gmail_id(&thread_id)?;
+    if add.len() + remove.len() > 10 {
+        return Err(CmdError::new("That action isn't supported."));
+    }
+    for l in add.iter().chain(&remove) {
+        validate::label_id(l)?;
+    }
     if add
         .iter()
         .chain(&remove)

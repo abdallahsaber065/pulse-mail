@@ -102,6 +102,7 @@
   --color-secondary: var(--secondary);
   --color-secondary-container: var(--secondary-container);
   --color-on-secondary-container: var(--on-secondary-container);
+  --color-on-secondary-container: var(--on-secondary-container);
   --color-on-danger: var(--on-danger);
   --color-danger-container: var(--danger-container);
   --color-on-danger-container: var(--on-danger-container);
@@ -205,5 +206,37 @@ button:active > .star-pop { transform: scale(1.25); }
   * {
     transition: none !important;
     animation: none !important;
+  }
+}
+
+/* Print just the open conversation: no chrome, light colors. */
+@media print {
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .no-print,
+  header,
+  nav,
+  [role="list"],
+  .thread-list-pane {
+    display: none !important;
+  }
+  .reader {
+    overflow: visible !important;
+    height: auto !important;
+  }
+  .reader-pane {
+    display: block !important;
+    width: 100% !important;
+  }
+  #root,
+  main,
+  .app-shell {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
   }
 }

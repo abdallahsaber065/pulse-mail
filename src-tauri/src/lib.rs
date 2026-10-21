@@ -7,6 +7,8 @@ mod commands;
 pub mod devtools;
 mod notify;
 mod otp;
+mod prefs;
+mod render;
 mod store;
 mod sync;
 mod tray;
@@ -26,6 +28,7 @@ pub struct AppState {
     pub status: Arc<sync::status::StatusCell>,
     pub pending_open: Mutex<Option<window::OpenTarget>>,
     pub destroy_on_close: AtomicBool,
+    pub images: render::proxy::ImageProxy,
 }
 
 pub(crate) fn copy_to_clipboard(app: &AppHandle, text: &str) {
@@ -35,10 +38,32 @@ pub(crate) fn copy_to_clipboard(app: &AppHandle, text: &str) {
     }
 }
 
+/// Copy a secret (verification code) and clear it again after the
+/// `clipboard_clear_secs` pref, unless something else was copied meanwhile.
+pub(crate) fn copy_secret(app: &AppHandle, text: &str) {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    copy_to_clipboard(app, text);
+    let secs = app
+        .try_state::<AppState>()
+        .map(|s| prefs::get_num(&s.store.lock().unwrap_or_else(|e| e.into_inner()), "clipboard_clear_secs"))
+        .unwrap_or(60);
+    if secs == 0 {
+        return;
+    }
+    let (app, text) = (app.clone(), text.to_string());
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(secs)).await;
+        if app.clipboard().read_text().is_ok_and(|cur| cur == text) {
+            let _ = app.clipboard().write_text(String::new());
+            tracing::info!("cleared a copied code from the clipboard");
+        }
+    });
+}
+
 fn init_tracing() {
     use tracing_subscriber::EnvFilter;
     let filter =
-        EnvFilter::try_from_env("PULSE_MAIL_LOG").unwrap_or_else(|_| EnvFilter::new("pulse_mail_lib=info,warn"));
+        EnvFilter::try_from_env("PULSE_MAIL_LOG").unwrap_or_else(|_| EnvFilter::new("pulse_mail_lib=info,warn,html5ever=error"));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
@@ -91,6 +116,7 @@ pub fn run() {
                 status: Arc::new(sync::status::StatusCell::new(Some(handle.clone()))),
                 pending_open: Mutex::new(None),
                 destroy_on_close: AtomicBool::new(destroy_on_close),
+                images: render::proxy::ImageProxy::new(),
             });
 
             tray::build(&handle)?;
@@ -121,6 +147,10 @@ pub fn run() {
             commands::modify_thread,
             commands::get_activity,
             commands::set_notifications,
+            commands::mail::render_message,
+            commands::mail::set_image_sender,
+            commands::mail::set_pref,
+            commands::mail::save_attachment,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pulse Mail");

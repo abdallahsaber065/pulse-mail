@@ -82,4 +82,35 @@ pub const MIGRATIONS: &[&str] = &[
     ALTER TABLE messages ADD COLUMN body_loaded INTEGER NOT NULL DEFAULT 1;
     CREATE INDEX messages_nobody ON messages(account_id, body_loaded) WHERE body_loaded = 0;
     "#,
+    // 3: attachments, reply/threading headers, per-sender image allowlist.
+    r#"
+    ALTER TABLE messages ADD COLUMN cc_list TEXT NOT NULL DEFAULT '';
+    ALTER TABLE messages ADD COLUMN reply_to TEXT NOT NULL DEFAULT '';
+    ALTER TABLE messages ADD COLUMN rfc_message_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE messages ADD COLUMN rfc_references TEXT NOT NULL DEFAULT '';
+
+    CREATE TABLE attachments (
+        account_id  INTEGER NOT NULL,
+        message_id  TEXT NOT NULL,
+        part        INTEGER NOT NULL,        -- index in mail-parser's attachment list
+        filename    TEXT NOT NULL,
+        mime        TEXT NOT NULL,
+        size        INTEGER NOT NULL,
+        content_id  TEXT,                    -- normalized, for cid: images
+        inline      INTEGER NOT NULL DEFAULT 0,
+        data        BLOB,                    -- only small inline images are cached
+        PRIMARY KEY (account_id, message_id, part),
+        FOREIGN KEY (account_id, message_id) REFERENCES messages(account_id, id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE image_senders (
+        account_id  INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        email       TEXT NOT NULL,
+        PRIMARY KEY (account_id, email)
+    );
+
+    -- Bodies cached before attachments were indexed: re-download on next open.
+    UPDATE messages SET body_loaded = 0
+     WHERE body_loaded = 1 AND (has_attachments = 1 OR body_html LIKE '%cid:%');
+    "#,
 ];

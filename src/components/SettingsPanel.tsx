@@ -3,7 +3,7 @@ import { For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import Icon from "./Icon";
 import { theme, type ThemePref } from "../lib/theme";
 import { prefs, type Density } from "../lib/prefs";
-import type { AppStatus, NotificationMode } from "../lib/types";
+import type { AppStatus, NotificationMode, PrefKey, Prefs } from "../lib/types";
 
 interface Props {
   status: AppStatus;
@@ -11,6 +11,8 @@ interface Props {
   onAutostart(enabled: boolean): void;
   onCloseBehavior(quit: boolean): void;
   onNotifications(mode: NotificationMode): void;
+  prefs: Prefs;
+  onPref<K extends PrefKey>(key: K, value: Prefs[K]): void;
 }
 
 function Segmented<T extends string>(p: { value: T; options: [T, string][]; onChange(v: T): void; label: string }) {
@@ -145,6 +147,53 @@ export default function SettingsPanel(p: Props) {
                 ]}
                 onChange={(v) => prefs.setDensity(v)}
               />
+            </Row>
+          </Section>
+
+          <Section title="Reading mail">
+            <Row title="Images from the web" desc="Remote images can tell senders you opened a mail. Pulse Mail fetches them for you, never loads tracking pixels, and the message itself stays offline." stack>
+              <Segmented<Prefs["images"]>
+                label="Images"
+                value={p.prefs.images}
+                options={[
+                  ["ask", "Ask before showing"],
+                  ["always", "Always show"],
+                ]}
+                onChange={(v) => p.onPref("images", v)}
+              />
+            </Row>
+            <Row title="Email colors in dark theme" stack>
+              <Segmented<Prefs["email_dark"]>
+                label="Email colors in dark theme"
+                value={p.prefs.email_dark}
+                options={[
+                  ["smart", "Dark (inverted)"],
+                  ["original", "Original colors"],
+                ]}
+                onChange={(v) => p.onPref("email_dark", v)}
+              />
+            </Row>
+          </Section>
+
+          <Section title="Verification codes">
+            <Row title="Copy new codes automatically" desc="When a code arrives, put it on the clipboard right away.">
+              <Toggle label="Copy new codes automatically" checked={p.prefs.otp_autocopy === "1"} onChange={(v) => p.onPref("otp_autocopy", v ? "1" : "0")} />
+            </Row>
+            <Row title="Clear copied codes from the clipboard" desc="Only if the code is still what's on the clipboard." stack>
+              <Segmented<Prefs["clipboard_clear_secs"]>
+                label="Clear copied codes"
+                value={p.prefs.clipboard_clear_secs}
+                options={[
+                  ["0", "Never"],
+                  ["30", "30 s"],
+                  ["60", "1 min"],
+                  ["120", "2 min"],
+                ]}
+                onChange={(v) => p.onPref("clipboard_clear_secs", v)}
+              />
+            </Row>
+            <Row title="Hide codes on the lock screen" desc="While your PC is locked, toasts say a code arrived without showing it.">
+              <Toggle label="Hide codes on the lock screen" checked={p.prefs.otp_lockscreen === "hide"} onChange={(v) => p.onPref("otp_lockscreen", v ? "hide" : "show")} />
             </Row>
           </Section>
 

@@ -27,17 +27,37 @@
     "security": {
       "csp": {
         "default-src": "'self'",
-        "script-src": "'self'",
+        "script-src": "'self' 'sha256-AN83JXsY2Sn94ALNcDLsz1r4M9uyKHUVCfPWXkK8kVk='",
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data:",
         "font-src": "'self' data:",
-        "connect-src": "'self' ipc: http://ipc.localhost ws://localhost:1420",
-        "frame-src": "'self'",
+        "connect-src": "ipc: http://ipc.localhost",
+        "frame-src": "'none'",
         "object-src": "'none'",
         "base-uri": "'none'",
-        "form-action": "'none'"
+        "form-action": "'none'",
+        "worker-src": "'none'",
+        "media-src": "'none'",
+        "manifest-src": "'none'",
+        "frame-ancestors": "'none'"
       },
-      "freezePrototype": true
+      "freezePrototype": true,
+      "devCsp": {
+        "default-src": "'self'",
+        "script-src": "'self' 'sha256-AN83JXsY2Sn94ALNcDLsz1r4M9uyKHUVCfPWXkK8kVk='",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data:",
+        "font-src": "'self' data:",
+        "connect-src": "ipc: http://ipc.localhost ws://localhost:1420",
+        "frame-src": "'none'",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "form-action": "'none'",
+        "worker-src": "'none'",
+        "media-src": "'none'",
+        "manifest-src": "'none'",
+        "frame-ancestors": "'none'"
+      }
     }
   },
   "bundle": {

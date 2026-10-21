@@ -12,8 +12,9 @@ import { confirmDialog, DialogHost } from "./components/ui/dialog";
 import type { IconName } from "./components/Icon";
 import { api, onEvent } from "./lib/api";
 import { labelName } from "./lib/format";
+import { checkLink } from "./lib/links";
 import { installShortcuts } from "./lib/shortcuts";
-import type { Activity, Message, NotificationMode, OpenTarget, SyncStatus, ThreadRow } from "./lib/types";
+import type { Activity, Attachment, Message, NotificationMode, OpenTarget, PrefKey, Prefs, SyncStatus, ThreadRow } from "./lib/types";
 
 type ThreadRef = Pick<ThreadRow, "threadId" | "unread" | "starred">;
 
@@ -158,9 +159,75 @@ export default function App() {
     ),
   );
 
+  // Backend prefs, mirrored for instant (optimistic) updates.
+  const [prefs, setPrefs] = createSignal<Prefs | null>(null);
+  createEffect(() => {
+    const s = status();
+    if (s) setPrefs(s.prefs);
+  });
+  const setPref = async <K extends PrefKey>(key: K, value: Prefs[K]) => {
+    const prev = prefs();
+    if (prev) setPrefs({ ...prev, [key]: value });
+    try {
+      await api.setPref(key, value);
+    } catch (e) {
+      setPrefs(prev);
+      snack((e as Error).message);
+    }
+  };
+
+  /** Link clicked inside an email: phishing check, then the system browser. */
+  const openLink = async (href: string, text: string) => {
+    if (/^mailto:/i.test(href)) {
+      void api.openExternal(href).catch((e: Error) => snack(e.message));
+      return;
+    }
+    const c = checkLink(href, text);
+    if (!c) {
+      snack("That link can't be opened.");
+      return;
+    }
+    if (c.mismatch || c.punycode) {
+      const ok = await confirmDialog({
+        title: "Check this link",
+        icon: "shield",
+        body: (
+          <div class="space-y-2">
+            <Show when={c.mismatch}>
+              <p>
+                The link says <b class="selectable">{c.shown}</b> but opens <b class="selectable">{c.host}</b>.
+              </p>
+            </Show>
+            <Show when={c.punycode}>
+              <p>
+                The address <b class="selectable">{c.host}</b> uses look-alike characters.
+              </p>
+            </Show>
+            <p class="text-xs">Phishing emails often disguise links like this. Only continue if you trust the sender.</p>
+          </div>
+        ),
+        confirmLabel: "Open anyway",
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    void api.openExternal(href).catch((e: Error) => snack(e.message));
+  };
+
+  const attachment = async (m: Message, a: Attachment, open: boolean) => {
+    snack(open ? `Opening ${a.filename}…` : `Saving ${a.filename}…`);
+    try {
+      const r = await api.saveAttachment(m.id, a.part, open);
+      if (r.blocked) snack(`${a.filename} can run programs, so it was saved but not opened.`, { duration: 7000 });
+      else if (!r.opened) snack(`Saved to Downloads`);
+    } catch (e) {
+      snack((e as Error).message);
+    }
+  };
+
   const copyCode = async (code: string) => {
     try {
-      await api.copyText(code);
+      await api.copyText(code, true);
       snack(`Code ${code} copied to clipboard`);
     } catch {
       snack("Couldn't copy the code");
@@ -402,7 +469,7 @@ export default function App() {
               </Show>
             }
           >
-            <section class={`min-w-0 border-r border-divider ${selected() ? "hidden w-[44%] max-w-[640px] lg:block" : "flex-1"}`}>
+            <section class={`thread-list-pane min-w-0 border-r border-divider ${selected() ? "hidden w-[44%] max-w-[640px] lg:block" : "flex-1"}`}>
               <ThreadList
                 threads={rows()}
                 selectedId={selected()}
@@ -416,7 +483,7 @@ export default function App() {
               />
             </section>
             <Show when={selected()}>
-              <section class="min-w-0 flex-1">
+              <section class="reader-pane min-w-0 flex-1">
                 <Reader
                   messages={messages()}
                   loading={msgLoading()}
@@ -443,6 +510,10 @@ export default function App() {
                     const t = current();
                     if (t) toggleStar(t);
                   }}
+                  onLink={(href, text) => void openLink(href, text)}
+                  onAttachment={(m, a, open) => void attachment(m, a, open)}
+                  emailDark={prefs()?.email_dark ?? "smart"}
+                  onToggleEmailDark={() => void setPref("email_dark", prefs()?.email_dark === "original" ? "smart" : "original")}
                 />
               </section>
             </Show>
@@ -459,6 +530,8 @@ export default function App() {
           onAutostart={(v) => void updateSetting(() => api.setAutostart(v))}
           onCloseBehavior={(quit) => void updateSetting(() => api.setDestroyOnClose(quit))}
           onNotifications={(m: NotificationMode) => void updateSetting(() => api.setNotifications(m))}
+          prefs={prefs() ?? status()!.prefs}
+          onPref={(k, v) => void setPref(k, v)}
         />
       </Show>
       <DialogHost />

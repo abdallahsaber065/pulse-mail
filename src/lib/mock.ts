@@ -1,5 +1,5 @@
 // Mock backend for browser-only UI work (`pnpm dev`). Never used in Tauri.
-import type { Activity, AppStatus, Label, Message, ThreadRow } from "./types";
+import type { Activity, AppStatus, Label, Message, RenderedMessage, ThreadRow } from "./types";
 
 const now = Date.now();
 const min = 60_000;
@@ -57,9 +57,14 @@ function message(t: ThreadRow): Message {
     labelIds: ["INBOX"],
     unread: t.unread,
     starred: t.starred,
-    hasAttachments: false,
+    hasAttachments: t.threadId === "t2",
     otpCode: t.otpCode,
     bodyLoaded: true,
+    ccList: "",
+    replyTo: "",
+    rfcMessageId: `<${t.lastMessageId}@mock>`,
+    rfcReferences: "",
+    attachments: t.threadId === "t2" ? [{ part: 0, filename: "Q4-report.pdf", mime: "application/pdf", size: 482_133, inline: false }] : [],
   };
 }
 
@@ -73,7 +78,32 @@ const status: AppStatus = {
   notifications: "all",
   dataDir: "%APPDATA%\\com.abdallah.pulsemail",
   version: "0.1.0",
+  prefs: {
+    images: "ask",
+    email_dark: "smart",
+    otp_autocopy: "0",
+    clipboard_clear_secs: "60",
+    otp_lockscreen: "hide",
+    undo_send_secs: "5",
+    offline_days: "90",
+    storage_budget_mb: "1024",
+  },
 };
+
+function mockRender(m: Message, dark: boolean): RenderedMessage {
+  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+  const color = dark ? "#e3e3e3" : "#1f1f1f";
+  const body = m.bodyHtml ?? `<div style="white-space:pre-wrap">${esc(m.bodyText)}</div>`;
+  return {
+    srcdoc: `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><body dir="auto" style="margin:0;font:14px/1.5 Segoe UI,sans-serif;color:${color}">${body}</body>`,
+    remoteImages: m.bodyHtml ? 1 : 0,
+    imagesShown: 0,
+    trackers: m.bodyHtml ? 1 : 0,
+    plainText: !m.bodyHtml,
+    sender: m.fromEmail,
+    senderAllowed: false,
+  };
+}
 
 const activity: Activity[] = [
   { at: now - 60_000, level: "success", text: "Inbox ready: 50 newest messages in 1.0 s" },
@@ -118,6 +148,15 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       const t = threads.find((x) => x.threadId === args?.threadId);
       return t ? [message(t)] : [];
     }
+    case "render_message": {
+      const t = threads.find((x) => x.lastMessageId === args?.messageId);
+      return t ? mockRender(message(t), Boolean(args?.dark)) : null;
+    }
+    case "set_pref":
+      (status.prefs as unknown as Record<string, string>)[String(args?.key)] = String(args?.value);
+      return;
+    case "save_attachment":
+      return { path: "C:\\Users\\me\\Downloads\\Q4-report.pdf", opened: Boolean(args?.open), blocked: false };
     case "take_pending_open":
       return null;
     case "copy_text":

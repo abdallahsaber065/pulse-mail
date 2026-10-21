@@ -119,3 +119,15 @@ pub async fn bench() -> Result<(), String> {
 
     Ok(())
 }
+
+/// Render an HTML file through the email pipeline (sanitizer + frame
+/// document), for checking the frame in a browser: `cargo run --example
+/// render_sample -- in.html out.html [dark]`.
+pub fn render_file(input: &std::path::Path, dark: bool) -> std::io::Result<String> {
+    let html = std::fs::read_to_string(input)?;
+    let opts = crate::render::RenderOptions {
+        dark,
+        original_colors: false,
+    };
+    Ok(crate::render::render_html(&html, crate::render::Resources::default(), opts).srcdoc)
+}

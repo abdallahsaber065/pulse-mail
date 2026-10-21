@@ -20,3 +20,4 @@ Consequences (+ Alternatives when useful), under about 40 lines.
 | [0012](0012-multi-account.md) | Multi-account: one runtime per account, all live | proposed |
 | [0013](0013-reading-pane-modes.md) | Reading pane modes (right / bottom / none / window) | proposed |
 | [0014](0014-full-history-and-storage.md) | Full-history backfill with a storage budget | proposed |
+| [0015](0015-email-rendering-pipeline.md) | Email rendering: Rust sanitizer, offline frame, hash-pinned script | accepted |

@@ -11,6 +11,8 @@ pub struct NewMailToast {
     pub subject: String,
     pub snippet: String,
     pub otp: Option<String>,
+    /// PC is locked and the user wants codes kept off the lock screen.
+    pub hide_code: bool,
 }
 
 /// What the toast shows; pure so it can be unit-tested.
@@ -28,6 +30,11 @@ pub fn toast_text(t: &NewMailToast) -> ToastText {
         t.subject.clone()
     };
     match &t.otp {
+        Some(_) if t.hide_code => ToastText {
+            title: format!("Verification code from {}", t.from),
+            line1: subject,
+            line2: "Unlock your PC to see it.".into(),
+        },
         Some(code) => ToastText {
             title: format!("{code}  ·  {}", t.from),
             line1: subject,
@@ -84,7 +91,7 @@ pub fn show_new_mail(app: &AppHandle, t: NewMailToast) {
         let result = toast
             .on_activated(move |action| {
                 match (action.as_deref(), &otp) {
-                    (Some("copy"), Some(code)) => crate::copy_to_clipboard(&app, code),
+                    (Some("copy"), Some(code)) => crate::copy_secret(&app, code),
                     _ => crate::window::open_thread(&app, &thread_id, Some(&message_id)),
                 }
                 Ok(())
@@ -96,6 +103,28 @@ pub fn show_new_mail(app: &AppHandle, t: NewMailToast) {
             Err(e) => tracing::warn!(error = %e, "failed to show toast"),
         }
     });
+}
+
+/// True while the workstation is locked (the input desktop is the secure
+/// Winlogon desktop, which we can't open).
+#[cfg(windows)]
+pub fn session_locked() -> bool {
+    use windows_sys::Win32::System::StationsAndDesktops::{CloseDesktop, OpenInputDesktop};
+    const DESKTOP_SWITCHDESKTOP: u32 = 0x0100;
+    // SAFETY: plain Win32 calls; the handle is closed right away.
+    unsafe {
+        let h = OpenInputDesktop(0, 0, DESKTOP_SWITCHDESKTOP);
+        if h.is_null() {
+            return true;
+        }
+        CloseDesktop(h);
+        false
+    }
+}
+
+#[cfg(not(windows))]
+pub fn session_locked() -> bool {
+    false
 }
 
 #[cfg(not(windows))]
@@ -115,6 +144,7 @@ mod tests {
             subject: "Please verify your device".into(),
             snippet: "x".repeat(300),
             otp: otp.map(Into::into),
+            hide_code: false,
         }
     }
 
@@ -122,6 +152,15 @@ mod tests {
     fn otp_toast_leads_with_code() {
         let tt = toast_text(&t(Some("731590")));
         assert!(tt.title.starts_with("731590"));
+        assert!(tt.title.contains("GitHub"));
+    }
+
+    #[test]
+    fn locked_screen_hides_the_code() {
+        let mut x = t(Some("731590"));
+        x.hide_code = true;
+        let tt = toast_text(&x);
+        assert!(!format!("{}{}{}", tt.title, tt.line1, tt.line2).contains("731590"));
         assert!(tt.title.contains("GitHub"));
     }
 

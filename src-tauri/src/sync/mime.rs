@@ -2,13 +2,16 @@
 
 use super::gmail::{MetaMessage, RawMessage};
 use crate::otp;
-use crate::store::NewMessage;
-use mail_parser::{Address, MessageParser};
+use crate::store::{NewAttachment, NewMessage};
+use mail_parser::{Address, HeaderValue, MessageParser, MimeHeaders};
 
 /// HTML bodies above this size are dropped from the cache (they are fetched
 /// on demand later) to keep the database and memory small.
 const MAX_HTML_BYTES: usize = 512 * 1024;
 const MAX_TEXT_BYTES: usize = 128 * 1024;
+/// Inline (`cid:`) images up to this size are cached so HTML renders offline;
+/// other attachments are downloaded on demand.
+const MAX_INLINE_IMAGE_BYTES: usize = 1024 * 1024;
 
 pub fn to_new_message(raw: &RawMessage, bytes: &[u8]) -> NewMessage {
     let parsed = MessageParser::default().parse(bytes);
@@ -32,17 +35,108 @@ pub fn to_new_message(raw: &RawMessage, bytes: &[u8]) -> NewMessage {
     if let Some(to) = p.to() {
         m.to_list = to.iter().filter_map(|a| a.address()).collect::<Vec<_>>().join(", ");
     }
-    let html = p.body_html(0).map(|s| s.into_owned());
+    if let Some(cc) = p.cc() {
+        m.cc_list = cc.iter().filter_map(|a| a.address()).collect::<Vec<_>>().join(", ");
+    }
+    if let Some(rt) = p.reply_to().and_then(Address::first) {
+        m.reply_to = rt.address().unwrap_or_default().to_string();
+    }
+    m.rfc_message_id = p.message_id().map(|id| format!("<{id}>")).unwrap_or_default();
+    m.rfc_references = header_ids(p.references());
+    // mail-parser converts text-only mail to HTML; keep real HTML only, so
+    // plain text gets our own rendering (linkified, quotes folded).
+    let html = p
+        .html_part(0)
+        .filter(|part| part.is_text_html())
+        .and_then(|_| p.body_html(0))
+        .map(|s| s.into_owned());
     let text = p
         .body_text(0)
         .map(|s| s.into_owned())
         .or_else(|| html.as_deref().map(otp::html_to_text))
         .unwrap_or_default();
-    m.has_attachments = p.attachment_count() > 0;
+    m.attachments = attachments(&p);
+    m.has_attachments = m.attachments.iter().any(|a| !a.inline);
     m.otp_code = safe_otp(&m.subject, &text);
     m.body_text = truncate(text, MAX_TEXT_BYTES);
     m.body_html = html.filter(|h| h.len() <= MAX_HTML_BYTES);
     m
+}
+
+fn header_ids(v: &HeaderValue<'_>) -> String {
+    match v {
+        HeaderValue::Text(t) => format!("<{t}>"),
+        HeaderValue::TextList(l) => l.iter().map(|t| format!("<{t}>")).collect::<Vec<_>>().join(" "),
+        _ => String::new(),
+    }
+}
+
+/// Attachment list. "Inline" means an image referenced by `cid:` from the
+/// HTML body (shown in the message, not in the attachment strip).
+fn attachments(p: &mail_parser::Message<'_>) -> Vec<NewAttachment> {
+    p.attachments()
+        .enumerate()
+        .map(|(i, part)| {
+            let mime = part
+                .content_type()
+                .map(|c| format!("{}/{}", c.ctype(), c.subtype().unwrap_or("octet-stream")))
+                .unwrap_or_else(|| "application/octet-stream".into())
+                .to_ascii_lowercase();
+            let bytes = part.contents();
+            let content_id = part
+                .content_id()
+                .map(crate::render::normalize_cid)
+                .filter(|c| !c.is_empty());
+            let disposition_inline = part.content_disposition().is_none_or(|d| d.is_inline());
+            let inline = content_id.is_some() && disposition_inline && mime.starts_with("image/");
+            let filename = part
+                .attachment_name()
+                .map(safe_filename)
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| default_name(&mime, i));
+            NewAttachment {
+                part: i as u32,
+                filename,
+                size: bytes.len() as i64,
+                data: (inline && bytes.len() <= MAX_INLINE_IMAGE_BYTES && !mime.contains("svg")).then(|| bytes.to_vec()),
+                mime,
+                content_id,
+                inline,
+            }
+        })
+        .collect()
+}
+
+/// Strip path separators, control and reserved characters (Windows), cap length.
+pub fn safe_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_control() || r#"\/:*?"<>|"#.contains(c) { '_' } else { c })
+        .collect();
+    let cleaned = cleaned.trim().trim_matches('.').trim().to_string();
+    let reserved = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "LPT1", "LPT2"];
+    let stem = cleaned.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    let cleaned = if reserved.contains(&stem.as_str()) { format!("_{cleaned}") } else { cleaned };
+    let mut out: String = cleaned.chars().rev().take(150).collect::<Vec<_>>().into_iter().rev().collect();
+    if out.chars().count() < cleaned.chars().count() {
+        // keep the extension, drop the front
+        out = format!("…{out}");
+    }
+    out
+}
+
+fn default_name(mime: &str, i: usize) -> String {
+    let ext = match mime {
+        "message/rfc822" => "eml",
+        "application/pdf" => "pdf",
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "text/calendar" => "ics",
+        "text/plain" => "txt",
+        _ => "bin",
+    };
+    format!("attachment-{}.{ext}", i + 1)
 }
 
 /// Message from `format=metadata`: headers, snippet and labels; no body.
@@ -174,6 +268,38 @@ mod tests {
         assert_eq!(m.from_name, "Facebook");
         assert_eq!(m.subject, "Did you just log in near Sidi Bishr?");
         assert_eq!(m.otp_code, None);
+    }
+
+    #[test]
+    fn attachments_inline_images_and_threading_headers() {
+        let eml = b"From: A <a@x.test>\r\nTo: me@x.test\r\nCc: c@x.test\r\nSubject: Report\r\nMessage-ID: <abc@x.test>\r\nReferences: <r1@x.test> <r2@x.test>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=b1\r\n\r\n--b1\r\nContent-Type: multipart/related; boundary=b2\r\n\r\n--b2\r\nContent-Type: text/html\r\n\r\n<p>See <img src=\"cid:logo@x\"></p>\r\n--b2\r\nContent-Type: image/png\r\nContent-ID: <Logo@X>\r\nContent-Transfer-Encoding: base64\r\n\r\niVBORw0KGgo=\r\n--b2--\r\n--b1\r\nContent-Type: application/pdf; name=\"../../evil:report?.pdf\"\r\nContent-Disposition: attachment; filename=\"../../evil:report?.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQK\r\n--b1--\r\n";
+        let m = to_new_message(&raw(&["INBOX"]), eml);
+        assert_eq!(m.cc_list, "c@x.test");
+        assert_eq!(m.rfc_message_id, "<abc@x.test>");
+        assert_eq!(m.rfc_references, "<r1@x.test> <r2@x.test>");
+        assert_eq!(m.attachments.len(), 2, "{:?}", m.attachments);
+        let logo = &m.attachments[0];
+        assert!(logo.inline && logo.content_id.as_deref() == Some("logo@x") && logo.data.is_some());
+        let pdf = &m.attachments[1];
+        assert!(!pdf.inline && pdf.data.is_none());
+        assert_eq!(pdf.mime, "application/pdf");
+        assert!(!pdf.filename.contains('/') && !pdf.filename.contains(':') && pdf.filename.ends_with(".pdf"), "{}", pdf.filename);
+        assert!(m.has_attachments);
+    }
+
+    #[test]
+    fn plain_text_mail_has_no_html() {
+        let eml = b"From: a@x.test\r\nSubject: hi\r\nContent-Type: text/plain\r\n\r\nhello https://x.test\r\n";
+        let m = to_new_message(&raw(&["INBOX"]), eml);
+        assert!(m.body_html.is_none());
+        assert!(m.body_text.contains("hello"));
+    }
+
+    #[test]
+    fn safe_filenames() {
+        assert_eq!(safe_filename("CON.txt"), "_CON.txt");
+        assert_eq!(safe_filename("a/b\\c.pdf"), "a_b_c.pdf");
+        assert!(!safe_filename("..").contains(".."));
     }
 
     #[test]

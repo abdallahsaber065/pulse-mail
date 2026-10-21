@@ -28,6 +28,34 @@ pub struct NewMessage {
     pub label_ids: Vec<String>,
     pub has_attachments: bool,
     pub otp_code: Option<String>,
+    pub cc_list: String,
+    pub reply_to: String,
+    /// `<id@host>` of this message, for replies.
+    pub rfc_message_id: String,
+    /// Space-separated `<id>` list from the References header.
+    pub rfc_references: String,
+    pub attachments: Vec<NewAttachment>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct NewAttachment {
+    pub part: u32,
+    pub filename: String,
+    pub mime: String,
+    pub size: i64,
+    pub content_id: Option<String>,
+    pub inline: bool,
+    pub data: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentRow {
+    pub part: u32,
+    pub filename: String,
+    pub mime: String,
+    pub size: i64,
+    pub inline: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -84,7 +112,16 @@ pub struct MessageRow {
     pub has_attachments: bool,
     pub otp_code: Option<String>,
     pub body_loaded: bool,
+    pub cc_list: String,
+    pub reply_to: String,
+    pub rfc_message_id: String,
+    pub rfc_references: String,
+    /// Real attachments (inline `cid:` images are not listed).
+    pub attachments: Vec<AttachmentRow>,
 }
+
+/// (from_email, body_html, body_text, body_loaded)
+pub type CachedBody = (String, Option<String>, String, bool);
 
 pub struct Store {
     conn: Connection,
@@ -232,15 +269,17 @@ impl Store {
         tx.execute(
             "INSERT INTO messages(account_id, id, thread_id, internal_date, from_name, from_email, to_list,
                                   subject, snippet, body_text, body_html, is_unread, is_starred,
-                                  has_attachments, otp_code, body_loaded)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 1)
+                                  has_attachments, otp_code, body_loaded,
+                                  cc_list, reply_to, rfc_message_id, rfc_references)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19)
              ON CONFLICT(account_id, id) DO UPDATE SET
                 thread_id = excluded.thread_id, internal_date = excluded.internal_date,
                 from_name = excluded.from_name, from_email = excluded.from_email, to_list = excluded.to_list,
                 subject = excluded.subject, snippet = excluded.snippet, body_text = excluded.body_text,
                 body_html = excluded.body_html, is_unread = excluded.is_unread, is_starred = excluded.is_starred,
                 has_attachments = excluded.has_attachments, otp_code = excluded.otp_code,
-                body_loaded = 1",
+                body_loaded = 1, cc_list = excluded.cc_list, reply_to = excluded.reply_to,
+                rfc_message_id = excluded.rfc_message_id, rfc_references = excluded.rfc_references",
             params![
                 account_id,
                 m.id,
@@ -256,10 +295,27 @@ impl Store {
                 unread,
                 starred,
                 m.has_attachments,
-                m.otp_code
+                m.otp_code,
+                m.cc_list,
+                m.reply_to,
+                m.rfc_message_id,
+                m.rfc_references
             ],
         )?;
         write_labels(&tx, account_id, &m.id, &m.label_ids)?;
+        tx.execute(
+            "DELETE FROM attachments WHERE account_id = ?1 AND message_id = ?2",
+            params![account_id, m.id],
+        )?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR REPLACE INTO attachments(account_id, message_id, part, filename, mime, size, content_id, inline, data)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )?;
+            for a in &m.attachments {
+                stmt.execute(params![account_id, m.id, a.part, a.filename, a.mime, a.size, a.content_id, a.inline, a.data])?;
+            }
+        }
         tx.commit()
     }
 
@@ -449,11 +505,13 @@ impl Store {
             "SELECT id, thread_id, internal_date, from_name, from_email, to_list, subject, snippet,
                     body_text, body_html, is_unread, is_starred, has_attachments, otp_code, body_loaded,
                     (SELECT group_concat(label_id, ' ') FROM message_labels ml
-                      WHERE ml.account_id = m.account_id AND ml.message_id = m.id)
+                      WHERE ml.account_id = m.account_id AND ml.message_id = m.id),
+                    cc_list, reply_to, rfc_message_id, rfc_references
              FROM messages m WHERE account_id = ?1 AND thread_id = ?2
              ORDER BY internal_date ASC",
         )?;
-        stmt.query_map(params![account_id, thread_id], |r| {
+        let mut rows = stmt
+            .query_map(params![account_id, thread_id], |r| {
             let labels: Option<String> = r.get(15)?;
             Ok(MessageRow {
                 id: r.get(0)?,
@@ -474,9 +532,85 @@ impl Store {
                 label_ids: labels
                     .map(|s| s.split(' ').map(str::to_owned).collect())
                     .unwrap_or_default(),
+                cc_list: r.get(16)?,
+                reply_to: r.get(17)?,
+                rfc_message_id: r.get(18)?,
+                rfc_references: r.get(19)?,
+                attachments: Vec::new(),
+            })
+        })?
+            .collect::<Result<Vec<_>>>()?;
+        for m in &mut rows {
+            m.attachments = self.attachments(account_id, &m.id, false)?;
+        }
+        Ok(rows)
+    }
+
+    /// Attachment list of a message (optionally including inline images).
+    pub fn attachments(&self, account_id: i64, message_id: &str, with_inline: bool) -> Result<Vec<AttachmentRow>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT part, filename, mime, size, inline FROM attachments
+             WHERE account_id = ?1 AND message_id = ?2 AND (?3 OR inline = 0) ORDER BY part",
+        )?;
+        stmt.query_map(params![account_id, message_id, with_inline], |r| {
+            Ok(AttachmentRow {
+                part: r.get(0)?,
+                filename: r.get(1)?,
+                mime: r.get(2)?,
+                size: r.get(3)?,
+                inline: r.get(4)?,
             })
         })?
         .collect()
+    }
+
+    /// Cached inline images of a message: (content id, mime, bytes).
+    pub fn inline_images(&self, account_id: i64, message_id: &str) -> Result<Vec<(String, String, Vec<u8>)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT content_id, mime, data FROM attachments
+             WHERE account_id = ?1 AND message_id = ?2 AND content_id IS NOT NULL AND data IS NOT NULL",
+        )?;
+        stmt.query_map(params![account_id, message_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect()
+    }
+
+    /// One message's cached body for rendering.
+    pub fn message_body(&self, account_id: i64, message_id: &str) -> Result<Option<CachedBody>> {
+        self.conn
+            .query_row(
+                "SELECT from_email, body_html, body_text, body_loaded FROM messages WHERE account_id = ?1 AND id = ?2",
+                params![account_id, message_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()
+    }
+
+    pub fn images_allowed_from(&self, account_id: i64, email: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM image_senders WHERE account_id = ?1 AND email = ?2",
+                params![account_id, email.to_ascii_lowercase()],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
+    pub fn set_images_allowed(&self, account_id: i64, email: &str, allowed: bool) -> Result<()> {
+        let email = email.to_ascii_lowercase();
+        if allowed {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO image_senders(account_id, email) VALUES (?1, ?2)",
+                params![account_id, email],
+            )?;
+        } else {
+            self.conn.execute(
+                "DELETE FROM image_senders WHERE account_id = ?1 AND email = ?2",
+                params![account_id, email],
+            )?;
+        }
+        Ok(())
     }
 
     pub fn thread_id_of(&self, account_id: i64, message_id: &str) -> Result<Option<String>> {
@@ -737,6 +871,30 @@ mod tests {
         s.modify_thread_labels(id, "t1", &["INBOX".into(), "UNREAD".into()], &["STARRED".into()])
             .unwrap();
         assert!(s.list_threads(id, "INBOX", 10, 0).unwrap()[0].unread);
+    }
+
+    #[test]
+    fn attachments_and_image_allowlist() {
+        let (mut s, id) = setup();
+        let mut m = msg("m1", "t1", 1, &["INBOX"], "Files");
+        m.attachments = vec![
+            NewAttachment { part: 0, filename: "logo.png".into(), mime: "image/png".into(), size: 3, content_id: Some("logo@x".into()), inline: true, data: Some(vec![1, 2, 3]) },
+            NewAttachment { part: 1, filename: "r.pdf".into(), mime: "application/pdf".into(), size: 9, content_id: None, inline: false, data: None },
+        ];
+        s.upsert_message(id, &m).unwrap();
+        let t = s.get_thread(id, "t1").unwrap();
+        assert_eq!(t[0].attachments.len(), 1);
+        assert_eq!(t[0].attachments[0].filename, "r.pdf");
+        assert_eq!(s.inline_images(id, "m1").unwrap(), vec![("logo@x".into(), "image/png".into(), vec![1, 2, 3])]);
+        // re-upsert replaces, doesn't duplicate
+        s.upsert_message(id, &m).unwrap();
+        assert_eq!(s.attachments(id, "m1", true).unwrap().len(), 2);
+
+        assert!(!s.images_allowed_from(id, "News@Shop.test").unwrap());
+        s.set_images_allowed(id, "News@Shop.test", true).unwrap();
+        assert!(s.images_allowed_from(id, "news@shop.test").unwrap());
+        s.set_images_allowed(id, "news@shop.test", false).unwrap();
+        assert!(!s.images_allowed_from(id, "news@shop.test").unwrap());
     }
 
     #[test]

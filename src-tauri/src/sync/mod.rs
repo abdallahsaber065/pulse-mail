@@ -479,6 +479,42 @@ impl Engine {
         Ok(n)
     }
 
+    pub fn account_id(&self) -> i64 {
+        self.account_id
+    }
+
+    pub fn gmail(&self) -> &Gmail {
+        &self.gmail
+    }
+
+    /// A valid access token (refreshing if needed).
+    pub async fn token(&self) -> Result<Secret, SyncError> {
+        Ok(self.tokens.access_token().await?)
+    }
+
+    /// Run a Gmail call, retrying once with a fresh token after a 401.
+    pub async fn with_token<T, F, Fut>(&self, f: F) -> Result<T, SyncError>
+    where
+        F: Fn(Secret) -> Fut,
+        Fut: std::future::Future<Output = Result<T, GmailError>>,
+    {
+        let token = self.tokens.access_token().await?;
+        match f(token).await {
+            Err(GmailError::Unauthorized) => {
+                self.tokens.invalidate().await;
+                let token = self.tokens.access_token().await?;
+                Ok(f(token).await?)
+            }
+            r => Ok(r?),
+        }
+    }
+
+    /// Full RFC 822 bytes of one message (for attachments, replies).
+    pub async fn fetch_raw(&self, message_id: &str) -> Result<Vec<u8>, SyncError> {
+        let raw = self.with_token(|t| async move { self.gmail.get_raw(&t, message_id).await }).await?;
+        Ok(raw.decode_raw()?)
+    }
+
     /// Archive / star / read: local first (instant UI), then Gmail. On
     /// failure the local change is rolled back.
     pub async fn modify_thread(&self, thread_id: &str, add: &[String], remove: &[String]) -> Result<(), SyncError> {
@@ -527,9 +563,13 @@ impl Engine {
         if total > 0 {
             self.status.progress(false, &label, 0, total);
         }
-        let notify_pref = self
-            .db(|s| s.get_setting("notifications"))?
-            .unwrap_or_else(|| "all".into());
+        let (notify_pref, autocopy, hide_locked) = self.db(|s| {
+            Ok((
+                s.get_setting("notifications")?.unwrap_or_else(|| "all".into()),
+                crate::prefs::get(s, "otp_autocopy") == "1",
+                crate::prefs::get(s, "otp_lockscreen") == "hide",
+            ))
+        })?;
         let mut added = 0;
         let mut fetched = futures::stream::iter(delta.added.clone())
             .map(|id| {
@@ -556,7 +596,12 @@ impl Engine {
                 "otp" => m.otp_code.is_some(),
                 _ => true,
             };
-            if wanted && !existed && is_new_inbox && now_ms() - m.internal_date < NOTIFY_MAX_AGE_MS {
+            let fresh = !existed && is_new_inbox && now_ms() - m.internal_date < NOTIFY_MAX_AGE_MS;
+            if fresh && autocopy && let Some(code) = &m.otp_code {
+                crate::copy_secret(&self.app, code);
+                self.status.log("info", "Copied a new verification code to the clipboard");
+            }
+            if wanted && fresh {
                 notify::show_new_mail(
                     &self.app,
                     NewMailToast {
@@ -570,6 +615,7 @@ impl Engine {
                         subject: m.subject.clone(),
                         snippet: m.snippet.clone(),
                         otp: m.otp_code.clone(),
+                        hide_code: hide_locked && m.otp_code.is_some() && notify::session_locked(),
                     },
                 );
             }
