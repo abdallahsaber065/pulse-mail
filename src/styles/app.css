@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+/* Dark mode is class-driven so the user can override the OS setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design tokens: see docs/DESIGN.md. Values are CSS variables so light/dark
+   swap without rebuilding utilities. */
+:root {
+  --bg: #f8fafd;
+  --surface: #ffffff;
+  --surface-dim: #f2f6fc;
+  --surface-container: #eef2f9;
+  --search: #e9eef6;
+  --hover: #e8edf6;
+  --selected: #c2dbff;
+  --primary: #0b57d0;
+  --on-primary: #ffffff;
+  --primary-container: #d3e3fd;
+  --on-primary-container: #041e49;
+  --text: #1f1f1f;
+  --text-muted: #444746;
+  --text-faint: #5e5e5e;
+  --outline: #c4c7c5;
+  --divider: #e7eaee;
+  --otp: #146c2e;
+  --otp-container: #c4eed0;
+  --danger: #b3261e;
+  --star: #f4b400;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #111317;
+  --surface: #1b1d22;
+  --surface-dim: #16181c;
+  --surface-container: #23262c;
+  --search: #2a2e35;
+  --hover: #2a2e35;
+  --selected: #0b3a7a;
+  --primary: #a8c7fa;
+  --on-primary: #062e6f;
+  --primary-container: #0842a0;
+  --on-primary-container: #d3e3fd;
+  --text: #e3e3e3;
+  --text-muted: #c4c7c5;
+  --text-faint: #9aa0a6;
+  --outline: #5f6368;
+  --divider: #2c2f35;
+  --otp: #6dd58c;
+  --otp-container: #0f5223;
+  --danger: #f2b8b5;
+  --star: #fdd663;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-dim: var(--surface-dim);
+  --color-surface-container: var(--surface-container);
+  --color-search: var(--search);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
+  --color-primary: var(--primary);
+  --color-on-primary: var(--on-primary);
+  --color-primary-container: var(--primary-container);
+  --color-on-primary-container: var(--on-primary-container);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-outline: var(--outline);
+  --color-divider: var(--divider);
+  --color-otp: var(--otp);
+  --color-otp-container: var(--otp-container);
+  --color-danger: var(--danger);
+  --color-star: var(--star);
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, "Noto Sans Arabic", sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Text the user reads or copies stays selectable. */
+.selectable {
+  user-select: text;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+/* Thin, unobtrusive scrollbars like Gmail. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--outline) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

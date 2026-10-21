@@ -1,0 +1,79 @@
+//! Schema migrations, applied in order and tracked with `PRAGMA user_version`.
+//! Never edit a shipped migration; append a new one.
+
+pub const MIGRATIONS: &[&str] = &[
+    // 1: initial schema
+    r#"
+    CREATE TABLE accounts (
+        id              INTEGER PRIMARY KEY,
+        email           TEXT NOT NULL UNIQUE,
+        history_id      TEXT,
+        last_sync_at    INTEGER,
+        created_at      INTEGER NOT NULL
+    );
+
+    CREATE TABLE labels (
+        account_id  INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        id          TEXT NOT NULL,
+        name        TEXT NOT NULL,
+        kind        TEXT NOT NULL,           -- 'system' | 'user'
+        unread      INTEGER NOT NULL DEFAULT 0,
+        total       INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (account_id, id)
+    );
+
+    CREATE TABLE messages (
+        account_id      INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        id              TEXT NOT NULL,
+        thread_id       TEXT NOT NULL,
+        internal_date   INTEGER NOT NULL,    -- ms since epoch (Gmail internalDate)
+        from_name       TEXT NOT NULL DEFAULT '',
+        from_email      TEXT NOT NULL DEFAULT '',
+        to_list         TEXT NOT NULL DEFAULT '',
+        subject         TEXT NOT NULL DEFAULT '',
+        snippet         TEXT NOT NULL DEFAULT '',
+        body_text       TEXT NOT NULL DEFAULT '',
+        body_html       TEXT,
+        is_unread       INTEGER NOT NULL DEFAULT 0,
+        is_starred      INTEGER NOT NULL DEFAULT 0,
+        has_attachments INTEGER NOT NULL DEFAULT 0,
+        otp_code        TEXT,
+        PRIMARY KEY (account_id, id)
+    );
+    CREATE INDEX messages_thread ON messages(account_id, thread_id);
+    CREATE INDEX messages_date   ON messages(account_id, internal_date DESC);
+
+    CREATE TABLE message_labels (
+        account_id  INTEGER NOT NULL,
+        label_id    TEXT NOT NULL,
+        message_id  TEXT NOT NULL,
+        PRIMARY KEY (account_id, label_id, message_id),
+        FOREIGN KEY (account_id, message_id) REFERENCES messages(account_id, id) ON DELETE CASCADE
+    );
+    CREATE INDEX message_labels_msg ON message_labels(account_id, message_id);
+
+    CREATE VIRTUAL TABLE messages_fts USING fts5(
+        subject, from_name, from_email, snippet, body_text,
+        content='messages', content_rowid='rowid', tokenize='unicode61 remove_diacritics 2'
+    );
+    CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+        INSERT INTO messages_fts(rowid, subject, from_name, from_email, snippet, body_text)
+        VALUES (new.rowid, new.subject, new.from_name, new.from_email, new.snippet, new.body_text);
+    END;
+    CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, subject, from_name, from_email, snippet, body_text)
+        VALUES ('delete', old.rowid, old.subject, old.from_name, old.from_email, old.snippet, old.body_text);
+    END;
+    CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, subject, from_name, from_email, snippet, body_text)
+        VALUES ('delete', old.rowid, old.subject, old.from_name, old.from_email, old.snippet, old.body_text);
+        INSERT INTO messages_fts(rowid, subject, from_name, from_email, snippet, body_text)
+        VALUES (new.rowid, new.subject, new.from_name, new.from_email, new.snippet, new.body_text);
+    END;
+
+    CREATE TABLE settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+    "#,
+];

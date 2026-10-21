@@ -1,0 +1,34 @@
+# deps / builds
+node_modules/
+dist/
+dist-ssr/
+src-tauri/target/
+src-tauri/gen/schemas/
+*.tsbuildinfo
+coverage/
+
+# secrets: never commit OAuth clients, tokens or env files
+.env
+.env.*
+!.env.example
+client_secret*.json
+google-oauth-client*.json
+*.key
+*.pem
+secrets/
+
+# local data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.log
+logs/
+
+# editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+.vscode/*
+!.vscode/extensions.json

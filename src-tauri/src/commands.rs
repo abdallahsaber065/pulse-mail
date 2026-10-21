@@ -1,0 +1,261 @@
+//! IPC commands for the UI. Errors are mapped to short, friendly messages;
+//! technical details only go to the log (never secrets).
+
+use crate::AppState;
+use crate::auth::client_config::{self, ConfigError};
+use crate::auth::oauth::{self, AuthError};
+use crate::auth::{TokenManager, token_store};
+use crate::store::{LabelRow, MessageRow, ThreadRow};
+use crate::sync::gmail::{Gmail, GmailError};
+use crate::sync::status::SyncStatus;
+use crate::sync::{self, now_ms};
+use crate::window::OpenTarget;
+use serde::Serialize;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_autostart::ManagerExt as _;
+use tauri_plugin_opener::OpenerExt as _;
+
+#[derive(Debug, Serialize)]
+pub struct CmdError {
+    message: String,
+}
+
+impl CmdError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+macro_rules! friendly {
+    ($ty:ty, $e:ident => $msg:expr) => {
+        impl From<$ty> for CmdError {
+            fn from($e: $ty) -> Self {
+                tracing::warn!(error = %$e, "command failed");
+                CmdError::new($msg)
+            }
+        }
+    };
+}
+
+friendly!(rusqlite::Error, _e => "Something went wrong with local storage.");
+friendly!(keyring::Error, _e => "Couldn't access Windows Credential Manager.");
+friendly!(tauri::Error, _e => "Something went wrong. Please try again.");
+friendly!(tauri_plugin_opener::Error, _e => "Couldn't open your browser.");
+friendly!(GmailError, _e => "Couldn't reach Gmail. Check your connection and try again.");
+friendly!(ConfigError, e => match e {
+    ConfigError::Missing(_) => "Pulse Mail isn't connected to a Google OAuth client yet. See the setup steps.",
+    ConfigError::Invalid(_) => "The Google OAuth client file isn't valid. Download it again from Google Cloud.",
+});
+friendly!(AuthError, e => match e {
+    AuthError::Cancelled => "Sign-in was cancelled or took too long.",
+    AuthError::Denied(_) => "Google sign-in was declined.",
+    AuthError::InvalidGrant => "Your Google sign-in expired. Please sign in again.",
+    AuthError::NoRefreshToken => "Google didn't grant offline access. Please try signing in again.",
+    AuthError::Network(_) => "You're offline. Check your connection and try again.",
+    _ => "Sign-in didn't work. Please try again.",
+});
+
+type CmdResult<T> = Result<T, CmdError>;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStatus {
+    client_configured: bool,
+    client_config_path: String,
+    account: Option<String>,
+    sync: SyncStatus,
+    destroy_on_close: bool,
+    autostart: bool,
+}
+
+#[tauri::command]
+pub fn get_status(app: AppHandle, state: State<'_, AppState>) -> CmdResult<AppStatus> {
+    let path = client_config::resolve_path(&state.config_dir);
+    let configured = client_config::load(&path).is_ok();
+    let account = state.store.lock().unwrap().primary_account()?.map(|a| a.email);
+    Ok(AppStatus {
+        client_configured: configured,
+        client_config_path: path.display().to_string(),
+        account,
+        sync: state.status.get(),
+        destroy_on_close: state.destroy_on_close.load(Ordering::Relaxed),
+        autostart: app.autolaunch().is_enabled().unwrap_or(false),
+    })
+}
+
+#[tauri::command]
+pub async fn sign_in(app: AppHandle, state: State<'_, AppState>) -> CmdResult<String> {
+    let client = client_config::load(&client_config::resolve_path(&state.config_dir))?;
+    let pending = oauth::begin_login(&client).await?;
+    app.opener().open_url(pending.auth_url.clone(), None::<&str>)?;
+    let tokens = pending.finish(&state.http, &client).await?;
+    let refresh = tokens
+        .refresh_token
+        .clone()
+        .ok_or_else(|| CmdError::from(AuthError::NoRefreshToken))?;
+
+    let profile = Gmail::new(state.http.clone()).profile(&tokens.access_token).await?;
+    let email = profile.email_address;
+    token_store::save_refresh_token(&email, &refresh)?;
+    let account = state.store.lock().unwrap().upsert_account(&email, now_ms())?;
+    tracing::info!("signed in");
+
+    let manager = TokenManager::new(email.clone(), client, state.http.clone(), refresh);
+    start_sync(&app, &state, manager, account.id).await;
+    Ok(email)
+}
+
+#[tauri::command]
+pub async fn sign_out(state: State<'_, AppState>) -> CmdResult<()> {
+    if let Some(c) = state.sync.lock().await.take() {
+        c.stop();
+    }
+    let account = state.store.lock().unwrap().primary_account()?;
+    if let Some(a) = account {
+        if let Ok(Some(rt)) = token_store::load_refresh_token(&a.email) {
+            // Best effort: also revoke at Google.
+            let _ = oauth::revoke(&state.http, &rt).await;
+        }
+        token_store::delete_refresh_token(&a.email)?;
+        state.store.lock().unwrap().delete_account(a.id)?;
+    }
+    state.status.update(|s| *s = SyncStatus::default());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_labels(state: State<'_, AppState>) -> CmdResult<Vec<LabelRow>> {
+    let store = state.store.lock().unwrap();
+    match store.primary_account()? {
+        Some(a) => Ok(store.list_labels(a.id)?),
+        None => Ok(Vec::new()),
+    }
+}
+
+#[tauri::command]
+pub fn list_threads(
+    state: State<'_, AppState>,
+    label_id: String,
+    limit: i64,
+    offset: i64,
+) -> CmdResult<Vec<ThreadRow>> {
+    let store = state.store.lock().unwrap();
+    match store.primary_account()? {
+        Some(a) => Ok(store.list_threads(a.id, &label_id, limit.clamp(1, 500), offset.max(0))?),
+        None => Ok(Vec::new()),
+    }
+}
+
+#[tauri::command]
+pub fn search(state: State<'_, AppState>, query: String, limit: i64) -> CmdResult<Vec<ThreadRow>> {
+    let store = state.store.lock().unwrap();
+    match store.primary_account()? {
+        Some(a) => Ok(store.search(a.id, &query, limit.clamp(1, 200))?),
+        None => Ok(Vec::new()),
+    }
+}
+
+#[tauri::command]
+pub fn get_thread(state: State<'_, AppState>, thread_id: String) -> CmdResult<Vec<MessageRow>> {
+    let store = state.store.lock().unwrap();
+    match store.primary_account()? {
+        Some(a) => Ok(store.get_thread(a.id, &thread_id)?),
+        None => Ok(Vec::new()),
+    }
+}
+
+#[tauri::command]
+pub async fn sync_now(state: State<'_, AppState>) -> CmdResult<()> {
+    if let Some(c) = state.sync.lock().await.as_ref() {
+        c.sync_now();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn take_pending_open(state: State<'_, AppState>) -> Option<OpenTarget> {
+    state.pending_open.lock().unwrap().take()
+}
+
+#[tauri::command]
+pub fn copy_text(app: AppHandle, text: String) {
+    crate::copy_to_clipboard(&app, &text);
+}
+
+/// Open a link from an email in the default browser. Only web and mail links.
+#[tauri::command]
+pub fn open_external(app: AppHandle, url: String) -> CmdResult<()> {
+    let parsed = url::Url::parse(&url).map_err(|_| CmdError::new("That link can't be opened."))?;
+    if !matches!(parsed.scheme(), "https" | "http" | "mailto") {
+        return Err(CmdError::new("That link can't be opened."));
+    }
+    app.opener().open_url(parsed.as_str(), None::<&str>)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_destroy_on_close(state: State<'_, AppState>, enabled: bool) -> CmdResult<()> {
+    state
+        .store
+        .lock()
+        .unwrap()
+        .set_setting("destroy_on_close", if enabled { "1" } else { "0" })?;
+    state.destroy_on_close.store(enabled, Ordering::Relaxed);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_autostart(app: AppHandle, enabled: bool) -> CmdResult<bool> {
+    let al = app.autolaunch();
+    let r = if enabled { al.enable() } else { al.disable() };
+    r.map_err(|e| {
+        tracing::warn!(error = %e, "autostart change failed");
+        CmdError::new("Couldn't change the start-with-Windows setting.")
+    })?;
+    Ok(al.is_enabled().unwrap_or(enabled))
+}
+
+/// (Re)start the sync engine for an account.
+pub async fn start_sync(app: &AppHandle, state: &AppState, tokens: TokenManager, account_id: i64) {
+    let mut slot = state.sync.lock().await;
+    if let Some(old) = slot.take() {
+        old.stop();
+    }
+    *slot = Some(sync::spawn(
+        app.clone(),
+        state.store.clone(),
+        Arc::new(tokens),
+        state.http.clone(),
+        account_id,
+        state.status.clone(),
+    ));
+}
+
+/// On launch: resume syncing if we have an account, a client file and a
+/// refresh token in Credential Manager. Silent if anything is missing.
+pub async fn resume(app: AppHandle) {
+    let state = app.state::<AppState>();
+    let Ok(Some(account)) = state.store.lock().unwrap().primary_account() else {
+        return;
+    };
+    let Ok(client) = client_config::load(&client_config::resolve_path(&state.config_dir)) else {
+        return;
+    };
+    let refresh = match token_store::load_refresh_token(&account.email) {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            state.status.update(|s| s.error = Some("Please sign in again.".into()));
+            return;
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "credential manager read failed");
+            return;
+        }
+    };
+    let manager = TokenManager::new(account.email.clone(), client, state.http.clone(), refresh);
+    start_sync(&app, &state, manager, account.id).await;
+}
