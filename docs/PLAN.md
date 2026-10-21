@@ -112,7 +112,7 @@ Wi-Fi drop.
   at 6 in flight, UI refresh only at the end) showed rows after 8.8–20.0 s
   (116 messages, 5.7–6.1 MB); new path lists the 50 newest INBOX ids (0.4 s)
   and fetches their metadata in one batch call (0.6 s), so the first 50 rows
-  show after ≈1.0 s. Single metadata gets would take 2.6–3.2 s. UI: dialog,
+  show after ≈1.0 s. Single metadata gets would take 2.6–3.2 s. In the running app (debug build, including token refresh, profile and SQLite writes) the log said `first page ready count=50 ms=2386`, then `backfill done count=100 ms=1750`. UI: dialog,
   snackbars with Undo, account menu, settings sheet, sync chip + activity,
   skeletons, empty states, density, hover actions.
 - **2026-10-21:** Phase 0 done. Phase 1 core implemented and compiling with
