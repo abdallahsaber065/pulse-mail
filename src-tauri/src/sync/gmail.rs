@@ -103,6 +103,8 @@ pub struct RawMessage {
     /// ms since epoch, as a string
     #[serde(default)]
     pub internal_date: String,
+    #[serde(default)]
+    pub size_estimate: i64,
     /// base64url RFC 822 bytes
     #[serde(default)]
     pub raw: String,
@@ -132,6 +134,8 @@ pub struct MetaMessage {
     pub snippet: String,
     #[serde(default)]
     pub internal_date: String,
+    #[serde(default)]
+    pub size_estimate: i64,
     #[serde(default)]
     pub payload: MetaPayload,
 }
@@ -250,7 +254,8 @@ const BATCH_URL: &str = "https://gmail.googleapis.com/batch/gmail/v1";
 pub const BATCH_MAX: usize = 50;
 /// Query for metadata-only gets: the three headers the list needs + snippet.
 const META_QUERY: &str = "format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject\
-                          &fields=id,threadId,labelIds,snippet,internalDate,payload/headers";
+                          &metadataHeaders=Content-Type\
+                          &fields=id,threadId,labelIds,snippet,internalDate,sizeEstimate,payload/headers";
 
 /// Split a `multipart/mixed` batch response into per-request results, ordered
 /// by our `Content-ID: <m{i}>` (Google answers `<response-m{i}>`). Missing or
@@ -449,7 +454,8 @@ impl Gmail {
                 ("metadataHeaders", "From"),
                 ("metadataHeaders", "To"),
                 ("metadataHeaders", "Subject"),
-                ("fields", "id,threadId,labelIds,snippet,internalDate,payload/headers"),
+                ("metadataHeaders", "Content-Type"),
+                ("fields", "id,threadId,labelIds,snippet,internalDate,sizeEstimate,payload/headers"),
             ], // keep in sync with META_QUERY
         )
         .await
@@ -701,6 +707,7 @@ mod tests {
             label_ids: vec![],
             snippet: String::new(),
             internal_date: "1729500000000".into(),
+            size_estimate: 0,
             raw: URL_SAFE.encode(b"Subject: hi\r\n\r\nbody?>"),
         };
         assert_eq!(m.decode_raw().unwrap(), b"Subject: hi\r\n\r\nbody?>");

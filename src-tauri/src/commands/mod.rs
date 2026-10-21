@@ -234,7 +234,78 @@ pub async fn sign_out(state: State<'_, AppState>, account_id: Option<i64>) -> Cm
         .unwrap_or_else(|e| e.into_inner())
         .delete_account(a.id)?;
     state.statuses.lock().unwrap_or_else(|e| e.into_inner()).remove(&a.id);
+    crate::files::remove_account(&state.files_dir, a.id);
     Ok(())
+}
+
+/// Change per-account settings (Settings > account page).
+#[tauri::command]
+pub async fn set_account_settings(
+    state: State<'_, AppState>,
+    account_id: i64,
+    settings: crate::store::AccountSettings,
+) -> CmdResult<()> {
+    let a = resolve_account(&state, Some(account_id))?;
+    if let Some(n) = &settings.display_name {
+        validate::text(n, 200)?;
+        if n.chars().count() > 80 || n.chars().any(char::is_control) {
+            return Err(CmdError::new("That name is too long."));
+        }
+    }
+    if let Some(c) = &settings.color
+        && !(c.is_empty() || (c.len() == 7 && c.starts_with('#') && c[1..].bytes().all(|b| b.is_ascii_hexdigit())))
+    {
+        return Err(CmdError::new("Unknown color."));
+    }
+    if let Some(sig) = &settings.signature {
+        validate::text(sig, 4000)?;
+    }
+    if let Some(m) = &settings.attach_mode
+        && !crate::store::ATTACH_MODES.contains(&m.as_str())
+    {
+        return Err(CmdError::new("Unknown attachment setting."));
+    }
+    if let Some(mb) = settings.attach_max_mb
+        && !(1..=50).contains(&mb)
+    {
+        return Err(CmdError::new("Choose a limit between 1 and 50 MB."));
+    }
+    let policy_changed = settings.attach_mode.as_deref().is_some_and(|m| m != a.attach_mode)
+        || settings.attach_max_mb.is_some_and(|mb| mb != a.attach_max_mb);
+    {
+        let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+        store.set_account_settings(a.id, &settings)?;
+        // A more generous policy: fetch the attachments it now allows.
+        if policy_changed && a.backfill_state == "done" {
+            store.set_backfill_phase(a.id, "files")?;
+            store.set_backfill_state(a.id, "pending")?;
+        }
+    }
+    if policy_changed && a.backfill_state == "done" {
+        engine_for(&state, Some(a.id)).await?.resume_history()?;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountStorage {
+    messages: i64,
+    /// Approximate bytes of this account's mail in the database.
+    db_bytes: i64,
+    /// Attachments saved on this PC.
+    files_bytes: i64,
+}
+
+#[tauri::command]
+pub fn account_storage(state: State<'_, AppState>, account_id: i64) -> CmdResult<AccountStorage> {
+    let a = resolve_account(&state, Some(account_id))?;
+    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+    Ok(AccountStorage {
+        messages: store.message_count(a.id)?,
+        db_bytes: store.account_db_bytes(a.id)?,
+        files_bytes: store.stored_attachment_bytes(Some(a.id))?,
+    })
 }
 
 #[derive(Debug, Serialize)]

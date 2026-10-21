@@ -54,7 +54,7 @@ pub struct History {
     pub state: String,
     /// "30d" | "90d" | "1y" | "all"
     pub window: String,
-    /// "list" (message list) | "bodies" (offline copies) | "" when idle
+    /// "count" | "index" | "bodies" | "files" | "" when not started
     pub phase: String,
     pub done: u32,
     pub total: u32,
@@ -62,6 +62,12 @@ pub struct History {
     pub rate: f32,
     /// Seconds left at the current rate (None = unknown).
     pub eta_secs: Option<u32>,
+    /// Why the download is paused after a failure (shown with Retry).
+    pub error: Option<String>,
+    /// Size of the range's messages counted so far (Gmail sizeEstimate).
+    pub bytes_total: i64,
+    /// Same, without attachments (approximate).
+    pub bytes_text: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -260,6 +266,9 @@ mod tests {
             total: 100,
             rate: 5.0,
             eta_secs: Some(18),
+            error: None,
+            bytes_total: 0,
+            bytes_text: 0,
         };
         s.history(h.clone());
         assert_eq!(s.get().history, Some(h));

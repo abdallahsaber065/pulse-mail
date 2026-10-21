@@ -905,6 +905,7 @@ export default function App() {
           onSyncWindow={(id, w) => void setSyncWindow(id, w)}
           onAccountNotify={(id, m) => void updateSetting(() => api.setNotifications(m, id))}
           onPauseHistory={(id, pause) => void pauseHistory(id, pause)}
+          onAccountSettings={(id, st) => void updateSetting(() => api.setAccountSettings(id, st))}
         />
       </Show>
       <Show when={onboarding() && status()}>

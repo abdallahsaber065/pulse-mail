@@ -5,7 +5,8 @@ import Icon, { type IconName } from "./Icon";
 import Popover from "./ui/Popover";
 import { chipView, type ChipTone } from "../lib/sync-view";
 import { relative } from "../lib/format";
-import { formatEta, formatRate, historyFraction, phaseLabel, windowLabel } from "../lib/accounts";
+import { windowLabel } from "../lib/accounts";
+import HistoryProgress from "./HistoryProgress";
 import type { Account, Activity, SyncStatus } from "../lib/types";
 
 const TONE: Record<ChipTone, { dot: string; chip: string; icon: IconName }> = {
@@ -166,42 +167,16 @@ export default function SyncIndicator(p: {
           <For each={p.accounts.filter((a) => a.sync.history && a.sync.history.state !== "setup")}>
             {(a) => {
               const h = () => a.sync.history!;
-              const frac = () => historyFraction(h());
               return (
-                <div class="mb-3 rounded-xl bg-surface-container px-3 py-2">
-                  <div class="mb-1 flex items-center gap-2 text-xs">
-                    <span class="min-w-0 flex-1 truncate text-text">
-                      <Show when={p.accounts.length > 1}>
-                        <span class="font-medium">{a.email} · </span>
-                      </Show>
-                      {h().state === "done" ? `${windowLabel(h().window)} on this PC` : phaseLabel(h())}
-                    </span>
-                    <Show when={h().state !== "done"}>
-                      <button
-                        class="grid size-6 place-items-center rounded-full text-muted hover:bg-hover"
-                        title={h().state === "paused" ? "Resume download" : "Pause download"}
-                        onClick={() => p.onPauseHistory(a.id, h().state !== "paused")}
-                      >
-                        <Icon name={h().state === "paused" ? "play" : "pause"} size={16} />
-                      </button>
-                    </Show>
-                  </div>
-                  <Show when={h().state !== "done"}>
-                    <div class="h-1 overflow-hidden rounded-full bg-surface">
-                      <div class="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${(frac() ?? 0) * 100}%` }} />
-                    </div>
-                    <div class="mt-1 flex gap-2 text-[11px] tabular-nums text-muted">
-                      <span>
-                        {h().done.toLocaleString()}
-                        <Show when={h().total > 0}> / {h().total.toLocaleString()}</Show>
-                      </span>
-                      <Show when={h().state === "running"}>
-                        <span>· {formatEta(h().etaSecs)}</span>
-                        <Show when={h().rate > 0}>
-                          <span>· {formatRate(h().rate)}</span>
-                        </Show>
-                      </Show>
-                    </div>
+                <div class="mb-3">
+                  <Show when={p.accounts.length > 1}>
+                    <div class="mb-1 truncate text-[11px] font-medium text-muted">{a.displayName || a.email}</div>
+                  </Show>
+                  <Show
+                    when={h().state !== "done"}
+                    fallback={<div class="rounded-xl bg-surface-container px-3 py-2 text-xs text-text">{windowLabel(h().window)} on this PC</div>}
+                  >
+                    <HistoryProgress compact history={h()} onPause={(x) => p.onPauseHistory(a.id, x)} onRetry={() => p.onPauseHistory(a.id, false)} />
                   </Show>
                 </div>
               );

@@ -1,12 +1,14 @@
 // Settings side sheet. Every control applies immediately; nothing to "save".
-import { For, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
+import HistoryProgress from "./HistoryProgress";
+import { api } from "../lib/api";
 import Icon from "./Icon";
 import { theme, type ThemePref } from "../lib/theme";
 import { prefs, type Density, type Pane } from "../lib/prefs";
 import Avatar from "./Avatar";
-import { formatEta, historyFraction, phaseLabel, WINDOWS } from "../lib/accounts";
+import { phaseLabel, WINDOWS } from "../lib/accounts";
 import { formatSize } from "../lib/format";
-import type { Account, AppStatus, NotificationMode, PrefKey, Prefs, SyncWindow } from "../lib/types";
+import type { Account, AccountSettings, AccountStorage, AppStatus, AttachMode, NotificationMode, PrefKey, Prefs, SyncWindow } from "../lib/types";
 
 interface Props {
   status: AppStatus;
@@ -23,79 +25,177 @@ interface Props {
   onSyncWindow(accountId: number, window: SyncWindow): void;
   onAccountNotify(accountId: number, mode: NotificationMode): void;
   onPauseHistory(accountId: number, pause: boolean): void;
+  onAccountSettings(accountId: number, settings: AccountSettings): void;
 }
 
-function AccountCard(p: {
+export const ACCOUNT_COLORS = ["#c2410c", "#b91c1c", "#be185d", "#7c3aed", "#1d4ed8", "#0e7490", "#047857", "#4d7c0f"];
+
+export function accountName(a: Account) {
+  return a.displayName || a.email;
+}
+
+function AccountRow(p: { account: Account; onOpen(): void }) {
+  const h = () => p.account.sync.history;
+  return (
+    <button class="mb-2 flex w-full items-center gap-3 rounded-2xl border border-divider p-3 text-left hover:bg-hover" onClick={p.onOpen}>
+      <Avatar name={accountName(p.account)} email={p.account.email} size={36} color={p.account.color} />
+      <div class="min-w-0 flex-1">
+        <div class="truncate text-sm font-medium text-text">{accountName(p.account)}</div>
+        <div class={`truncate text-xs ${p.account.sync.error || h()?.error ? "text-danger" : "text-muted"}`}>
+          <Show when={p.account.displayName}>{p.account.email} · </Show>
+          {p.account.sync.error ??
+            (h() && h()!.state !== "done" && h()!.state !== "setup"
+              ? phaseLabel(h()!)
+              : p.account.sync.imapConnected
+                ? "Live"
+                : p.account.sync.running
+                  ? "Connected"
+                  : "Not syncing")}
+        </div>
+      </div>
+      <Icon name="back" size={18} class="rotate-180 text-muted" />
+    </button>
+  );
+}
+
+function AccountPage(p: {
   account: Account;
+  onBack(): void;
   onRemove(): void;
   onWindow(w: SyncWindow): void;
   onNotify(m: NotificationMode): void;
   onPause(pause: boolean): void;
+  onRetry(): void;
+  onSettings(s: AccountSettings): void;
 }) {
   const h = () => p.account.sync.history;
-  const frac = () => historyFraction(h());
+  const [storage, setStorage] = createSignal<AccountStorage | null>(null);
+  onMount(() => void api.accountStorage(p.account.id).then(setStorage, () => {}));
+  const saveText = (key: "displayName" | "signature", v: string) => {
+    if (v !== p.account[key]) p.onSettings({ [key]: v });
+  };
   return (
-    <div class="mb-3 rounded-2xl border border-divider p-4">
-      <div class="mb-3 flex items-center gap-3">
-        <Avatar name={p.account.email} email={p.account.email} size={36} />
+    <div>
+      <button class="mb-2 mt-2 flex h-8 items-center gap-1 rounded-full pl-2 pr-3 text-sm text-muted hover:bg-hover" onClick={p.onBack}>
+        <Icon name="back" size={18} /> All settings
+      </button>
+      <div class="mb-4 flex items-center gap-3">
+        <Avatar name={accountName(p.account)} email={p.account.email} size={44} color={p.account.color} />
         <div class="min-w-0 flex-1">
-          <div class="selectable truncate text-sm font-medium text-text">{p.account.email}</div>
-          <div class={`truncate text-xs ${p.account.sync.error ? "text-danger" : "text-muted"}`}>
-            {p.account.sync.error ?? (p.account.sync.imapConnected ? "Live" : p.account.sync.running ? "Connected" : "Not syncing")}
-          </div>
-        </div>
-        <button class="h-8 rounded-full px-3 text-xs font-medium text-danger hover:bg-danger/10" onClick={p.onRemove}>
-          Remove
-        </button>
-      </div>
-      <Show when={h() && h()!.state !== "setup"}>
-        <div class="mb-3 rounded-xl bg-surface-container px-3 py-2">
-          <div class="mb-1 flex items-center text-xs">
-            <span class="flex-1 text-text">{h()!.state === "done" ? "Download complete" : phaseLabel(h()!)}</span>
-            <span class="tabular-nums text-muted">
-              {h()!.done.toLocaleString()}
-              <Show when={h()!.total > 0}> / {h()!.total.toLocaleString()}</Show>
-            </span>
-            <Show when={h()!.state !== "done"}>
-              <button
-                class="ml-2 grid size-6 place-items-center rounded-full text-muted hover:bg-hover"
-                title={h()!.state === "paused" ? "Resume" : "Pause"}
-                onClick={() => p.onPause(h()!.state !== "paused")}
-              >
-                <Icon name={h()!.state === "paused" ? "play" : "pause"} size={16} />
-              </button>
-            </Show>
-          </div>
-          <Show when={h()!.state !== "done"}>
-            <div class="h-1 overflow-hidden rounded-full bg-surface">
-              <div class="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${(frac() ?? 0) * 100}%` }} />
-            </div>
-            <Show when={h()!.state === "running"}>
-              <div class="mt-1 text-[11px] text-muted">{formatEta(h()!.etaSecs)}</div>
-            </Show>
+          <div class="truncate font-display text-lg text-text">{accountName(p.account)}</div>
+          <Show when={p.account.displayName}>
+            <div class="selectable truncate text-xs text-muted">{p.account.email}</div>
           </Show>
         </div>
+      </div>
+      <Show when={h() && h()!.state !== "setup"}>
+        <HistoryProgress history={h()!} onPause={p.onPause} onRetry={p.onRetry} />
       </Show>
-      <Row title="Mail on this PC" stack>
-        <Segmented<SyncWindow>
-          label="Mail on this PC"
-          value={p.account.syncWindow}
-          options={WINDOWS.map((w) => [w.id, w.short] as [SyncWindow, string])}
-          onChange={p.onWindow}
-        />
-      </Row>
-      <Row title="Notifications" stack>
-        <Segmented<NotificationMode>
-          label="Notifications"
-          value={p.account.notify}
-          options={[
-            ["all", "All new mail"],
-            ["otp", "Codes only"],
-            ["off", "Off"],
-          ]}
-          onChange={p.onNotify}
-        />
-      </Row>
+      <Section title="This account">
+        <Row title="Name" desc="Shown in the account menu and as the sender name." stack>
+          <input
+            class="h-9 w-full rounded-lg border border-outline bg-surface px-3 text-sm text-text"
+            dir="auto"
+            maxLength={80}
+            placeholder={p.account.email}
+            value={p.account.displayName}
+            onBlur={(e) => saveText("displayName", e.currentTarget.value.trim())}
+          />
+        </Row>
+        <Row title="Color" stack>
+          <div class="flex flex-wrap gap-2" role="radiogroup" aria-label="Account color">
+            <button
+              role="radio"
+              aria-checked={!p.account.color}
+              class={`h-7 rounded-full border px-3 text-xs ${!p.account.color ? "border-primary text-primary" : "border-outline text-muted"}`}
+              onClick={() => p.onSettings({ color: "" })}
+            >
+              Auto
+            </button>
+            <For each={ACCOUNT_COLORS}>
+              {(c) => (
+                <button
+                  role="radio"
+                  aria-checked={p.account.color === c}
+                  aria-label={c}
+                  class={`size-7 rounded-full ${p.account.color === c ? "ring-2 ring-primary ring-offset-2 ring-offset-surface-high" : ""}`}
+                  style={{ background: c }}
+                  onClick={() => p.onSettings({ color: c })}
+                />
+              )}
+            </For>
+          </div>
+        </Row>
+        <Row title="Notifications" stack>
+          <Segmented<NotificationMode>
+            label="Notifications"
+            value={p.account.notify}
+            options={[
+              ["all", "All new mail"],
+              ["otp", "Codes only"],
+              ["off", "Off"],
+            ]}
+            onChange={p.onNotify}
+          />
+        </Row>
+        <Row title="Signature" desc="Added to new messages, replies and forwards from this account." stack>
+          <textarea
+            class="min-h-20 w-full rounded-lg border border-outline bg-surface px-3 py-2 text-sm text-text"
+            dir="auto"
+            maxLength={2000}
+            value={p.account.signature}
+            onBlur={(e) => saveText("signature", e.currentTarget.value)}
+          />
+        </Row>
+      </Section>
+      <Section title="Offline mail">
+        <Row title="Mail on this PC" desc="Headers for search and browsing; full copies of recent mail." stack>
+          <Segmented<SyncWindow>
+            label="Mail on this PC"
+            value={p.account.syncWindow}
+            options={WINDOWS.map((w) => [w.id, w.short] as [SyncWindow, string])}
+            onChange={p.onWindow}
+          />
+        </Row>
+        <Row title="Attachments" desc="Saved files count against the storage budget. Others download when you open them." stack>
+          <Segmented<AttachMode>
+            label="Attachments"
+            value={p.account.attachMode}
+            options={[
+              ["none", "On demand"],
+              ["limit", "Small files"],
+              ["all", "All files"],
+            ]}
+            onChange={(v) => p.onSettings({ attachMode: v })}
+          />
+          <Show when={p.account.attachMode === "limit"}>
+            <Segmented<string>
+              label="Largest file to keep"
+              value={String(p.account.attachMaxMb)}
+              options={[
+                ["2", "Up to 2 MB"],
+                ["10", "Up to 10 MB"],
+                ["25", "Up to 25 MB"],
+              ]}
+              onChange={(v) => p.onSettings({ attachMaxMb: Number(v) })}
+            />
+          </Show>
+        </Row>
+        <Row title="Storage used" stack>
+          <div class="text-xs text-muted">
+            <Show when={storage()} fallback="…">
+              {storage()!.messages.toLocaleString("en-US")} messages · {formatSize(storage()!.dbBytes)} of mail · {formatSize(storage()!.filesBytes)} of attachments
+            </Show>
+          </div>
+        </Row>
+      </Section>
+      <Section title="Remove">
+        <Row title="Remove this account" desc="Signs out and deletes its mail and attachments from this PC. Nothing is deleted in Gmail.">
+          <button class="h-8 shrink-0 rounded-full px-3 text-xs font-medium text-danger hover:bg-danger/10" onClick={p.onRemove}>
+            Remove
+          </button>
+        </Row>
+      </Section>
     </div>
   );
 }
@@ -168,11 +268,14 @@ const Section = (p: { title: string; children: JSX.Element }) => (
 );
 
 export default function SettingsPanel(p: Props) {
+  const [page, setPage] = createSignal<number | null>(null);
+  const pageAccount = () => p.accounts.find((a) => a.id === page());
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        p.onClose();
+        if (page() != null) setPage(null);
+        else p.onClose();
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -191,18 +294,23 @@ export default function SettingsPanel(p: Props) {
           </button>
         </header>
         <div class="flex-1 overflow-y-auto px-6 pb-8">
+          <Show when={pageAccount()}>
+            {(a) => (
+              <AccountPage
+                account={a()}
+                onBack={() => setPage(null)}
+                onRemove={() => p.onRemoveAccount(a().id)}
+                onWindow={(w) => p.onSyncWindow(a().id, w)}
+                onNotify={(m) => p.onAccountNotify(a().id, m)}
+                onPause={(x) => p.onPauseHistory(a().id, x)}
+                onRetry={() => p.onPauseHistory(a().id, false)}
+                onSettings={(s) => p.onAccountSettings(a().id, s)}
+              />
+            )}
+          </Show>
+          <Show when={!pageAccount()}>
           <Section title="Accounts">
-            <For each={p.accounts}>
-              {(a) => (
-                <AccountCard
-                  account={a}
-                  onRemove={() => p.onRemoveAccount(a.id)}
-                  onWindow={(w) => p.onSyncWindow(a.id, w)}
-                  onNotify={(m) => p.onAccountNotify(a.id, m)}
-                  onPause={(x) => p.onPauseHistory(a.id, x)}
-                />
-              )}
-            </For>
+            <For each={p.accounts}>{(a) => <AccountRow account={a} onOpen={() => setPage(a.id)} />}</For>
             <button class="flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium text-primary hover:bg-primary/10" onClick={p.onAddAccount}>
               <Icon name="add" size={20} /> Add another account
             </button>
@@ -221,7 +329,7 @@ export default function SettingsPanel(p: Props) {
                 onChange={(v) => p.onPref("offline_days", v)}
               />
             </Row>
-            <Row title="Storage budget" desc={`Using ${formatSize(p.status.dbBytes)}. Offline copies stop when the budget is reached.`} stack>
+            <Row title="Storage budget" desc={`Using ${formatSize(p.status.dbBytes)} for mail, plus saved attachments. Offline copies stop when the budget is reached.`} stack>
               <Segmented<Prefs["storage_budget_mb"]>
                 label="Storage budget"
                 value={p.prefs.storage_budget_mb}
@@ -361,6 +469,7 @@ export default function SettingsPanel(p: Props) {
               <div>Your mail stays on this PC. Sign-in tokens live in Windows Credential Manager.</div>
             </div>
           </Section>
+          </Show>
         </div>
       </aside>
     </div>

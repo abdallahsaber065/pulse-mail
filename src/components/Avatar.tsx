@@ -1,6 +1,6 @@
 import { avatarHue, initials } from "../lib/format";
 
-export default function Avatar(props: { name: string; email: string; size?: number }) {
+export default function Avatar(props: { name: string; email: string; size?: number; color?: string }) {
   const size = () => props.size ?? 40;
   const hue = () => avatarHue(props.email || props.name);
   return (
@@ -10,7 +10,7 @@ export default function Avatar(props: { name: string; email: string; size?: numb
         width: `${size()}px`,
         height: `${size()}px`,
         "font-size": `${Math.round(size() * 0.4)}px`,
-        background: `hsl(${hue()} 45% 45%)`,
+        background: props.color || `hsl(${hue()} 45% 45%)`,
       }}
       aria-hidden="true"
     >

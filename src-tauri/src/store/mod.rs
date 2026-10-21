@@ -36,6 +36,8 @@ pub struct NewMessage {
     /// Space-separated `<id>` list from the References header.
     pub rfc_references: String,
     pub attachments: Vec<NewAttachment>,
+    /// Gmail sizeEstimate / raw size in bytes (0 = unknown).
+    pub size: i64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -57,6 +59,8 @@ pub struct AttachmentRow {
     pub mime: String,
     pub size: i64,
     pub inline: bool,
+    /// A copy is saved on this PC.
+    pub stored: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -78,13 +82,52 @@ pub struct Account {
     pub backfill_total: i64,
     /// Gmail profile `messagesTotal` at sign-in (for estimates).
     pub messages_total: i64,
+    /// History download phase: "" | "count" | "index" | "bodies" | "files".
+    pub backfill_phase: String,
+    /// Last history-download error shown to the user (None = fine).
+    pub backfill_error: Option<String>,
+    /// Attachments kept offline: "none" | "limit" | "all".
+    pub attach_mode: String,
+    /// Per-file limit for "limit", in MB.
+    pub attach_max_mb: i64,
+    pub display_name: String,
+    /// Account color ("" = automatic).
+    pub color: String,
+    /// Plain-text signature appended to new messages and replies.
+    pub signature: String,
+}
+
+/// Per-account settings the UI can change.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSettings {
+    pub display_name: Option<String>,
+    pub color: Option<String>,
+    pub signature: Option<String>,
+    pub attach_mode: Option<String>,
+    pub attach_max_mb: Option<i64>,
+}
+
+pub const ATTACH_MODES: &[&str] = &["none", "limit", "all"];
+pub const BACKFILL_PHASES: &[&str] = &["", "count", "index", "bodies", "files"];
+
+/// Estimated download sizes for an account's range (bytes).
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SizeEstimate {
+    /// Messages with a known size.
+    pub sized: i64,
+    pub total_bytes: i64,
+    /// Same, counting messages with attachments as text only.
+    pub text_bytes: i64,
 }
 
 pub const SYNC_WINDOWS: &[&str] = &["30d", "90d", "1y", "all"];
 pub const BACKFILL_STATES: &[&str] = &["setup", "pending", "running", "paused", "done"];
 
 const ACCOUNT_COLS: &str = "id, email, history_id, last_sync_at, sync_window, notify, backfill_state, backfill_page, \
-                            backfill_done, backfill_total, messages_total";
+                            backfill_done, backfill_total, messages_total, backfill_phase, backfill_error, \
+                            attach_mode, attach_max_mb, display_name, color, signature";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -244,11 +287,158 @@ impl Store {
         // messages already on this PC are skipped quickly.
         self.conn.execute(
             "UPDATE accounts SET sync_window = ?2, backfill_page = NULL, backfill_done = 0, backfill_total = 0,
+                    backfill_phase = '', backfill_error = NULL,
                     backfill_state = CASE WHEN backfill_state = 'setup' THEN 'setup' ELSE 'pending' END
              WHERE id = ?1",
             params![account_id, window],
         )?;
+        self.conn.execute("DELETE FROM hist_queue WHERE account_id = ?1", [account_id])?;
         Ok(())
+    }
+
+    pub fn set_backfill_phase(&self, account_id: i64, phase: &str) -> Result<()> {
+        debug_assert!(BACKFILL_PHASES.contains(&phase));
+        self.conn
+            .execute("UPDATE accounts SET backfill_phase = ?2 WHERE id = ?1", params![account_id, phase])?;
+        Ok(())
+    }
+
+    pub fn set_backfill_error(&self, account_id: i64, error: Option<&str>) -> Result<()> {
+        self.conn
+            .execute("UPDATE accounts SET backfill_error = ?2 WHERE id = ?1", params![account_id, error])?;
+        Ok(())
+    }
+
+    /// Apply the fields that are set; values are validated by the caller.
+    pub fn set_account_settings(&self, account_id: i64, s: &AccountSettings) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for (col, v) in [
+            ("display_name", s.display_name.as_deref()),
+            ("color", s.color.as_deref()),
+            ("signature", s.signature.as_deref()),
+            ("attach_mode", s.attach_mode.as_deref()),
+        ] {
+            if let Some(v) = v {
+                // column names come from the fixed list above
+                tx.execute(&format!("UPDATE accounts SET {col} = ?2 WHERE id = ?1"), params![account_id, v])?;
+            }
+        }
+        if let Some(mb) = s.attach_max_mb {
+            tx.execute("UPDATE accounts SET attach_max_mb = ?2 WHERE id = ?1", params![account_id, mb])?;
+        }
+        tx.commit()
+    }
+
+    /// Queue ids (from the counting pass) that aren't cached yet.
+    pub fn queue_missing(&mut self, account_id: i64, ids: &[String]) -> Result<usize> {
+        let tx = self.conn.transaction()?;
+        let mut n = 0;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR IGNORE INTO hist_queue(account_id, id)
+                 SELECT ?1, ?2 WHERE NOT EXISTS (SELECT 1 FROM messages WHERE account_id = ?1 AND id = ?2)",
+            )?;
+            for id in ids {
+                n += stmt.execute(params![account_id, id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(n)
+    }
+
+    pub fn queue_take(&self, account_id: i64, limit: i64) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT id FROM hist_queue WHERE account_id = ?1 LIMIT ?2")?;
+        stmt.query_map(params![account_id, limit], |r| r.get(0))?.collect()
+    }
+
+    pub fn queue_remove(&mut self, account_id: i64, ids: &[String]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached("DELETE FROM hist_queue WHERE account_id = ?1 AND id = ?2")?;
+            for id in ids {
+                stmt.execute(params![account_id, id])?;
+            }
+        }
+        tx.commit()
+    }
+
+    pub fn queue_len(&self, account_id: i64) -> Result<i64> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM hist_queue WHERE account_id = ?1", [account_id], |r| r.get(0))
+    }
+
+    /// Sizes of the messages newer than `since_ms` (0 = all) on this PC.
+    pub fn size_estimate(&self, account_id: i64, since_ms: i64) -> Result<SizeEstimate> {
+        self.conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(size), 0),
+                    COALESCE(SUM(CASE WHEN has_attachments THEN MIN(size, 80000) ELSE size END), 0)
+             FROM messages WHERE account_id = ?1 AND internal_date >= ?2 AND size > 0",
+            params![account_id, since_ms],
+            |r| Ok(SizeEstimate { sized: r.get(0)?, total_bytes: r.get(1)?, text_bytes: r.get(2)? }),
+        )
+    }
+
+    /// Offline-copy candidates: no body yet, newer than `since_ms`, at most
+    /// `max_size` bytes (0 = any size; unknown sizes always qualify).
+    pub fn body_candidates(&self, account_id: i64, since_ms: i64, max_size: i64, limit: i64) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id FROM messages WHERE account_id = ?1 AND body_loaded = 0 AND internal_date >= ?2
+               AND (?3 = 0 OR size <= ?3)
+             ORDER BY internal_date DESC LIMIT ?4",
+        )?;
+        stmt.query_map(params![account_id, since_ms, max_size, limit], |r| r.get(0))?.collect()
+    }
+
+    /// Messages whose body is cached but some attachment allowed by the
+    /// policy (`max_file` bytes, 0 = any) isn't saved yet.
+    pub fn file_candidates(&self, account_id: i64, since_ms: i64, max_file: i64, limit: i64) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT DISTINCT m.id FROM messages m JOIN attachments a ON a.account_id = m.account_id AND a.message_id = m.id
+             WHERE m.account_id = ?1 AND m.body_loaded = 1 AND m.internal_date >= ?2
+               AND a.inline = 0 AND a.stored = 0 AND (?3 = 0 OR a.size <= ?3)
+             ORDER BY m.internal_date DESC LIMIT ?4",
+        )?;
+        stmt.query_map(params![account_id, since_ms, max_file, limit], |r| r.get(0))?.collect()
+    }
+
+    pub fn mark_stored(&self, account_id: i64, message_id: &str, part: u32) -> Result<()> {
+        self.conn.execute(
+            "UPDATE attachments SET stored = 1 WHERE account_id = ?1 AND message_id = ?2 AND part = ?3",
+            params![account_id, message_id, part],
+        )?;
+        Ok(())
+    }
+
+    pub fn attachment_stored(&self, account_id: i64, message_id: &str, part: u32) -> Result<bool> {
+        self.conn
+            .query_row(
+                "SELECT stored FROM attachments WHERE account_id = ?1 AND message_id = ?2 AND part = ?3",
+                params![account_id, message_id, part],
+                |r| r.get(0),
+            )
+            .optional()
+            .map(|v| v.unwrap_or(false))
+    }
+
+    /// Bytes of attachments saved on disk (all accounts, or one).
+    pub fn stored_attachment_bytes(&self, account_id: Option<i64>) -> Result<i64> {
+        self.conn.query_row(
+            "SELECT COALESCE(SUM(size), 0) FROM attachments WHERE stored = 1 AND (?1 IS NULL OR account_id = ?1)",
+            [account_id],
+            |r| r.get(0),
+        )
+    }
+
+    /// Rough bytes this account uses in the database (bodies + metadata).
+    pub fn account_db_bytes(&self, account_id: i64) -> Result<i64> {
+        self.conn.query_row(
+            "SELECT COALESCE(SUM(LENGTH(body_text) + COALESCE(LENGTH(body_html), 0) + LENGTH(snippet) + 600), 0)
+             FROM messages WHERE account_id = ?1",
+            [account_id],
+            |r| r.get(0),
+        )
     }
 
     pub fn set_account_notify(&self, account_id: i64, mode: &str) -> Result<()> {
@@ -349,8 +539,8 @@ impl Store {
             "INSERT INTO messages(account_id, id, thread_id, internal_date, from_name, from_email, to_list,
                                   subject, snippet, body_text, body_html, is_unread, is_starred,
                                   has_attachments, otp_code, body_loaded,
-                                  cc_list, reply_to, rfc_message_id, rfc_references)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19)
+                                  cc_list, reply_to, rfc_message_id, rfc_references, size)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19, ?20)
              ON CONFLICT(account_id, id) DO UPDATE SET
                 thread_id = excluded.thread_id, internal_date = excluded.internal_date,
                 from_name = excluded.from_name, from_email = excluded.from_email, to_list = excluded.to_list,
@@ -358,7 +548,8 @@ impl Store {
                 body_html = excluded.body_html, is_unread = excluded.is_unread, is_starred = excluded.is_starred,
                 has_attachments = excluded.has_attachments, otp_code = excluded.otp_code,
                 body_loaded = 1, cc_list = excluded.cc_list, reply_to = excluded.reply_to,
-                rfc_message_id = excluded.rfc_message_id, rfc_references = excluded.rfc_references",
+                rfc_message_id = excluded.rfc_message_id, rfc_references = excluded.rfc_references,
+                size = CASE WHEN excluded.size > 0 THEN excluded.size ELSE messages.size END",
             params![
                 account_id,
                 m.id,
@@ -378,21 +569,30 @@ impl Store {
                 m.cc_list,
                 m.reply_to,
                 m.rfc_message_id,
-                m.rfc_references
+                m.rfc_references,
+                m.size
             ],
         )?;
         write_labels(&tx, account_id, &m.id, &m.label_ids)?;
+        // Keep the "saved on this PC" flag of attachments that are unchanged.
+        let kept: Vec<u32> = {
+            let mut stmt = tx.prepare_cached(
+                "SELECT part FROM attachments WHERE account_id = ?1 AND message_id = ?2 AND stored = 1",
+            )?;
+            stmt.query_map(params![account_id, m.id], |r| r.get(0))?.collect::<Result<_>>()?
+        };
         tx.execute(
             "DELETE FROM attachments WHERE account_id = ?1 AND message_id = ?2",
             params![account_id, m.id],
         )?;
         {
             let mut stmt = tx.prepare_cached(
-                "INSERT OR REPLACE INTO attachments(account_id, message_id, part, filename, mime, size, content_id, inline, data)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT OR REPLACE INTO attachments(account_id, message_id, part, filename, mime, size, content_id, inline, data, stored)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             )?;
             for a in &m.attachments {
-                stmt.execute(params![account_id, m.id, a.part, a.filename, a.mime, a.size, a.content_id, a.inline, a.data])?;
+                let stored = kept.contains(&a.part);
+                stmt.execute(params![account_id, m.id, a.part, a.filename, a.mime, a.size, a.content_id, a.inline, a.data, stored])?;
             }
         }
         tx.commit()
@@ -406,14 +606,18 @@ impl Store {
         let starred = m.label_ids.iter().any(|l| l == "STARRED");
         tx.execute(
             "INSERT INTO messages(account_id, id, thread_id, internal_date, from_name, from_email, to_list,
-                                  subject, snippet, body_text, is_unread, is_starred, otp_code, body_loaded)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10, ?11, ?12, 0)
+                                  subject, snippet, body_text, is_unread, is_starred, otp_code, body_loaded,
+                                  size, has_attachments)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10, ?11, ?12, 0, ?13, ?14)
              ON CONFLICT(account_id, id) DO UPDATE SET
                 thread_id = excluded.thread_id, internal_date = excluded.internal_date,
                 from_name = excluded.from_name, from_email = excluded.from_email, to_list = excluded.to_list,
                 subject = excluded.subject, snippet = excluded.snippet,
                 is_unread = excluded.is_unread, is_starred = excluded.is_starred,
-                otp_code = COALESCE(messages.otp_code, excluded.otp_code)",
+                otp_code = COALESCE(messages.otp_code, excluded.otp_code),
+                size = CASE WHEN excluded.size > 0 THEN excluded.size ELSE messages.size END,
+                has_attachments = CASE WHEN messages.body_loaded = 1 THEN messages.has_attachments
+                                       ELSE excluded.has_attachments END",
             params![
                 account_id,
                 m.id,
@@ -426,7 +630,9 @@ impl Store {
                 m.snippet,
                 unread,
                 starred,
-                m.otp_code
+                m.otp_code,
+                m.size,
+                m.has_attachments
             ],
         )?;
         write_labels(&tx, account_id, &m.id, &m.label_ids)?;
@@ -722,7 +928,7 @@ impl Store {
     /// Attachment list of a message (optionally including inline images).
     pub fn attachments(&self, account_id: i64, message_id: &str, with_inline: bool) -> Result<Vec<AttachmentRow>> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT part, filename, mime, size, inline FROM attachments
+            "SELECT part, filename, mime, size, inline, stored FROM attachments
              WHERE account_id = ?1 AND message_id = ?2 AND (?3 OR inline = 0) ORDER BY part",
         )?;
         stmt.query_map(params![account_id, message_id, with_inline], |r| {
@@ -732,6 +938,7 @@ impl Store {
                 mime: r.get(2)?,
                 size: r.get(3)?,
                 inline: r.get(4)?,
+                stored: r.get(5)?,
             })
         })?
         .collect()
@@ -840,6 +1047,13 @@ fn map_account(r: &rusqlite::Row<'_>) -> Result<Account> {
         backfill_done: r.get(8)?,
         backfill_total: r.get(9)?,
         messages_total: r.get(10)?,
+        backfill_phase: r.get(11)?,
+        backfill_error: r.get(12)?,
+        attach_mode: r.get(13)?,
+        attach_max_mb: r.get(14)?,
+        display_name: r.get(15)?,
+        color: r.get(16)?,
+        signature: r.get(17)?,
     })
 }
 
@@ -1119,5 +1333,47 @@ mod tests {
         assert_eq!(s.list_threads(Some(a.id), "INBOX", 10, 0).unwrap().len(), 1);
         assert_eq!(s.inbox_unread().unwrap(), vec![(a.id, 1)]);
         assert!(s.db_size().unwrap() > 0);
+    }
+
+    #[test]
+    fn history_queue_sizes_and_stored_files() {
+        let mut s = Store::open_in_memory().unwrap();
+        let a = s.upsert_account("a@example.com", 1).unwrap();
+        s.upsert_message(a.id, &msg("m1", "t1", 10, &["INBOX"], "hi")).unwrap();
+        let ids: Vec<String> = ["m1", "m2", "m3"].iter().map(|x| x.to_string()).collect();
+        assert_eq!(s.queue_missing(a.id, &ids).unwrap(), 2, "cached ids are not queued");
+        assert_eq!(s.queue_missing(a.id, &ids).unwrap(), 0, "idempotent");
+        assert_eq!(s.queue_len(a.id).unwrap(), 2);
+        let take = s.queue_take(a.id, 1).unwrap();
+        s.queue_remove(a.id, &take).unwrap();
+        assert_eq!(s.queue_len(a.id).unwrap(), 1);
+        // a new range clears the queue and the phase
+        s.set_backfill_phase(a.id, "index").unwrap();
+        s.set_account_window(a.id, "all").unwrap();
+        assert_eq!(s.queue_len(a.id).unwrap(), 0);
+        assert_eq!(s.account(a.id).unwrap().unwrap().backfill_phase, "");
+
+        let mut big = msg("m4", "t4", 20, &["INBOX"], "files");
+        big.size = 5_000_000;
+        big.has_attachments = true;
+        big.attachments = vec![NewAttachment { part: 0, filename: "a.pdf".into(), mime: "application/pdf".into(), size: 4_900_000, ..Default::default() }];
+        s.upsert_metadata(a.id, &NewMessage { size: 5_000_000, has_attachments: true, ..big.clone() }).unwrap();
+        let est = s.size_estimate(a.id, 0).unwrap();
+        assert_eq!((est.sized, est.total_bytes, est.text_bytes), (1, 5_000_000, 80_000));
+        assert_eq!(s.body_candidates(a.id, 0, 1_000_000, 10).unwrap(), Vec::<String>::new(), "too big for the policy");
+        assert_eq!(s.body_candidates(a.id, 0, 0, 10).unwrap(), vec!["m4".to_string()]);
+        s.upsert_message(a.id, &big).unwrap();
+        assert_eq!(s.file_candidates(a.id, 0, 10_000_000, 10).unwrap(), vec!["m4".to_string()]);
+        assert!(s.file_candidates(a.id, 0, 1_000_000, 10).unwrap().is_empty());
+        s.mark_stored(a.id, "m4", 0).unwrap();
+        assert!(s.attachment_stored(a.id, "m4", 0).unwrap());
+        assert_eq!(s.stored_attachment_bytes(Some(a.id)).unwrap(), 4_900_000);
+        // re-caching the body keeps the stored flag
+        s.upsert_message(a.id, &big).unwrap();
+        assert!(s.file_candidates(a.id, 0, 0, 10).unwrap().is_empty());
+
+        s.set_account_settings(a.id, &AccountSettings { attach_mode: Some("all".into()), signature: Some("-- A".into()), ..Default::default() }).unwrap();
+        let acc = s.account(a.id).unwrap().unwrap();
+        assert_eq!((acc.attach_mode.as_str(), acc.signature.as_str(), acc.attach_max_mb), ("all", "-- A", 10));
     }
 }

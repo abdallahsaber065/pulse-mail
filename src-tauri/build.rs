@@ -10,6 +10,8 @@ const COMMANDS: &[&str] = &[
     "list_threads",
     "search",
     "search_server",
+    "set_account_settings",
+    "account_storage",
     "get_thread",
     "sync_now",
     "take_pending_open",

@@ -4,7 +4,7 @@
 import { createEffect, createResource, createSignal, For, Match, on, Show, Switch, type JSX } from "solid-js";
 import Icon, { type IconName } from "./Icon";
 import { api } from "../lib/api";
-import { compactCount, formatEta, formatRate, historyFraction, phaseLabel, WINDOWS } from "../lib/accounts";
+import { compactCount, formatEta, formatRate, historyBar, phaseLabel, sizeLine, WINDOWS } from "../lib/accounts";
 import { formatSize } from "../lib/format";
 import type { History, NotificationMode, PrefKey, Prefs, SyncWindow } from "../lib/types";
 
@@ -389,7 +389,7 @@ export default function Onboarding(p: OnboardingProps) {
           <Match when={step() === "progress"}>
             {(() => {
               const h = () => history();
-              const pct = () => historyFraction(h());
+              const pct = () => historyBar(h());
               return (
                 <>
                   <h1 class="mb-1 font-display text-2xl text-text">Setting up {account()?.email}</h1>
@@ -402,7 +402,14 @@ export default function Onboarding(p: OnboardingProps) {
                       <div class="text-sm font-medium text-text">{h() ? phaseLabel(h()!) : "Starting…"}</div>
                       <div class="text-xs text-muted tabular-nums">
                         <Show when={h() && h()!.total > 0} fallback="Counting messages…">
-                          {h()!.done.toLocaleString()} of {h()!.total.toLocaleString()} {h()!.phase === "bodies" ? "offline copies" : "messages"}
+                          {h()!.phase === "count"
+                            ? `${h()!.done.toLocaleString("en-US")} messages found`
+                            : `${h()!.done.toLocaleString("en-US")} of ${h()!.total.toLocaleString("en-US")} ${
+                                h()!.phase === "bodies" ? "offline copies" : h()!.phase === "files" ? "messages with files" : "messages"
+                              }`}
+                        </Show>
+                        <Show when={sizeLine(h(), formatSize)}>
+                          <span> · {sizeLine(h(), formatSize)}</span>
                         </Show>
                       </div>
                     </div>
@@ -426,15 +433,18 @@ export default function Onboarding(p: OnboardingProps) {
                     <For
                       each={
                         [
-                          ["list", "1", "Message list", "Headers for search and browsing"],
-                          ["bodies", "2", "Offline copies", `Full messages from the last ${p.prefs.offline_days} days`],
+                          ["count", "1", "Count", "Exact number of messages in the range"],
+                          ["index", "2", "Message list", "Headers for search and browsing"],
+                          ["bodies", "3", "Offline copies", `Full messages from the last ${p.prefs.offline_days} days`],
+                          ["files", "4", "Attachments", "Files allowed by the account's attachment setting"],
                         ] as const
                       }
                     >
                       {([phase, n, title, desc]) => {
                         const state = () => {
-                          const ph = h()?.phase;
-                          if (h()?.state === "done" || (phase === "list" && ph === "bodies")) return "done";
+                          const order = ["count", "index", "bodies", "files"];
+                          const ph = h()?.phase ?? "";
+                          if (h()?.state === "done" || order.indexOf(phase) < order.indexOf(ph)) return "done";
                           return ph === phase ? "active" : "todo";
                         };
                         return (

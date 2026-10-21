@@ -1,6 +1,8 @@
 // Thin typed wrapper over Tauri IPC. Outside Tauri (plain `pnpm dev` in a
 // browser) it falls back to mock data so the UI can be designed quickly.
 import type {
+  AccountSettings,
+  AccountStorage,
   Activity,
   ComposeInit,
   ComposeMode,
@@ -50,6 +52,8 @@ export const api = {
   setSyncWindow: (accountId: number, window: SyncWindow) => call<void>("set_sync_window", { accountId, window }),
   pauseHistory: (accountId: number) => call<void>("pause_history", { accountId }),
   resumeHistory: (accountId: number) => call<void>("resume_history", { accountId }),
+  setAccountSettings: (accountId: number, settings: AccountSettings) => call<void>("set_account_settings", { accountId, settings }),
+  accountStorage: (accountId: number) => call<AccountStorage>("account_storage", { accountId }),
   labels: (accountId: Acct = null) => call<Label[]>("list_labels", { accountId }),
   threads: (labelId: string, limit = 200, offset = 0, accountId: Acct = null) =>
     call<ThreadRow[]>("list_threads", { labelId, limit, offset, accountId }),

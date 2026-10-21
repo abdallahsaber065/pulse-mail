@@ -61,11 +61,52 @@ export const formatRate = (r: number) => (r >= 1 ? `${Math.round(r)} messages/s`
 /** Phase label for the progress screen. */
 export function phaseLabel(h: History): string {
   if (h.state === "done") return "All set";
-  if (h.state === "paused") return "Paused";
   if (h.state === "setup") return "Waiting for your choices";
-  if (h.phase === "bodies") return "Saving offline copies";
-  if (h.phase === "list") return "Downloading your mail";
-  return h.state === "running" ? "Starting…" : "Waiting to start";
+  if (h.error) return "Download paused";
+  if (h.state === "paused") return "Paused";
+  switch (h.phase) {
+    case "count":
+      return "Counting messages…";
+    case "index":
+      return "Indexing messages";
+    case "bodies":
+      return "Downloading messages";
+    case "files":
+      return "Downloading attachments…";
+  }
+  return h.state === "running" ? "Getting ready…" : "Waiting to start";
+}
+
+const n = (x: number) => x.toLocaleString("en-US");
+
+/**
+ * One-line progress: "12,340 found", "1,234 / 12,340 · 45/s · About 4 min left".
+ * The count phase has no known end, so it shows only what was found.
+ */
+export function historyLine(h: History): string {
+  if (h.state === "done") return "";
+  if (h.phase === "count") return `${n(h.done)} found`;
+  const parts = [h.total > 0 ? `${n(h.done)} / ${n(h.total)}` : n(h.done)];
+  if (h.state === "running" && !h.error) {
+    if (h.rate > 0) parts.push(`${h.rate >= 10 ? Math.round(h.rate) : h.rate.toFixed(1)}/s`);
+    parts.push(formatEta(h.etaSecs).replace("About ", "~"));
+  }
+  return parts.join(" · ");
+}
+
+/** Progress bar fraction; null while counting (indeterminate). */
+export function historyBar(h: History | null | undefined): number | null {
+  if (!h) return null;
+  if (h.state === "done") return 1;
+  if (h.phase === "count" || h.phase === "") return null;
+  return historyFraction(h);
+}
+
+/** "≈ 2.3 GB, 410 MB without attachments" once sizes are known. */
+export function sizeLine(h: History | null | undefined, fmt: (b: number) => string): string {
+  if (!h || h.bytesTotal <= 0) return "";
+  const text = h.bytesText > 0 && h.bytesText < h.bytesTotal * 0.95 ? `, ${fmt(h.bytesText)} without attachments` : "";
+  return `≈ ${fmt(h.bytesTotal)} in Gmail${text}`;
 }
 
 /** Compact counts: 950, 12.4k, 1.2M. */

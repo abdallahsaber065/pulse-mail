@@ -165,17 +165,28 @@ pub async fn save_attachment(
         .into_iter()
         .find(|a| a.part == part)
         .ok_or_else(|| CmdError::new("That attachment isn't available."))?;
-    let engine = super::engine_for(&state, Some(account)).await?;
-    let raw = engine.fetch_raw(&message_id).await?;
-    let bytes = tauri::async_runtime::spawn_blocking(move || {
-        mail_parser::MessageParser::default()
-            .parse(&raw)
-            .and_then(|p| p.attachment(part).map(|a| a.contents().to_vec()))
-    })
-    .await
-    .ok()
-    .flatten()
-    .ok_or_else(|| CmdError::new("Couldn't read that attachment."))?;
+    // Saved on this PC (attachment policy), otherwise fetched from Gmail.
+    let local = if meta.stored {
+        crate::files::read(&state.files_dir, account, &message_id, part)
+    } else {
+        None
+    };
+    let bytes = match local {
+        Some(b) => b,
+        None => {
+            let engine = super::engine_for(&state, Some(account)).await?;
+            let raw = engine.fetch_raw(&message_id).await?;
+            tauri::async_runtime::spawn_blocking(move || {
+                mail_parser::MessageParser::default()
+                    .parse(&raw)
+                    .and_then(|p| p.attachment(part).map(|a| a.contents().to_vec()))
+            })
+            .await
+            .ok()
+            .flatten()
+            .ok_or_else(|| CmdError::new("Couldn't read that attachment."))?
+        }
+    };
 
     let name = crate::sync::mime::safe_filename(&meta.filename);
     let dir = if open {

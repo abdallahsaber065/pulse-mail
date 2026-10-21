@@ -30,13 +30,36 @@ export type HistoryState = "setup" | "pending" | "running" | "paused" | "done";
 export interface History {
   state: HistoryState;
   window: SyncWindow;
-  /** "list" = message list, "bodies" = offline copies, "" = idle. */
-  phase: "list" | "bodies" | "";
+  /** count → index → bodies → files; "" = not started. */
+  phase: HistoryPhase;
   done: number;
   total: number;
-  /** Messages per second this session (0 = unknown yet). */
+  /** Smoothed messages per second (0 = unknown yet). */
   rate: number;
   etaSecs: number | null;
+  /** Set when the download stopped after a failure (it retries itself). */
+  error: string | null;
+  /** Size of the range's messages known so far (bytes). */
+  bytesTotal: number;
+  /** Same without attachments (approximate). */
+  bytesText: number;
+}
+
+export type HistoryPhase = "count" | "index" | "bodies" | "files" | "";
+export type AttachMode = "none" | "limit" | "all";
+
+export interface AccountSettings {
+  displayName?: string;
+  color?: string;
+  signature?: string;
+  attachMode?: AttachMode;
+  attachMaxMb?: number;
+}
+
+export interface AccountStorage {
+  messages: number;
+  dbBytes: number;
+  filesBytes: number;
 }
 
 export interface Account {
@@ -50,6 +73,13 @@ export interface Account {
   backfillDone: number;
   backfillTotal: number;
   messagesTotal: number;
+  backfillPhase: HistoryPhase;
+  backfillError: string | null;
+  attachMode: AttachMode;
+  attachMaxMb: number;
+  displayName: string;
+  color: string;
+  signature: string;
   sync: SyncStatus;
   unread: number;
 }

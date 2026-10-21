@@ -137,4 +137,29 @@ pub const MIGRATIONS: &[&str] = &[
      WHERE backfill_state = 'done' AND backfill_total = 0 AND backfill_done = 0
        AND backfill_page IS NULL;
     "#,
+    // 6: history download v2 (count -> index -> bodies -> attachments) with a
+    // resumable id queue, message sizes for estimates, attachments on disk,
+    // and per-account settings. Restarts unfinished downloads, whose totals
+    // came from Gmail's rough resultSizeEstimate.
+    r#"
+    ALTER TABLE messages ADD COLUMN size INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE attachments ADD COLUMN stored INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE hist_queue (
+        account_id  INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        id          TEXT NOT NULL,
+        PRIMARY KEY (account_id, id)
+    ) WITHOUT ROWID;
+    -- '' (not started) | count | index | bodies | files
+    ALTER TABLE accounts ADD COLUMN backfill_phase TEXT NOT NULL DEFAULT '';
+    ALTER TABLE accounts ADD COLUMN backfill_error TEXT;
+    -- none | limit | all
+    ALTER TABLE accounts ADD COLUMN attach_mode TEXT NOT NULL DEFAULT 'limit';
+    ALTER TABLE accounts ADD COLUMN attach_max_mb INTEGER NOT NULL DEFAULT 10;
+    ALTER TABLE accounts ADD COLUMN display_name TEXT NOT NULL DEFAULT '';
+    ALTER TABLE accounts ADD COLUMN color TEXT NOT NULL DEFAULT '';
+    ALTER TABLE accounts ADD COLUMN signature TEXT NOT NULL DEFAULT '';
+    UPDATE accounts SET backfill_page = NULL, backfill_done = 0, backfill_total = 0
+     WHERE backfill_state NOT IN ('setup', 'done');
+    UPDATE accounts SET backfill_state = 'pending' WHERE backfill_state = 'running';
+    "#,
 ];

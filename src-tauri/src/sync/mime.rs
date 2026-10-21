@@ -21,6 +21,7 @@ pub fn to_new_message(raw: &RawMessage, bytes: &[u8]) -> NewMessage {
         internal_date: raw.internal_date_ms(),
         snippet: decode_snippet(&raw.snippet),
         label_ids: raw.label_ids.clone(),
+        size: if raw.size_estimate > 0 { raw.size_estimate } else { bytes.len() as i64 },
         ..Default::default()
     };
     let Some(p) = parsed else {
@@ -148,6 +149,11 @@ pub fn from_metadata(meta: &MetaMessage) -> NewMessage {
         internal_date: meta.internal_date_ms(),
         snippet: decode_snippet(&meta.snippet),
         label_ids: meta.label_ids.clone(),
+        size: meta.size_estimate,
+        // Without the MIME tree, multipart/mixed is the usual sign of files.
+        has_attachments: meta
+            .header("Content-Type")
+            .is_some_and(|c| c.trim_start().to_ascii_lowercase().starts_with("multipart/mixed")),
         ..Default::default()
     };
     let mut head = String::new();
@@ -216,6 +222,7 @@ mod tests {
             label_ids: labels.iter().map(|s| s.to_string()).collect(),
             snippet: "Your code is 482913 &amp; more".into(),
             internal_date: "1729500000000".into(),
+            size_estimate: 0,
             raw: String::new(),
         }
     }

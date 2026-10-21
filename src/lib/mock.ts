@@ -81,7 +81,7 @@ function syncOf(id: number, email: string): SyncStatus {
     error: null,
     progress: null,
     backfill: null,
-    history: { state: "done", window: "90d", phase: "", done: 4210, total: 4210, rate: 0, etaSecs: null },
+    history: { state: "done", window: "90d", phase: "", done: 4210, total: 4210, rate: 0, etaSecs: null, error: null, bytesTotal: 512e6, bytesText: 96e6 },
   };
 }
 
@@ -97,6 +97,13 @@ function accountOf(id: number, email: string): Account {
     backfillDone: 4210,
     backfillTotal: 4210,
     messagesTotal: 48_312,
+    backfillPhase: "",
+    backfillError: null,
+    attachMode: "limit",
+    attachMaxMb: 10,
+    displayName: "",
+    color: "",
+    signature: "",
     sync: syncOf(id, email),
     unread: 3,
   };
@@ -249,7 +256,7 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       const email = id === 1 ? "me@gmail.com" : "work@example.com";
       const a = accountOf(id, email);
       a.backfillState = "setup";
-      a.sync.history = { state: "setup", window: "90d", phase: "", done: 0, total: 0, rate: 0, etaSecs: null };
+      a.sync.history = { state: "setup", window: "90d", phase: "", done: 0, total: 0, rate: 0, etaSecs: null, error: null, bytesTotal: 0, bytesText: 0 };
       status.accounts.push(a);
       status.account ??= email;
       await new Promise((r) => setTimeout(r, 900));
@@ -272,10 +279,17 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
         if (args?.notify) a.notify = args.notify as Account["notify"];
         const state = cmd === "pause_history" ? "paused" : "running";
         a.backfillState = state;
-        a.sync.history = { state, window: a.syncWindow, phase: "list", done: 1_830, total: 15_800, rate: 46, etaSecs: 304 };
+        a.sync.history = { state, window: a.syncWindow, phase: "index", done: 1_830, total: 15_800, rate: 46, etaSecs: 304, error: null, bytesTotal: 1.9e9, bytesText: 310e6 };
       }
       return;
     }
+    case "set_account_settings": {
+      const a = status.accounts.find((x) => x.id === args?.accountId);
+      if (a) Object.assign(a, Object.fromEntries(Object.entries((args?.settings ?? {}) as object).filter(([, v]) => v !== undefined)));
+      return;
+    }
+    case "account_storage":
+      return { messages: 4210, dbBytes: 180e6, filesBytes: 240e6 };
     case "sign_out":
       return;
     case "set_autostart":

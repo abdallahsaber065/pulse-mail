@@ -5,6 +5,7 @@ mod auth;
 mod badge;
 mod commands;
 mod compose;
+mod files;
 #[doc(hidden)]
 pub mod devtools;
 mod notify;
@@ -37,6 +38,8 @@ pub struct AppState {
     pub pending_open: Mutex<Option<window::OpenTarget>>,
     pub destroy_on_close: AtomicBool,
     pub images: render::proxy::ImageProxy,
+    /// Attachments kept on this PC (see `files`).
+    pub files_dir: PathBuf,
 }
 
 impl AppState {
@@ -150,6 +153,7 @@ pub fn run() {
                 pending_open: Mutex::new(None),
                 destroy_on_close: AtomicBool::new(destroy_on_close),
                 images: render::proxy::ImageProxy::new(),
+                files_dir: data_dir.join("attachments"),
             });
 
             tray::build(&handle)?;
@@ -170,6 +174,8 @@ pub fn run() {
             commands::list_threads,
             commands::search,
             commands::search_server,
+            commands::set_account_settings,
+            commands::account_storage,
             commands::get_thread,
             commands::sync_now,
             commands::take_pending_open,
