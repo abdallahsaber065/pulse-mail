@@ -23,13 +23,13 @@ Quota numbers: Gmail allows 250 units per user per second; `messages.get` = 5,
 | # | Item | Pri | Origin |
 | --- | --- | --- | --- |
 | 1 | [Measure toasts and RAM, add `toast shown` log](#m1) | P0 | 💡 |
-| 2 | [Infinite scroll + body-load error state](#r3) | P0 | 💡 |
-| 3 | [Full mailbox history, resumable](#h1) | P0 | 🧑 |
+| 2 | ~~[Infinite scroll + body-load error state](#r3)~~ ✅ `66dcd8a` | P0 | 💡 |
+| 3 | ~~[Full mailbox history, resumable](#h1)~~ ✅ `38b1870` | P0 | 🧑 |
 | 4 | [Server search merged with local FTS](#s1) | P0 | 💡 |
-| 5 | [Multi-account, all syncing at once](#a1) | P0 | 🧑 |
+| 5 | ~~[Multi-account, all syncing at once](#a1)~~ ✅ `38b1870` (+ [onboarding](#a5)) | P0 | 🧑 |
 | 6 | [Reading pane modes (right, bottom, full page, window)](#r1) | P0 | 🧑 |
 | 7 | [Reply / forward / compose with drafts](#c1) | P0 | 💡 |
-| 8 | [Attachments + inline images](#c4) | P0 | 💡 |
+| 8 | ~~[Attachments + inline images](#c4)~~ ✅ `15529c1` | P0 | 💡 |
 | 9 | [App icon, AUMID, installer, tray badge](#w1) | P1 | 💡 |
 | 10 | [Command palette (Ctrl+K)](#k1) | P1 | 💡 |
 
@@ -42,7 +42,12 @@ per-sender images (V1), labels management (T2), offline outbox (X1).
 
 <a id="h1"></a>
 
-### H1. Full mailbox history 🧑 · P0
+### H1. Full mailbox history 🧑 · P0 · ✅ built (`38b1870`)
+> As built: state on the `accounts` row instead of `backfill_jobs`, one
+> scope per account (the onboarding range), pause/resume, bodies within
+> `offline_days` up to the budget. Eviction and per-label overrides are
+> still open. See [ADR 0014](decisions/0014-full-history-and-storage.md).
+
 Fetch *all* mail, not just 90 days / 500 messages, without slowing live mail.
 - **Design:** a resumable job per account and per label. Walk
   `messages.list` pages newest → oldest; persist `pageToken` and counters in a
@@ -83,7 +88,10 @@ integrity check on startup after a crash, size shown in Settings.
 
 <a id="a1"></a>
 
-### A1. Multi-account, all live at once 🧑 · P0
+### A1. Multi-account, all live at once 🧑 · P0 · ✅ built (`38b1870`)
+> As built: account switcher in the account menu (rail and Ctrl+1…9 still
+> open), every account notifies, toasts name the account.
+
 N Gmail accounts, each syncing all the time, notifying even when not selected.
 - **Design:** one `AccountRuntime` per account (its own `TokenManager`,
   engine task, IMAP IDLE task, history cursor, status cell and backfill job)
@@ -109,7 +117,7 @@ N Gmail accounts, each syncing all the time, notifying even when not selected.
 
 <a id="a2"></a>
 
-### A2. Unified inbox 💡 · P1
+### A2. Unified inbox 💡 · P1 · ✅ built (`38b1870`, account stripe still open)
 All accounts' INBOX merged by date, with an account color stripe on each
 row. One SQL query across `account_id`s; actions route to the right account.
 
@@ -117,6 +125,24 @@ row. One SQL query across `account_id`s; actions route to the right account.
 
 ### A3. Per-account appearance 💡 · P1
 Color (auto from email hash, editable), display name, optional emoji/avatar.
+
+<a id="a5"></a>
+
+### A5. Add-account onboarding 🧑 · P0 · ✅ built (`38b1870`)
+First run and "Add account": welcome → Google sign-in → download range
+(30 days / 90 days / 1 year / everything) with size estimates from
+`messagesTotal` / `resultSizeEstimate`, offline copies and storage budget,
+attachments policy → notifications (all / codes only / off) → live
+progress (n/total, phase, speed, ETA, pause/resume, continue to inbox;
+resumes after restart) → done. History progress also in Settings →
+Accounts and the chip popover. [ADR 0018](decisions/0018-onboarding.md).
+
+<a id="n0"></a>
+
+### N0. Quiet background checks 🧑 · P0 · ✅ built (`1e2bfdc`)
+Push, poll and retry passes don't show the top bar or change the chip;
+the bar is only for user-started or long work (after 400 ms, ≥ 600 ms).
+[ADR 0016](decisions/0016-quiet-background-checks.md).
 
 <a id="a4"></a>
 

@@ -174,7 +174,40 @@ Right (today)                 Bottom                        No split (Gmail defa
   reader, no sidebar, 900×760).
 - Narrow windows (< 1024 px) fall back to No split in any mode.
 
+## Onboarding (built)
+
+Full-window flow on first run and from "Add another account"; one centered
+520 px card on `surface`, step dots at the top, Back / primary button at
+the bottom.
+
+| Step | Content |
+| --- | --- |
+| Welcome | Logo, "Welcome to Pulse Mail", three tiles (Instant · Codes · Private), **Get started** |
+| Sign in | "Continue with Google" (system browser), spinner + "Finish in your browser", Cancel; friendly error with Try again |
+| Download range | Radio cards: 30 days · 90 days (recommended) · 1 year · Everything, each with message count and size estimate. Pills for offline copies (30 / 90 / 365 days) and storage budget; note that attachments download only when opened |
+| Alerts | All new mail · Codes only · Off |
+| Progress | Big n / total, phase ("Getting the message list" → "Saving messages for offline"), bar, speed and ETA, Pause/Resume, **Continue to inbox** (download keeps going) |
+| Done | Check mark, account email, **Open inbox** |
+
+A half-finished setup reopens at the range step on the next launch.
+
+## Status chip semantics (built, ADR 0016)
+
+- Background checks (push, poll, retry) never change the chip: it stays
+  **Live · now** / **Live · 2m**, and they appear only in the popover's
+  Activity list.
+- The top bar is for user-started or long work only: first sync, history
+  download, manual refresh, catch-ups ≥ 25 messages. It appears after
+  400 ms and stays at least 600 ms.
+- The popover lists each account's history download (phase, n/total, ETA,
+  pause/resume).
+
 ## Multi-account
+
+Built so far: the account menu lists every account with unread counts,
+**All inboxes** (unified), **Add another account**; the rail below is
+still the target.
+
 
 ```
 ┌──┬──────────┬────────────────────────────────────┐

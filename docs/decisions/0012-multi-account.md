@@ -1,6 +1,6 @@
 # 0012: Multi-account with one runtime per account
 
-- Status: proposed (2026-10-21)
+- Status: accepted (2026-10-21, implemented in `38b1870`)
 
 ## Context
 The user wants several Gmail accounts working at the same time, with
@@ -28,3 +28,14 @@ assume one account (`primary_account()`).
 ## Consequences
 One IMAP socket per account (Gmail allows 15). Every command signature
 changes; do it behind the registry with one account first.
+
+## Updates
+- 2026-10-21, as built: `AppState.syncs` (`account_id → SyncController`)
+  and `AppState.statuses` (`account_id → StatusCell`) instead of a separate
+  registry type. Each controller owns its `TokenManager`, engine, IMAP task
+  and background job. Commands take `accountId: Option<i64>`: `None` means
+  the default (lowest id) account for single-thread actions, and every
+  account for `list_threads` / `search` (the unified "All inboxes" view).
+  The account switcher lives in the account menu for now; the account rail
+  and Ctrl+1…9 are still planned. Every account notifies; with more than
+  one account the toast's second line names the account.

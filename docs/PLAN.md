@@ -131,6 +131,16 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-21 (night):** `66dcd8a` settings crash, infinite scroll, body
+  retry. `15529c1` safe rendering (Rust sanitizer, sandboxed srcdoc frame,
+  hash-pinned script, image proxy, trackers), attachments, reading prefs,
+  IPC validation. `1e2bfdc` quiet background checks (ADR 0016). `d75fa4c`
+  per-command IPC allowlist (ADR 0017). `38b1870` multi-account, unified
+  inbox, onboarding, resumable history download (ADRs 0012, 0014, 0018).
+  Migration 5 re-queues the real download for accounts the old capped
+  backfill had marked done. Audits: `cargo audit` clean (5 Linux-only
+  warnings), `pnpm audit` clean.
+
 - **2026-10-21 (evening):** Docs refresh: STATUS.md (honest feature
   matrix), ROADMAP.md (prioritized catalog), WORKFLOW.md, ARCHITECTURE.md
   rewritten for the current code (sync state machine, IPC list, multi-account

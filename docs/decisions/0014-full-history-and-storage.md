@@ -1,6 +1,6 @@
 # 0014: Full-history backfill with a storage budget
 
-- Status: proposed (2026-10-21)
+- Status: accepted (2026-10-21, implemented in `38b1870`)
 
 ## Context
 Backfill stops at 90 days / 500 messages, so older mail can't be read or
@@ -20,3 +20,15 @@ searched. Downloading everything with bodies could take gigabytes.
 ## Consequences
 50k messages ≈ 50 MB of metadata and ≈ 17 min of background work. Search
 over evicted bodies falls back to Gmail server search ([ROADMAP S1](../ROADMAP.md#s1)).
+
+## Updates
+- 2026-10-21, as built: the job state lives on the `accounts` row
+  (migration 4: `sync_window`, `backfill_state`, `backfill_page`,
+  `backfill_done`, `backfill_total`, `messages_total`) rather than a
+  separate `backfill_jobs` table; one scope per account (the chosen range:
+  30d / 90d / 1y / all, minus spam and trash). Phase 1 "list" walks
+  `messages.list` pages of 500 and stores metadata, saving the page token
+  after each page. Phase 2 "bodies" downloads offline copies newer than
+  `offline_days` in chunks of 200 and stops when the database reaches
+  `storage_budget_mb`. LRU eviction is not built yet. Pause/resume per
+  account; `paused` survives restarts. See [ADR 0018](0018-onboarding.md).
