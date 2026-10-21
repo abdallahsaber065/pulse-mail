@@ -69,6 +69,7 @@ but with a real gap · **Stubbed** = visible in the UI but does nothing yet ·
 | Start with Windows (`--minimized`) | Done | Setting in the UI | `tauri-plugin-autostart`, `commands.rs::set_autostart` |
 | Close behavior (hide vs destroy) | Done | Setting in the UI; which default is better is not measured (ADR 0004) | `window.rs`, `SettingsPanel.tsx` |
 | Single instance | Done | Second launch focuses the window | `lib.rs` |
+| Settings sheet | Partial | Works in the production bundle; crashes in the dev build (bug 0 below) | `src/components/SettingsPanel.tsx` |
 | Theme (system/light/dark), density | Done | Stored in `localStorage` | `src/lib/theme.ts`, `src/lib/prefs.ts` |
 | Sync transparency | Done | Top progress bar, status chip, activity popover with Retry | `SyncIndicator.tsx`, `lib/sync-view.ts`, `sync/status.rs` |
 | In-app dialog and snackbars | Done | No `alert` / `confirm` / `prompt` anywhere | `components/ui/dialog.tsx`, `Snackbar.tsx` |
@@ -101,6 +102,13 @@ but with a real gap · **Stubbed** = visible in the UI but does nothing yet ·
 
 ## Known bugs and limitations
 
+0. **Bug: Settings crashes the dev UI.** The dev log of 2026-10-21 18:50
+   shows `TypeError: Cannot read properties of undefined (reading 'when')`
+   thrown from Solid's built-in `<Switch>`. `SettingsPanel.tsx` declares its
+   own component named `Switch`; in the dev build Solid's JSX transform
+   appears to resolve `<Switch>` to the built-in control-flow component
+   instead. The production build (`vite preview`) rendered fine. Fix: rename
+   the local component (for example `Toggle`) and re-test in `pnpm tauri dev`.
 1. **Search is local only.** Mail older than the 90-day / 500-message window is invisible, Gmail operators (`from:`, `has:attachment`) aren't understood, and results are per message, so one thread can appear more than once.
 2. **List cap.** The UI asks for 200 threads per label and never pages further.
 3. **Backfill cap.** 90 days, 500 messages, metadata only. No "load older mail" anywhere.
