@@ -20,7 +20,11 @@ pub fn show_main(app: &AppHandle) {
     let window = match app.get_webview_window(MAIN) {
         Some(w) => w,
         None => match create_main(app) {
-            Ok(w) => w,
+            Ok(w) => {
+                // A recreated window has no taskbar overlay yet.
+                crate::tray::schedule_badge(app);
+                w
+            }
             Err(e) => {
                 tracing::error!(error = %e, "could not create main window");
                 return;

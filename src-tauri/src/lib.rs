@@ -2,6 +2,7 @@
 //! stateless renderer that talks to these modules over IPC.
 
 mod auth;
+mod badge;
 mod commands;
 #[doc(hidden)]
 pub mod devtools;
@@ -9,6 +10,7 @@ mod notify;
 mod otp;
 mod prefs;
 mod render;
+mod secure_clipboard;
 mod security;
 mod store;
 mod sync;
@@ -67,7 +69,10 @@ pub(crate) fn copy_to_clipboard(app: &AppHandle, text: &str) {
 /// `clipboard_clear_secs` pref, unless something else was copied meanwhile.
 pub(crate) fn copy_secret(app: &AppHandle, text: &str) {
     use tauri_plugin_clipboard_manager::ClipboardExt;
-    copy_to_clipboard(app, text);
+    // Kept out of Windows clipboard history and cloud clipboard when possible.
+    if !secure_clipboard::write_secret(text) {
+        copy_to_clipboard(app, text);
+    }
     let secs = app
         .try_state::<AppState>()
         .map(|s| prefs::get_num(&s.store.lock().unwrap_or_else(|e| e.into_inner()), "clipboard_clear_secs"))
@@ -79,7 +84,9 @@ pub(crate) fn copy_secret(app: &AppHandle, text: &str) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(secs)).await;
         if app.clipboard().read_text().is_ok_and(|cur| cur == text) {
-            let _ = app.clipboard().write_text(String::new());
+            if !secure_clipboard::clear() {
+                let _ = app.clipboard().write_text(String::new());
+            }
             tracing::info!("cleared a copied code from the clipboard");
         }
     });
