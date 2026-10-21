@@ -15,6 +15,7 @@ import { labelName } from "./lib/format";
 import { checkLink } from "./lib/links";
 import { combineSync, windowLabel } from "./lib/accounts";
 import { installShortcuts } from "./lib/shortcuts";
+import { effectivePane, prefs as uiPrefs } from "./lib/prefs";
 import type {
   Account,
   Activity,
@@ -424,13 +425,19 @@ export default function App() {
     });
     void api.takePendingOpen().catch(() => null).then(openTarget);
 
+    const step = (d: number) => {
+      const i = Math.min(Math.max(cursor() + d, 0), Math.max(0, rows().length - 1));
+      setCursor(i);
+      if (selected() && layout() === "full" && rows()[i] && rows()[i].threadId !== selected()) openThread(rows()[i], i);
+    };
     const withCurrent = (f: (t: ThreadRef) => void) => () => {
       const t = current();
       if (t) f(t);
     };
     const remove = installShortcuts({
-      next: () => setCursor((c) => Math.min(c + 1, Math.max(0, rows().length - 1))),
-      prev: () => setCursor((c) => Math.max(c - 1, 0)),
+      // In full-page reading, j/k open the next/previous conversation (Gmail).
+      next: () => step(1),
+      prev: () => step(-1),
       open: () => {
         const t = rows()[cursor()];
         if (t) openThread(t, cursor());
@@ -524,6 +531,27 @@ export default function App() {
     const name = labelName(label(), labels().find((l) => l.id === label())?.name ?? label());
     return { icon: "inboxEmpty", title: `Nothing in ${name}`, hint: "Older mail appears here as the download progresses." };
   };
+  // Reading pane: right / bottom / full page, falling back to full page
+  // when the window is too small for the split.
+  const [viewport, setViewport] = createSignal({ w: window.innerWidth, h: window.innerHeight });
+  {
+    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener("resize", onResize);
+    onCleanup(() => window.removeEventListener("resize", onResize));
+  }
+  const layout = () => effectivePane(uiPrefs.pane(), viewport().w, viewport().h);
+  const listClass = () => {
+    if (!selected()) return "min-h-0 flex-1";
+    switch (layout()) {
+      case "right":
+        return "w-[44%] max-w-[640px] shrink-0 border-r border-divider";
+      case "bottom":
+        return "h-[40%] min-h-[160px] shrink-0";
+      default:
+        return "hidden";
+    }
+  };
+
   const listLoading = () =>
     rows().length === 0 && (threads.loading || (!debounced().trim() && (!!sync()?.foreground || !!sync()?.progress)));
 
@@ -563,9 +591,9 @@ export default function App() {
             void refetchLabels();
           }}
         />
-        <main class="mb-4 mr-4 flex min-w-0 flex-1 overflow-hidden rounded-2xl bg-surface">
+        <main class={`mb-4 mr-4 flex min-w-0 flex-1 overflow-hidden rounded-2xl bg-surface ${layout() === "bottom" ? "flex-col" : ""}`}>
           <Show when={status() && signedIn()}>
-            <section class={`thread-list-pane min-w-0 border-r border-divider ${selected() ? "hidden w-[44%] max-w-[640px] lg:block" : "flex-1"}`}>
+            <section class={`thread-list-pane min-w-0 ${listClass()}`}>
               <ThreadList
                 threads={rows()}
                 selectedId={selected()}
@@ -579,7 +607,7 @@ export default function App() {
               />
             </section>
             <Show when={selected()}>
-              <section class="reader-pane min-w-0 flex-1">
+              <section class={`reader-pane min-h-0 min-w-0 flex-1 ${layout() === "bottom" ? "border-t border-divider" : ""}`}>
                 <Reader
                   messages={messages()}
                   accountId={selectedAccount()}

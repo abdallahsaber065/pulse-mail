@@ -2,7 +2,7 @@
 import { For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import Icon from "./Icon";
 import { theme, type ThemePref } from "../lib/theme";
-import { prefs, type Density } from "../lib/prefs";
+import { prefs, type Density, type Pane } from "../lib/prefs";
 import Avatar from "./Avatar";
 import { formatEta, historyFraction, phaseLabel, WINDOWS } from "../lib/accounts";
 import { formatSize } from "../lib/format";
@@ -281,6 +281,18 @@ export default function SettingsPanel(p: Props) {
           </Section>
 
           <Section title="Reading mail">
+            <Row title="Reading pane" desc="Where a conversation opens. Small windows always use the full page." stack>
+              <Segmented<Pane>
+                label="Reading pane"
+                value={prefs.pane()}
+                options={[
+                  ["right", "Right of list"],
+                  ["bottom", "Below list"],
+                  ["full", "Full page"],
+                ]}
+                onChange={(v) => prefs.setPane(v)}
+              />
+            </Row>
             <Row title="Images from the web" desc="Remote images can tell senders you opened a mail. Pulse Mail fetches them for you, never loads tracking pixels, and the message itself stays offline." stack>
               <Segmented<Prefs["images"]>
                 label="Images"
