@@ -25,9 +25,7 @@ pub const PREFS: &[Pref] = &[
     Pref { key: "otp_lockscreen", default: "hide", allowed: &["hide", "show"] },
     // Delay before a sent message actually leaves (Undo window).
     Pref { key: "undo_send_secs", default: "5", allowed: &["0", "5", "10", "20", "30"] },
-    // Bodies kept offline for this many days (older ones load on demand).
-    Pref { key: "offline_days", default: "90", allowed: &["30", "90", "365"] },
-    // Local cache budget in MB; old bodies are evicted above it.
+    // Local cache budget in MB (mail + saved attachments); downloads stop at it.
     Pref { key: "storage_budget_mb", default: "1024", allowed: &["512", "1024", "2048", "5120"] },
 ];
 

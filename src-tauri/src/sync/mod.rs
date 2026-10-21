@@ -9,7 +9,7 @@
 //!   background task prefetches bodies of the newest messages and runs the
 //!   history download (H1): the message list for the account's chosen window
 //!   (30 days .. everything), page by page with a saved cursor so it resumes
-//!   after a restart, then offline copies of bodies newer than `offline_days`
+//!   after a restart, then full messages for the account's range
 //!   within the storage budget. It can be paused and resumed. Other bodies
 //!   load lazily when a thread is opened.
 //! - One engine per account; all accounts sync and notify.
@@ -635,7 +635,7 @@ impl Engine {
     ///    yet go into `hist_queue`.
     /// 2. index:  metadata (headers, labels, size) for the queue, 50 per
     ///    batch call, paced to Gmail's per-user quota.
-    /// 3. bodies: offline copies newer than `offline_days`, within the
+    /// 3. bodies: full messages for the whole range, within the
     ///    storage budget; very large mails are left for on-demand download
     ///    unless the attachment policy is "all".
     /// 4. files:  attachments allowed by the account's policy.
@@ -753,9 +753,11 @@ impl Engine {
             phase = "bodies".into();
         }
 
-        let (days, budget_mb) = self.db(|s| Ok((crate::prefs::get_num(s, "offline_days"), crate::prefs::get_num(s, "storage_budget_mb"))))?;
+        let budget_mb = self.db(|s| Ok(crate::prefs::get_num(s, "storage_budget_mb")))?;
         let budget = budget_mb as i64 * 1024 * 1024;
-        let since = (now_ms() - days as i64 * 86_400_000).max(Self::window_since(&window));
+        // The account's range is the one download setting: full messages for
+        // everything in it (ADR 0019).
+        let since = Self::window_since(&window);
         let over_budget = |me: &Self| -> Result<bool, SyncError> {
             me.db(|s| Ok(s.db_size()? + s.stored_attachment_bytes(None)? >= budget))
         };

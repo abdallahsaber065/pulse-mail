@@ -314,7 +314,7 @@ pub struct WindowEstimate {
     window: &'static str,
     /// Gmail's estimate of matching messages (rough for large mailboxes).
     messages: i64,
-    /// Estimated disk use: headers for all + offline bodies for recent mail.
+    /// Estimated disk use of the full messages (without attachments).
     bytes: i64,
 }
 
@@ -327,32 +327,22 @@ const BODY_BYTES: i64 = 45 * 1024;
 #[tauri::command]
 pub async fn account_estimates(state: State<'_, AppState>, account_id: i64) -> CmdResult<Vec<WindowEstimate>> {
     let engine = engine_for(&state, Some(account_id)).await?;
-    let offline_days = {
-        let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
-        crate::prefs::get_num(&store, "offline_days")
-    };
     let e = engine.as_ref();
-    let count = |q: String| async move {
-        e.with_token(|t| {
-            let q = q.clone();
-            async move { e.gmail().list_page(&t, &q, None, 1).await }
-        })
-        .await
-        .map(|p| p.estimate)
+    let count = |q: &'static str| async move {
+        e.with_token(|t| async move { e.gmail().list_page(&t, q, None, 1).await })
+            .await
+            .map(|p| p.estimate)
     };
-    let (d30, d90, y1, off, profile) = tokio::try_join!(
-        count("newer_than:30d".into()),
-        count("newer_than:90d".into()),
-        count("newer_than:1y".into()),
-        count(format!("newer_than:{offline_days}d")),
+    let (d30, d90, y1, profile) = tokio::try_join!(
+        count("newer_than:30d"),
+        count("newer_than:90d"),
+        count("newer_than:1y"),
         e.with_token(|t| async move { e.gmail().profile(&t).await }),
     )?;
     let all = profile.messages_total.max(y1);
-    let est = |window: &'static str, n: i64| WindowEstimate {
-        window,
-        messages: n,
-        bytes: n * META_BYTES + n.min(off) * BODY_BYTES,
-    };
+    // The range is downloaded in full (text and HTML), attachments per the
+    // account's attachment setting (not included here).
+    let est = |window: &'static str, n: i64| WindowEstimate { window, messages: n, bytes: n * (META_BYTES + BODY_BYTES) };
     Ok(vec![est("30d", d30), est("90d", d90.max(d30)), est("1y", y1.max(d90)), est("all", all)])
 }
 

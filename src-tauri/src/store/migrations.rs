@@ -162,4 +162,11 @@ pub const MIGRATIONS: &[&str] = &[
      WHERE backfill_state NOT IN ('setup', 'done');
     UPDATE accounts SET backfill_state = 'pending' WHERE backfill_state = 'running';
     "#,
+    // 7: one per-account range ("Download to this PC") now means full
+    // messages for the whole range; the global offline_days pref is gone.
+    // Finished accounts fetch the bodies their range now includes.
+    r#"
+    DELETE FROM settings WHERE key = 'offline_days';
+    UPDATE accounts SET backfill_state = 'pending', backfill_phase = 'bodies' WHERE backfill_state = 'done';
+    "#,
 ];

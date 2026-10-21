@@ -294,7 +294,7 @@ export default function Onboarding(p: OnboardingProps) {
             <h1 class="mb-1 font-display text-2xl text-text">What should be on this PC?</h1>
             <p class="mb-5 text-sm text-muted">
               Signed in as <span class="font-medium text-text">{account()?.email}</span>. Your inbox is already loading. Choose how much
-              history to download for offline reading and search; older mail still opens on demand.
+              mail to download in full for offline reading and search. Mail older than this still opens on demand.
             </p>
             <div class="mb-5 space-y-2" role="radiogroup" aria-label="How much mail to download">
               <For each={WINDOWS}>
@@ -323,21 +323,6 @@ export default function Onboarding(p: OnboardingProps) {
             <div class="mb-6 space-y-4 rounded-2xl bg-surface-container p-4">
               <div>
                 <div class="mb-1 flex items-center gap-2 text-sm text-text">
-                  <Icon name="download" size={18} class="text-muted" /> Full messages kept offline
-                </div>
-                <Pills<Prefs["offline_days"]>
-                  label="Offline messages"
-                  value={p.prefs.offline_days}
-                  options={[
-                    ["30", "30 days"],
-                    ["90", "90 days"],
-                    ["365", "1 year"],
-                  ]}
-                  onChange={(v) => p.onPref("offline_days", v)}
-                />
-              </div>
-              <div>
-                <div class="mb-1 flex items-center gap-2 text-sm text-text">
                   <Icon name="storage" size={18} class="text-muted" /> Storage budget
                 </div>
                 <Pills<Prefs["storage_budget_mb"]>
@@ -354,7 +339,8 @@ export default function Onboarding(p: OnboardingProps) {
               </div>
               <div class="flex items-start gap-2 text-xs text-muted">
                 <Icon name="attachment" size={18} class="shrink-0" />
-                Attachments download when you open them. Files that can run programs are never opened automatically.
+                Attachments up to 10 MB are kept with the messages (change it per account in Settings). Others download when you open
+                them. Files that can run programs are never opened automatically.
               </div>
             </div>
             <div class="flex justify-end">
@@ -435,7 +421,7 @@ export default function Onboarding(p: OnboardingProps) {
                         [
                           ["count", "1", "Count", "Exact number of messages in the range"],
                           ["index", "2", "Message list", "Headers for search and browsing"],
-                          ["bodies", "3", "Offline copies", `Full messages from the last ${p.prefs.offline_days} days`],
+                          ["bodies", "3", "Full messages", "Everything in the range you chose"],
                           ["files", "4", "Attachments", "Files allowed by the account's attachment setting"],
                         ] as const
                       }

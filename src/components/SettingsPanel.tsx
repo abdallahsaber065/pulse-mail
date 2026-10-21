@@ -149,9 +149,9 @@ function AccountPage(p: {
         </Row>
       </Section>
       <Section title="Offline mail">
-        <Row title="Mail on this PC" desc="Headers for search and browsing; full copies of recent mail." stack>
+        <Row title="Download to this PC" desc="Full messages in this range stay on this PC for offline reading and search. Older mail downloads when you open it." stack>
           <Segmented<SyncWindow>
-            label="Mail on this PC"
+            label="Download to this PC"
             value={p.account.syncWindow}
             options={WINDOWS.map((w) => [w.id, w.short] as [SyncWindow, string])}
             onChange={p.onWindow}
@@ -317,19 +317,7 @@ export default function SettingsPanel(p: Props) {
           </Section>
 
           <Section title="Storage">
-            <Row title="Full messages kept offline" desc="Older messages download when you open them." stack>
-              <Segmented<Prefs["offline_days"]>
-                label="Offline messages"
-                value={p.prefs.offline_days}
-                options={[
-                  ["30", "30 days"],
-                  ["90", "90 days"],
-                  ["365", "1 year"],
-                ]}
-                onChange={(v) => p.onPref("offline_days", v)}
-              />
-            </Row>
-            <Row title="Storage budget" desc={`Using ${formatSize(p.status.dbBytes)} for mail, plus saved attachments. Offline copies stop when the budget is reached.`} stack>
+            <Row title="Storage budget" desc={`For all accounts: ${formatSize(p.status.dbBytes)} of mail, plus saved attachments (see each account). Downloads pause when the budget is reached.`} stack>
               <Segmented<Prefs["storage_budget_mb"]>
                 label="Storage budget"
                 value={p.prefs.storage_budget_mb}
