@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import Icon from "./Icon";
+import Icon, { type IconName } from "./Icon";
 import Avatar from "./Avatar";
 import EmailFrame from "./EmailFrame";
 import { fullDate, labelName } from "../lib/format";
@@ -8,25 +8,79 @@ import type { Message } from "../lib/types";
 
 interface Props {
   messages: Message[];
+  /** Thread clicked but nothing cached for it yet. */
+  loading: boolean;
   onBack(): void;
   onCopyCode(code: string): void;
+  onArchive?(): void;
+  onToggleRead(): void;
+  onToggleStar(): void;
 }
 
 const HIDDEN_LABELS = new Set(["UNREAD", "STARRED", "CATEGORY_PERSONAL", "CATEGORY_UPDATES", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS", "IMPORTANT", "SENT"]);
 
+function BodySkeleton() {
+  return (
+    <div class="space-y-2 py-2" aria-label="Loading message">
+      <div class="skeleton h-3 w-11/12 rounded-full" />
+      <div class="skeleton h-3 w-10/12 rounded-full" style={{ "animation-delay": "80ms" }} />
+      <div class="skeleton h-3 w-9/12 rounded-full" style={{ "animation-delay": "160ms" }} />
+      <div class="skeleton h-3 w-7/12 rounded-full" style={{ "animation-delay": "240ms" }} />
+    </div>
+  );
+}
+
 export default function Reader(p: Props) {
   const [imagesFor, setImagesFor] = createSignal<Set<string>>(new Set());
+  const [copied, setCopied] = createSignal(false);
+  const starred = () => p.messages.some((m) => m.starred);
+  const unread = () => p.messages.some((m) => m.unread);
+  const copy = (code: string) => {
+    p.onCopyCode(code);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+  const Btn = (b: { icon: IconName; title: string; onClick(): void; active?: boolean }) => (
+    <button
+      class={`grid size-10 place-items-center rounded-full hover:bg-hover ${b.active ? "text-star" : "text-muted"}`}
+      onClick={b.onClick}
+      title={b.title}
+    >
+      <Icon name={b.icon} />
+    </button>
+  );
   const first = () => p.messages[0];
   const otp = () => [...p.messages].reverse().find((m) => m.otpCode)?.otpCode ?? null;
   const hasHtmlImages = (m: Message) => !!m.bodyHtml && /<img\b[^>]*\bsrc\s*=\s*["']?https?:/i.test(m.bodyHtml);
 
   return (
-    <Show when={first()} fallback={<div class="grid h-full place-items-center text-sm text-muted">Select a conversation to read it.</div>}>
-      <div class="h-full overflow-y-auto">
+    <Show
+      when={first()}
+      fallback={
+        <Show when={p.loading} fallback={<div class="grid h-full place-items-center text-sm text-muted">Select a conversation to read it.</div>}>
+          <div class="px-20 pt-16">
+            <div class="skeleton mb-6 h-6 w-1/2 rounded-full" />
+            <BodySkeleton />
+          </div>
+        </Show>
+      }
+    >
+      <div class="h-full overflow-y-auto animate-fade-in">
         <div class="sticky top-0 z-10 flex h-12 items-center gap-1 border-b border-divider bg-surface px-2">
-          <button class="grid size-10 place-items-center rounded-full text-muted hover:bg-hover" onClick={p.onBack} title="Back to list (u)">
-            <Icon name="back" />
-          </button>
+          <Btn icon="back" title="Back to list (u)" onClick={p.onBack} />
+          <div class="mx-1 h-5 w-px bg-divider" />
+          <Show when={p.onArchive}>
+            <Btn icon="archive" title="Archive (e)" onClick={() => p.onArchive!()} />
+          </Show>
+          <Btn
+            icon={unread() ? "markRead" : "markUnread"}
+            title={unread() ? "Mark as read (Shift+I)" : "Mark as unread (Shift+U)"}
+            onClick={p.onToggleRead}
+          />
+          <Btn icon={starred() ? "starFilled" : "star"} title={starred() ? "Unstar (s)" : "Star (s)"} onClick={p.onToggleStar} active={starred()} />
+          <span class="ml-auto pr-2 text-xs text-faint">
+            {p.messages.length > 1 ? `${p.messages.length} messages` : ""}
+          </span>
         </div>
 
         <div class="px-6 pb-10 pt-4">
@@ -45,10 +99,10 @@ export default function Reader(p: Props) {
               </div>
               <button
                 class="flex items-center gap-2 rounded-full bg-otp px-4 py-2 text-sm font-medium text-surface hover:brightness-110"
-                onClick={() => p.onCopyCode(otp()!)}
+                onClick={() => copy(otp()!)}
                 title="Copy code (c)"
               >
-                <Icon name="copy" size={18} /> Copy
+                <Icon name={copied() ? "checkCircle" : "copy"} size={18} /> {copied() ? "Copied" : "Copy"}
               </button>
             </div>
           </Show>
@@ -80,7 +134,17 @@ export default function Reader(p: Props) {
                   </div>
                 </Show>
                 <div class="pl-14">
-                  <EmailFrame html={m.bodyHtml} text={m.bodyText} dark={theme.isDark()} allowRemoteImages={imagesFor().has(m.id)} />
+                  <Show
+                    when={m.bodyLoaded}
+                    fallback={
+                      <>
+                        <p class="selectable mb-2 text-sm text-muted">{m.snippet}</p>
+                        <BodySkeleton />
+                      </>
+                    }
+                  >
+                    <EmailFrame html={m.bodyHtml} text={m.bodyText} dark={theme.isDark()} allowRemoteImages={imagesFor().has(m.id)} />
+                  </Show>
                 </div>
               </article>
             )}

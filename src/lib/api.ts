@@ -1,6 +1,6 @@
 // Thin typed wrapper over Tauri IPC. Outside Tauri (plain `pnpm dev` in a
 // browser) it falls back to mock data so the UI can be designed quickly.
-import type { AppStatus, Label, Message, OpenTarget, SyncStatus, ThreadRow } from "./types";
+import type { Activity, AppStatus, Label, Message, NotificationMode, OpenTarget, SyncStatus, ThreadRow } from "./types";
 import * as mock from "./mock";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -25,6 +25,11 @@ export const api = {
   threads: (labelId: string, limit = 200, offset = 0) => call<ThreadRow[]>("list_threads", { labelId, limit, offset }),
   search: (query: string, limit = 100) => call<ThreadRow[]>("search", { query, limit }),
   thread: (threadId: string) => call<Message[]>("get_thread", { threadId }),
+  /** Like `thread`, but first downloads bodies that are not cached yet. */
+  loadThread: (threadId: string) => call<Message[]>("load_thread", { threadId }),
+  modifyThread: (threadId: string, add: string[], remove: string[]) => call<void>("modify_thread", { threadId, add, remove }),
+  activity: () => call<Activity[]>("get_activity"),
+  setNotifications: (mode: NotificationMode) => call<void>("set_notifications", { mode }),
   syncNow: () => call<void>("sync_now"),
   takePendingOpen: () => call<OpenTarget | null>("take_pending_open"),
   copyText: (text: string) => call<void>("copy_text", { text }),
@@ -35,7 +40,7 @@ export const api = {
 
 type Unlisten = () => void;
 
-export async function onEvent<T>(name: "mail-updated" | "sync-status" | "open-thread", cb: (payload: T) => void): Promise<Unlisten> {
+export async function onEvent<T>(name: "mail-updated" | "sync-status" | "sync-activity" | "open-thread", cb: (payload: T) => void): Promise<Unlisten> {
   if (!inTauri) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen<T>(name, (e) => cb(e.payload));

@@ -1,30 +1,62 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, For, Show } from "solid-js";
-import Icon from "./Icon";
+import { createEffect, createSignal, For, Index, Show } from "solid-js";
+import Icon, { type IconName } from "./Icon";
 import { listDate } from "../lib/format";
+import { prefs } from "../lib/prefs";
 import type { ThreadRow } from "../lib/types";
 
-export const ROW_HEIGHT = 40;
+export interface RowActions {
+  archive?(t: ThreadRow): void;
+  toggleRead(t: ThreadRow): void;
+  toggleStar(t: ThreadRow): void;
+}
 
 interface Props {
   threads: ThreadRow[];
   selectedId: string | null;
   cursor: number;
+  /** Nothing cached yet and a fetch is running: show skeleton rows. */
   loading: boolean;
-  emptyText: string;
+  empty: { icon: IconName; title: string; hint: string };
+  actions: RowActions;
   onOpen(t: ThreadRow, index: number): void;
   onCopyCode(code: string): void;
 }
 
+function Skeleton() {
+  const widths = [62, 48, 75, 55, 68, 42, 80, 58, 70, 50, 64, 46];
+  return (
+    <div aria-hidden="true">
+      <Index each={widths}>
+        {(w, i) => (
+          <div class="flex items-center gap-3 border-b border-divider pl-4 pr-3" style={{ height: `${prefs.rowHeight()}px` }}>
+            <div class="skeleton size-4 rounded" />
+            <div class="skeleton h-3 w-36 rounded-full" style={{ "animation-delay": `${i * 60}ms` }} />
+            <div class="skeleton h-3 rounded-full" style={{ width: `${w()}%`, "animation-delay": `${i * 60}ms` }} />
+            <div class="skeleton ml-auto h-3 w-12 rounded-full" />
+          </div>
+        )}
+      </Index>
+    </div>
+  );
+}
+
 export default function ThreadList(p: Props) {
   let scrollEl!: HTMLDivElement;
+  const [copied, setCopied] = createSignal<string | null>(null);
   const virtualizer = createVirtualizer({
     get count() {
       return p.threads.length;
     },
     getScrollElement: () => scrollEl,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => prefs.rowHeight(),
     overscan: 12,
+  });
+
+  // Row height changed: re-measure.
+  createEffect(() => {
+    prefs.rowHeight();
+    virtualizer.measure();
   });
 
   // Keep the keyboard cursor in view.
@@ -32,12 +64,40 @@ export default function ThreadList(p: Props) {
     if (p.cursor >= 0 && p.cursor < p.threads.length) virtualizer.scrollToIndex(p.cursor, { align: "auto" });
   });
 
+  const comfy = () => prefs.density() === "comfortable";
+
+  const ActionBtn = (a: { icon: IconName; title: string; onClick(): void }) => (
+    <button
+      class="grid size-8 place-items-center rounded-full text-muted hover:bg-black/10 hover:text-text dark:hover:bg-white/10"
+      title={a.title}
+      onClick={(e) => {
+        e.stopPropagation();
+        a.onClick();
+      }}
+    >
+      <Icon name={a.icon} size={18} />
+    </button>
+  );
+
   return (
     <div ref={scrollEl} class="relative h-full overflow-y-auto" role="list" aria-label="Conversations">
       <Show
         when={p.threads.length > 0}
         fallback={
-          <div class="grid h-full place-items-center p-8 text-center text-sm text-muted">{p.loading ? "Loading…" : p.emptyText}</div>
+          <Show
+            when={!p.loading}
+            fallback={<Skeleton />}
+          >
+            <div class="grid h-full place-items-center p-8 animate-fade-in">
+              <div class="flex max-w-sm flex-col items-center text-center">
+                <div class="mb-4 grid size-20 place-items-center rounded-full bg-surface-container text-primary">
+                  <Icon name={p.empty.icon} size={40} />
+                </div>
+                <div class="font-display text-lg text-text">{p.empty.title}</div>
+                <div class="mt-1 text-sm text-muted">{p.empty.hint}</div>
+              </div>
+            </div>
+          </Show>
         }
       >
         <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
@@ -50,43 +110,77 @@ export default function ThreadList(p: Props) {
                 <Show when={t()}>
                   <div
                     role="listitem"
-                    class={`group absolute left-0 right-0 flex cursor-pointer items-center gap-3 border-b border-divider pl-4 pr-3 text-sm ${
+                    class={`row group absolute left-0 right-0 flex cursor-pointer items-center gap-3 border-b border-divider pl-2 pr-3 text-sm transition-colors ${
                       selected() ? "bg-selected" : t().unread ? "bg-surface" : "bg-surface-dim"
                     } hover:z-10 hover:shadow-[inset_1px_0_0_var(--outline),inset_-1px_0_0_var(--outline),0_1px_2px_rgba(0,0,0,.25)] ${
                       focused() ? "shadow-[inset_3px_0_0_var(--primary)]" : ""
                     }`}
-                    style={{ top: `${item.start}px`, height: `${ROW_HEIGHT}px` }}
+                    style={{ top: `${item.start}px`, height: `${prefs.rowHeight()}px` }}
                     onClick={() => p.onOpen(t(), item.index)}
                   >
-                    <span class={t().starred ? "text-star" : "text-outline"}>
-                      <Icon name={t().starred ? "starFilled" : "star"} size={18} />
-                    </span>
+                    <button
+                      class={`grid size-8 shrink-0 place-items-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 ${
+                        t().starred ? "text-star" : "text-outline hover:text-muted"
+                      }`}
+                      title={t().starred ? "Unstar (s)" : "Star (s)"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        p.actions.toggleStar(t());
+                      }}
+                    >
+                      <Icon name={t().starred ? "starFilled" : "star"} size={18} class="star-pop" />
+                    </button>
                     <span class={`w-44 shrink-0 truncate ${t().unread ? "font-bold text-text" : "text-text"}`}>
                       {t().fromName || t().fromEmail}
                       <Show when={t().messageCount > 1}>
                         <span class="ml-1 text-xs font-normal text-faint">{t().messageCount}</span>
                       </Show>
                     </span>
-                    <span class="flex min-w-0 flex-1 items-center gap-2">
-                      <Show when={t().otpCode}>
-                        <button
-                          class="shrink-0 rounded-md bg-otp-container px-2 py-0.5 font-mono text-xs font-semibold tracking-wider text-otp hover:brightness-95"
-                          title="Copy verification code"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            p.onCopyCode(t().otpCode!);
-                          }}
-                        >
-                          {t().otpCode}
-                        </button>
-                      </Show>
-                      <span class="truncate">
-                        <span class={t().unread ? "font-bold" : ""}>{t().subject || "(no subject)"}</span>
-                        <span class="text-faint"> - {t().snippet}</span>
+                    <span class={`flex min-w-0 flex-1 gap-2 ${comfy() ? "flex-col justify-center gap-0" : "items-center"}`}>
+                      <span class="flex min-w-0 items-center gap-2">
+                        <Show when={t().otpCode}>
+                          <button
+                            class={`otp-chip flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-mono text-xs font-semibold tracking-wider transition-colors ${
+                              copied() === t().threadId ? "bg-otp text-surface" : "bg-otp-container text-otp hover:brightness-95"
+                            }`}
+                            title="Copy verification code (c)"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              p.onCopyCode(t().otpCode!);
+                              const id = t().threadId;
+                              setCopied(id);
+                              window.setTimeout(() => copied() === id && setCopied(null), 1500);
+                            }}
+                          >
+                            <Icon name={copied() === t().threadId ? "checkCircle" : "copy"} size={13} />
+                            {t().otpCode}
+                          </button>
+                        </Show>
+                        <span class="truncate">
+                          <span class={t().unread ? "font-bold" : ""}>{t().subject || "(no subject)"}</span>
+                          <Show when={!comfy()}>
+                            <span class="text-faint"> - {t().snippet}</span>
+                          </Show>
+                        </span>
                       </span>
+                      <Show when={comfy()}>
+                        <span class="truncate text-xs text-faint">{t().snippet}</span>
+                      </Show>
                     </span>
-                    <span class={`w-20 shrink-0 text-right text-xs ${t().unread ? "font-bold text-text" : "text-faint"}`}>
+                    <span
+                      class={`w-20 shrink-0 text-right text-xs group-hover:hidden ${t().unread ? "font-bold text-text" : "text-faint"}`}
+                    >
                       {listDate(t().internalDate)}
+                    </span>
+                    <span class="hidden shrink-0 items-center group-hover:flex">
+                      <Show when={p.actions.archive}>
+                        <ActionBtn icon="archive" title="Archive (e)" onClick={() => p.actions.archive!(t())} />
+                      </Show>
+                      <ActionBtn
+                        icon={t().unread ? "markRead" : "markUnread"}
+                        title={t().unread ? "Mark as read (Shift+I)" : "Mark as unread (Shift+U)"}
+                        onClick={() => p.actions.toggleRead(t())}
+                      />
                     </span>
                   </div>
                 </Show>

@@ -1,12 +1,30 @@
 // Mirrors the serde types in src-tauri/src (camelCase).
 
+export interface Progress {
+  label: string;
+  done: number;
+  total: number;
+}
+
 export interface SyncStatus {
   running: boolean;
   imapConnected: boolean;
   syncing: boolean;
   lastSyncAt: number | null;
   error: string | null;
+  /** Foreground work the user is waiting on (first page, new mail). */
+  progress: Progress | null;
+  /** Background work (older mail, body prefetch). */
+  backfill: Progress | null;
 }
+
+export interface Activity {
+  at: number;
+  level: "info" | "success" | "warn" | "error";
+  text: string;
+}
+
+export type NotificationMode = "all" | "otp" | "off";
 
 export interface AppStatus {
   clientConfigured: boolean;
@@ -15,6 +33,9 @@ export interface AppStatus {
   sync: SyncStatus;
   destroyOnClose: boolean;
   autostart: boolean;
+  notifications: NotificationMode;
+  dataDir: string;
+  version: string;
 }
 
 export interface Label {
@@ -55,6 +76,8 @@ export interface Message {
   starred: boolean;
   hasAttachments: boolean;
   otpCode: string | null;
+  /** false = only headers + snippet are cached; the full body loads on open. */
+  bodyLoaded: boolean;
 }
 
 export interface OpenTarget {

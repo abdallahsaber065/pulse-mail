@@ -10,6 +10,11 @@ export interface ShortcutHandlers {
   copyCode(): void;
   refresh(): void;
   toggleHelp(): void;
+  archive(): void;
+  star(): void;
+  markRead(): void;
+  markUnread(): void;
+  settings(): void;
 }
 
 export const SHORTCUTS: [string, string][] = [
@@ -18,11 +23,16 @@ export const SHORTCUTS: [string, string][] = [
   ["u or Esc", "Back to list"],
   ["/", "Search mail"],
   ["c", "Copy verification code"],
+  ["e", "Archive"],
+  ["s", "Star / unstar"],
+  ["Shift + i", "Mark as read"],
+  ["Shift + u", "Mark as unread"],
   ["g then i", "Go to Inbox"],
   ["g then s", "Go to Starred"],
   ["g then t", "Go to Sent"],
   ["g then d", "Go to Drafts"],
   ["Shift + r", "Check mail now"],
+  [",", "Settings"],
   ["?", "Show keyboard shortcuts"],
 ];
 
@@ -38,6 +48,8 @@ export function installShortcuts(h: ShortcutHandlers): () => void {
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // A dialog, sheet or popover owns the keyboard while open.
+    if (document.querySelector('[aria-modal="true"]')) return;
 
     if (pendingG && Date.now() - pendingG < 1200 && GOTO[e.key]) {
       pendingG = 0;
@@ -57,6 +69,11 @@ export function installShortcuts(h: ShortcutHandlers): () => void {
       case "/": h.focusSearch(); break;
       case "c": h.copyCode(); break;
       case "R": h.refresh(); break;
+      case "e": h.archive(); break;
+      case "s": h.star(); break;
+      case "I": h.markRead(); break;
+      case "U": h.markUnread(); break;
+      case ",": h.settings(); break;
       case "?": h.toggleHelp(); break;
       case "g": pendingG = Date.now(); return;
       default: return;

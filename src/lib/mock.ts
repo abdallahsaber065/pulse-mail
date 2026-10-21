@@ -1,5 +1,5 @@
 // Mock backend for browser-only UI work (`pnpm dev`). Never used in Tauri.
-import type { AppStatus, Label, Message, ThreadRow } from "./types";
+import type { Activity, AppStatus, Label, Message, ThreadRow } from "./types";
 
 const now = Date.now();
 const min = 60_000;
@@ -59,6 +59,7 @@ function message(t: ThreadRow): Message {
     starred: t.starred,
     hasAttachments: false,
     otpCode: t.otpCode,
+    bodyLoaded: true,
   };
 }
 
@@ -66,10 +67,18 @@ const status: AppStatus = {
   clientConfigured: true,
   clientConfigPath: "%APPDATA%\\com.abdallah.pulsemail\\google-oauth-client.json",
   account: "me@gmail.com",
-  sync: { running: true, imapConnected: true, syncing: false, lastSyncAt: now, error: null },
+  sync: { running: true, imapConnected: true, syncing: false, lastSyncAt: now, error: null, progress: null, backfill: null },
   destroyOnClose: false,
   autostart: true,
+  notifications: "all",
+  dataDir: "%APPDATA%\\com.abdallah.pulsemail",
+  version: "0.1.0",
 };
+
+const activity: Activity[] = [
+  { at: now - 60_000, level: "success", text: "Inbox ready: 50 newest messages in 1.0 s" },
+  { at: now - 30_000, level: "info", text: "Live: Gmail will push new mail instantly" },
+];
 
 export async function handle(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   switch (cmd) {
@@ -83,6 +92,28 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       const q = String(args?.query ?? "").toLowerCase();
       return threads.filter((t) => `${t.subject} ${t.fromName} ${t.snippet}`.toLowerCase().includes(q));
     }
+    case "get_activity":
+      return activity;
+    case "modify_thread": {
+      const t = threads.find((x) => x.threadId === args?.threadId);
+      const add = (args?.add as string[]) ?? [];
+      const remove = (args?.remove as string[]) ?? [];
+      if (t) {
+        if (add.includes("STARRED")) t.starred = true;
+        if (remove.includes("STARRED")) t.starred = false;
+        if (add.includes("UNREAD")) t.unread = true;
+        if (remove.includes("UNREAD")) t.unread = false;
+        if (remove.includes("INBOX")) threads.splice(threads.indexOf(t), 1);
+      }
+      return;
+    }
+    case "set_notifications":
+      status.notifications = args?.mode as AppStatus["notifications"];
+      return;
+    case "set_destroy_on_close":
+      status.destroyOnClose = Boolean(args?.enabled);
+      return;
+    case "load_thread":
     case "get_thread": {
       const t = threads.find((x) => x.threadId === args?.threadId);
       return t ? [message(t)] : [];
@@ -96,7 +127,8 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       window.open(String(args?.url), "_blank", "noopener");
       return;
     case "set_autostart":
-      return Boolean(args?.enabled);
+      status.autostart = Boolean(args?.enabled);
+      return status.autostart;
     default:
       return;
   }

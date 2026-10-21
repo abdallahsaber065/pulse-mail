@@ -1,8 +1,9 @@
 import { Show } from "solid-js";
 import Icon from "./Icon";
-import Avatar from "./Avatar";
+import AccountMenu from "./AccountMenu";
+import SyncIndicator from "./SyncIndicator";
 import { theme } from "../lib/theme";
-import type { SyncStatus } from "../lib/types";
+import type { Activity, SyncStatus } from "../lib/types";
 
 interface Props {
   query: string;
@@ -10,27 +11,16 @@ interface Props {
   onToggleSidebar(): void;
   onRefresh(): void;
   onHelp(): void;
+  onSettings(): void;
   onSignOut(): void;
   account: string | null;
   sync: SyncStatus | null;
+  online: boolean;
+  activity: Activity[];
   searchRef(el: HTMLInputElement): void;
 }
 
 export default function TopBar(p: Props) {
-  const syncLabel = () => {
-    const s = p.sync;
-    if (!s || !s.running) return "Not syncing";
-    if (s.error) return s.error;
-    if (s.syncing) return "Checking for mail…";
-    return s.imapConnected ? "Live: new mail arrives instantly" : "Checking every minute";
-  };
-  const dotClass = () => {
-    const s = p.sync;
-    if (!s || !s.running) return "bg-outline";
-    if (s.error) return "bg-danger";
-    return s.imapConnected ? "bg-otp" : "bg-star";
-  };
-
   return (
     <header class="flex h-16 shrink-0 items-center gap-2 px-2">
       <div class="flex w-[232px] shrink-0 items-center gap-1">
@@ -66,23 +56,26 @@ export default function TopBar(p: Props) {
       </label>
 
       <div class="ml-auto flex items-center gap-1">
-        <div class="mr-2 flex items-center gap-2 text-xs text-muted" title={syncLabel()}>
-          <span class={`size-2 rounded-full ${dotClass()}`} />
-          <span class="hidden max-w-56 truncate xl:inline">{syncLabel()}</span>
-        </div>
+        <Show when={p.account}>
+          <SyncIndicator sync={p.sync} online={p.online} activity={p.activity} onRetry={p.onRefresh} />
+        </Show>
         <button class="grid size-10 place-items-center rounded-full text-muted hover:bg-hover" onClick={p.onRefresh} title="Check mail now (Shift+R)">
-          <Icon name="refresh" />
+          <Icon name="refresh" class={p.sync?.syncing ? "animate-spin-slow" : ""} />
         </button>
         <button class="grid size-10 place-items-center rounded-full text-muted hover:bg-hover" onClick={() => theme.cycle()} title={`Theme: ${theme.pref()}`}>
           <Icon name={theme.pref() === "dark" ? "moon" : theme.pref() === "light" ? "sun" : "auto"} />
         </button>
-        <button class="grid size-10 place-items-center rounded-full text-muted hover:bg-hover" onClick={p.onHelp} title="Keyboard shortcuts (?)">
-          <Icon name="keyboard" />
+        <button class="grid size-10 place-items-center rounded-full text-muted hover:bg-hover" onClick={p.onSettings} title="Settings (,)">
+          <Icon name="settings" />
         </button>
         <Show when={p.account}>
-          <button class="ml-1 rounded-full p-1 hover:bg-hover" title={`${p.account}\nClick to sign out`} onClick={p.onSignOut}>
-            <Avatar name={p.account!} email={p.account!} size={32} />
-          </button>
+          <AccountMenu
+            account={p.account!}
+            live={!!p.sync?.imapConnected}
+            onSettings={p.onSettings}
+            onShortcuts={p.onHelp}
+            onSignOut={p.onSignOut}
+          />
         </Show>
       </div>
     </header>
