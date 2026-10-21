@@ -168,6 +168,7 @@ pub fn run() {
             commands::list_labels,
             commands::list_threads,
             commands::search,
+            commands::search_server,
             commands::get_thread,
             commands::sync_now,
             commands::take_pending_open,

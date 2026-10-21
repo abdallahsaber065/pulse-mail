@@ -50,6 +50,9 @@ export const api = {
   threads: (labelId: string, limit = 200, offset = 0, accountId: Acct = null) =>
     call<ThreadRow[]>("list_threads", { labelId, limit, offset, accountId }),
   search: (query: string, limit = 100, accountId: Acct = null) => call<ThreadRow[]>("search", { query, limit, accountId }),
+  /** Gmail server search (all mail, every operator); rows are cached locally. */
+  searchServer: (query: string, limit = 50, accountId: Acct = null) =>
+    call<ThreadRow[]>("search_server", { query, limit, accountId }),
   thread: (threadId: string, accountId: Acct = null) => call<Message[]>("get_thread", { threadId, accountId }),
   /** Like `thread`, but first downloads bodies that are not cached yet. */
   loadThread: (threadId: string, accountId: Acct = null) => call<Message[]>("load_thread", { threadId, accountId }),

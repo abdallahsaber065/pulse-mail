@@ -398,6 +398,57 @@ pub fn search(state: State<'_, AppState>, query: String, limit: i64, account_id:
     Ok(store.search(account_id, &query, limit.clamp(1, 200))?)
 }
 
+/// Search Gmail itself (all mail, every operator) for one account or all,
+/// merged with nothing: the UI merges these rows with the local results.
+#[tauri::command]
+pub async fn search_server(
+    state: State<'_, AppState>,
+    query: String,
+    limit: Option<u32>,
+    account_id: Option<i64>,
+) -> CmdResult<Vec<ThreadRow>> {
+    validate::text(&query, 500)?;
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let max = limit.unwrap_or(50).clamp(1, 100);
+    let engines: Vec<Arc<sync::Engine>> = {
+        let syncs = state.syncs.lock().await;
+        syncs
+            .iter()
+            .filter(|(id, _)| account_id.is_none_or(|a| a == **id))
+            .map(|(_, c)| c.engine())
+            .collect()
+    };
+    if engines.is_empty() {
+        return Err(CmdError::new("That account isn't connected right now."));
+    }
+    let results = futures::future::join_all(engines.iter().map(|e| {
+        let q = query.clone();
+        async move { (e.account_id(), e.server_search(&q, max).await) }
+    }))
+    .await;
+    let mut rows = Vec::new();
+    let mut failed = 0;
+    for (id, r) in results {
+        match r {
+            Ok(ids) => {
+                let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+                rows.extend(store.threads_for_messages(id, &ids)?);
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "server search failed");
+                failed += 1;
+            }
+        }
+    }
+    if failed == engines.len() {
+        return Err(CmdError::new("Couldn't search Gmail. Showing mail saved on this PC."));
+    }
+    rows.sort_by_key(|r| std::cmp::Reverse(r.internal_date));
+    Ok(rows)
+}
+
 #[tauri::command]
 pub fn get_thread(state: State<'_, AppState>, thread_id: String, account_id: Option<i64>) -> CmdResult<Vec<MessageRow>> {
     validate::gmail_id(&thread_id)?;

@@ -16,6 +16,7 @@ import { checkLink } from "./lib/links";
 import { combineSync, windowLabel } from "./lib/accounts";
 import { installShortcuts } from "./lib/shortcuts";
 import { effectivePane, prefs as uiPrefs } from "./lib/prefs";
+import { mergeResults, needsServer, serverSearchable } from "./lib/search";
 import type {
   Account,
   Activity,
@@ -114,13 +115,39 @@ export default function App() {
     ({ label, q, n, a }) => (q.trim() ? api.search(q, 100, a) : api.threads(label, n, 0, a)),
     { initialValue: [] },
   );
+  // Gmail server search runs a little after the local one (it costs quota
+  // and a round trip) and adds what isn't cached; results merge by thread.
+  const [serverQ, setServerQ] = createSignal("");
+  createEffect(
+    on(debounced, (q) => {
+      const h = setTimeout(() => setServerQ(serverSearchable(q) ? q.trim() : ""), 450);
+      onCleanup(() => clearTimeout(h));
+    }),
+  );
+  const [serverHits, setServerHits] = createSignal<ThreadRow[]>([]);
+  const [serverState, setServerState] = createSignal<"idle" | "loading" | "done" | "error">("idle");
+  createEffect(
+    on([serverQ, accountView, signedIn], ([q, a, ok]) => {
+      setServerHits([]);
+      if (!q || !ok) return setServerState("idle");
+      let live = true;
+      onCleanup(() => (live = false));
+      setServerState("loading");
+      api
+        .searchServer(q, 50, a)
+        .then((r) => live && batch(() => (setServerHits(r), setServerState("done"))))
+        .catch(() => live && setServerState("error"));
+    }),
+  );
+  const searching = () => !!debounced().trim();
   const loadMore = () => {
     if (!debounced().trim() && !threads.loading && threads().length >= limit()) setLimit((n) => n + PAGE);
   };
 
   const rows = createMemo(() => {
     const o = overrides();
-    return threads()
+    const base = searching() ? mergeResults(threads(), serverHits()) : threads();
+    return base
       .filter((t) => !o[t.threadId]?.removed)
       .map((t) => {
         const x = o[t.threadId];
@@ -526,7 +553,17 @@ export default function App() {
 
   const empty = (): { icon: IconName; title: string; hint: string } => {
     const q = debounced().trim();
-    if (q) return { icon: "searchOff", title: `No results for "${q}"`, hint: "Search covers the mail saved on this PC." };
+    if (q)
+      return {
+        icon: "searchOff",
+        title: `No results for "${q}"`,
+        hint:
+          serverState() === "loading"
+            ? "Searching all of Gmail…"
+            : serverState() === "error"
+              ? "Couldn't reach Gmail, so only mail saved on this PC was searched."
+              : "Searched Gmail and the mail saved on this PC.",
+      };
     if (label() === "INBOX") return { icon: "doneAll", title: "You're all caught up", hint: "New mail shows up here the moment it arrives." };
     const name = labelName(label(), labels().find((l) => l.id === label())?.name ?? label());
     return { icon: "inboxEmpty", title: `Nothing in ${name}`, hint: "Older mail appears here as the download progresses." };
@@ -553,7 +590,10 @@ export default function App() {
   };
 
   const listLoading = () =>
-    rows().length === 0 && (threads.loading || (!debounced().trim() && (!!sync()?.foreground || !!sync()?.progress)));
+    rows().length === 0 &&
+    (threads.loading ||
+      (searching() && needsServer(debounced()) && serverState() === "loading") ||
+      (!searching() && (!!sync()?.foreground || !!sync()?.progress)));
 
   return (
     <div class="flex h-full flex-col">
@@ -593,7 +633,27 @@ export default function App() {
         />
         <main class={`mb-4 mr-4 flex min-w-0 flex-1 overflow-hidden rounded-2xl bg-surface ${layout() === "bottom" ? "flex-col" : ""}`}>
           <Show when={status() && signedIn()}>
-            <section class={`thread-list-pane min-w-0 ${listClass()}`}>
+            <section class={`thread-list-pane flex min-w-0 flex-col ${listClass()}`}>
+              <Show when={searching() && rows().length > 0}>
+                <div class="flex h-9 shrink-0 items-center gap-2 border-b border-divider px-4 text-xs text-muted" role="status">
+                  <Show
+                    when={serverState() === "loading"}
+                    fallback={
+                      <span>
+                        {serverState() === "error"
+                          ? "Couldn't reach Gmail · showing mail saved on this PC"
+                          : serverState() === "done"
+                            ? "Results from Gmail and this PC"
+                            : "Results from this PC"}
+                      </span>
+                    }
+                  >
+                    <span class="inline-block size-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    <span>Searching all of Gmail…</span>
+                  </Show>
+                </div>
+              </Show>
+              <div class="min-h-0 flex-1">
               <ThreadList
                 threads={rows()}
                 selectedId={selected()}
@@ -605,6 +665,7 @@ export default function App() {
                 onEndReached={loadMore}
                 onCopyCode={(c) => void copyCode(c)}
               />
+              </div>
             </section>
             <Show when={selected()}>
               <section class={`reader-pane min-h-0 min-w-0 flex-1 ${layout() === "bottom" ? "border-t border-divider" : ""}`}>

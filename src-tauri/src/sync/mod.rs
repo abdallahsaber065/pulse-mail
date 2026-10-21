@@ -779,6 +779,32 @@ impl Engine {
         Ok(raw.decode_raw()?)
     }
 
+    /// Gmail server search (full query syntax). Matches not cached yet are
+    /// fetched as metadata (quietly: no progress UI) so they can be listed
+    /// and opened like any other mail. Returns the matching message ids.
+    pub async fn server_search(&self, query: &str, max: u32) -> Result<Vec<String>, SyncError> {
+        let page = self
+            .with_token(|t| async move { self.gmail.list_page(&t, query, None, max).await })
+            .await?;
+        let missing = self.db(|s| s.missing_ids(self.account_id, &page.ids))?;
+        if !missing.is_empty() {
+            let token = self.token().await?;
+            for chunk in missing.chunks(gmail::BATCH_MAX) {
+                match self.gmail.get_metadata_batch(&token, chunk).await {
+                    Ok(results) => {
+                        for meta in results.into_iter().flatten() {
+                            let m = mime::from_metadata(&meta);
+                            self.db(|s| s.upsert_metadata(self.account_id, &m))?;
+                        }
+                    }
+                    Err(GmailError::Unauthorized) => return Err(GmailError::Unauthorized.into()),
+                    Err(e) => tracing::warn!(error = %e, "search metadata batch failed"),
+                }
+            }
+        }
+        Ok(page.ids)
+    }
+
     /// Archive / star / read: local first (instant UI), then Gmail. On
     /// failure the local change is rolled back.
     pub async fn modify_thread(&self, thread_id: &str, add: &[String], remove: &[String]) -> Result<(), SyncError> {

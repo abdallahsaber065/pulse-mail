@@ -160,6 +160,20 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       const q = String(args?.query ?? "").toLowerCase();
       return threads.filter((t) => `${t.subject} ${t.fromName} ${t.snippet}`.toLowerCase().includes(q));
     }
+    case "search_server": {
+      await new Promise((r) => setTimeout(r, 700));
+      const q = String(args?.query ?? "").toLowerCase().replace(/\b\w+:/g, "");
+      const older: ThreadRow = {
+        ...threads[threads.length - 1],
+        threadId: "srv-old-1",
+        lastMessageId: "srv-old-1",
+        subject: `Archived: ${q.trim() || "result"} (from Gmail)`,
+        snippet: "An older message found by Gmail search",
+        internalDate: Date.now() - 400 * 86_400_000,
+        unread: false,
+      };
+      return [...threads.filter((t) => `${t.subject} ${t.fromName} ${t.snippet}`.toLowerCase().includes(q.trim())), older];
+    }
     case "get_activity":
       return activity;
     case "modify_thread": {

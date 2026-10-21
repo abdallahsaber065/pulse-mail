@@ -5,6 +5,7 @@
 //! never hold the connection across an `.await`.
 
 mod migrations;
+pub mod query;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -563,20 +564,30 @@ impl Store {
             .collect()
     }
 
-    /// Full-text search over cached mail (FTS5 query syntax, sanitized),
-    /// one row per thread (its newest match). `account_id` None = all.
+    /// Search cached mail with a Gmail-style query (words, phrases and the
+    /// operators `from:`, `subject:`, `is:unread/read/starred`,
+    /// `has:attachment`), one row per thread (its newest match).
+    /// `account_id` None = all. Queries needing the server return nothing.
     pub fn search(&self, account_id: Option<i64>, query: &str, limit: i64) -> Result<Vec<ThreadRow>> {
-        let q = fts_query(query);
-        if q.is_empty() {
+        let q = query::parse(query);
+        if q.is_empty() || !q.local_ok {
             return Ok(Vec::new());
         }
+        let unread: Option<i64> = q.unread.map(i64::from);
         let mut stmt = self.conn.prepare_cached(
             "WITH hits AS (
                 SELECT m.*,
                        ROW_NUMBER() OVER (PARTITION BY m.account_id, m.thread_id ORDER BY m.internal_date DESC) AS rn,
                        COUNT(*) OVER (PARTITION BY m.account_id, m.thread_id) AS cnt
-                FROM messages_fts f JOIN messages m ON m.rowid = f.rowid
-                WHERE messages_fts MATCH ?2 AND (?1 IS NULL OR m.account_id = ?1)
+                FROM messages m
+                WHERE (?1 IS NULL OR m.account_id = ?1)
+                  AND (?2 = '' OR m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?2))
+                  AND (?4 IS NULL OR m.is_unread = ?4)
+                  AND (?5 = 0 OR m.is_starred = 1)
+                  AND (?6 = 0 OR m.has_attachments = 1)
+                  AND NOT EXISTS (SELECT 1 FROM message_labels ml
+                                  WHERE ml.account_id = m.account_id AND ml.message_id = m.id
+                                    AND ml.label_id IN ('SPAM', 'TRASH'))
              )
              SELECT thread_id, id, subject, from_name, from_email, snippet, internal_date,
                     cnt, is_unread, is_starred, otp_code, account_id
@@ -584,7 +595,41 @@ impl Store {
              ORDER BY internal_date DESC
              LIMIT ?3",
         )?;
-        stmt.query_map(params![account_id, q, limit], map_thread)?.collect()
+        stmt.query_map(params![account_id, q.fts, limit, unread, q.starred, q.attachment], map_thread)?
+            .collect()
+    }
+
+    /// Of `ids`, the ones not cached for this account (server search fills them in).
+    pub fn missing_ids(&self, account_id: i64, ids: &[String]) -> Result<Vec<String>> {
+        let json = serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT j.value FROM json_each(?2) j
+             WHERE NOT EXISTS (SELECT 1 FROM messages m WHERE m.account_id = ?1 AND m.id = j.value)",
+        )?;
+        stmt.query_map(params![account_id, json], |r| r.get(0))?.collect()
+    }
+
+    /// Thread rows (newest message of each thread) for the threads that
+    /// contain any of `message_ids`; used to show server search results.
+    pub fn threads_for_messages(&self, account_id: i64, message_ids: &[String]) -> Result<Vec<ThreadRow>> {
+        let json = serde_json::to_string(message_ids).unwrap_or_else(|_| "[]".into());
+        let mut stmt = self.conn.prepare_cached(
+            "WITH lm AS (
+                SELECT m.*,
+                       ROW_NUMBER() OVER (PARTITION BY m.thread_id ORDER BY m.internal_date DESC) AS rn,
+                       COUNT(*)     OVER (PARTITION BY m.thread_id) AS cnt,
+                       MAX(m.is_unread)  OVER (PARTITION BY m.thread_id) AS any_unread,
+                       MAX(m.is_starred) OVER (PARTITION BY m.thread_id) AS any_starred
+                FROM messages m
+                WHERE m.account_id = ?1 AND m.thread_id IN (
+                    SELECT thread_id FROM messages WHERE account_id = ?1 AND id IN (SELECT value FROM json_each(?2)))
+             )
+             SELECT thread_id, id, subject, from_name, from_email, snippet, internal_date,
+                    cnt, any_unread, any_starred, otp_code, account_id
+             FROM lm WHERE rn = 1
+             ORDER BY internal_date DESC",
+        )?;
+        stmt.query_map(params![account_id, json], map_thread)?.collect()
     }
 
     /// Unread INBOX threads per account (for the tray badge and the rail).
@@ -804,30 +849,6 @@ fn map_thread(r: &rusqlite::Row<'_>) -> Result<ThreadRow> {
     })
 }
 
-/// Turn free text into a safe FTS5 prefix query: every word quoted, last one
-/// as a prefix, so user input can never inject FTS operators.
-fn fts_query(input: &str) -> String {
-    let words: Vec<String> = input
-        .split_whitespace()
-        .map(|w| w.replace('"', ""))
-        .filter(|w| !w.is_empty())
-        .take(12)
-        .collect();
-    let n = words.len();
-    words
-        .into_iter()
-        .enumerate()
-        .map(|(i, w)| {
-            if i + 1 == n {
-                format!("\"{w}\"*")
-            } else {
-                format!("\"{w}\"")
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -932,6 +953,36 @@ mod tests {
         s.upsert_message(id, &msg("m1", "t1", 100, &["INBOX"], "Renamed"))
             .unwrap();
         assert!(s.search(Some(id), "invoice", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_operators_and_server_helpers() {
+        let (mut s, id) = setup();
+        let mut a = msg("m1", "t1", 100, &["INBOX", "UNREAD"], "Invoice March");
+        a.has_attachments = true;
+        s.upsert_message(id, &a).unwrap();
+        let mut b = msg("m2", "t2", 200, &["INBOX", "STARRED"], "Invoice April");
+        b.from_name = "Bob".into();
+        b.from_email = "bob@corp.test".into();
+        s.upsert_message(id, &b).unwrap();
+        s.upsert_message(id, &msg("m3", "t3", 300, &["TRASH"], "Invoice trash")).unwrap();
+
+        let ids = |q: &str| s.search(Some(id), q, 10).unwrap().into_iter().map(|t| t.last_message_id).collect::<Vec<_>>();
+        assert_eq!(ids("invoice"), ["m2", "m1"], "trash excluded, newest first");
+        assert_eq!(ids("from:bob invoice"), ["m2"]);
+        assert_eq!(ids("is:unread"), ["m1"]);
+        assert_eq!(ids("is:starred"), ["m2"]);
+        assert_eq!(ids("has:attachment invoice"), ["m1"]);
+        assert_eq!(ids(r#"subject:"invoice april""#), ["m2"]);
+        assert!(ids("in:sent invoice").is_empty(), "server-only query");
+
+        let missing = s.missing_ids(id, &["m1".into(), "zz".into()]).unwrap();
+        assert_eq!(missing, ["zz"]);
+        s.upsert_message(id, &msg("m4", "t1", 400, &["SENT"], "Re: Invoice March")).unwrap();
+        let rows = s.threads_for_messages(id, &["m1".into(), "m2".into()]).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].last_message_id, "m4", "thread shows its newest message");
+        assert_eq!(rows[0].message_count, 2);
     }
 
     #[test]

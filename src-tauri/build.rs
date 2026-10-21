@@ -9,6 +9,7 @@ const COMMANDS: &[&str] = &[
     "list_labels",
     "list_threads",
     "search",
+    "search_server",
     "get_thread",
     "sync_now",
     "take_pending_open",
