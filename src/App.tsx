@@ -5,6 +5,9 @@ import ThreadList, { type RowActions } from "./components/ThreadList";
 import Reader from "./components/Reader";
 import Onboarding from "./components/Onboarding";
 import ShortcutsHelp from "./components/ShortcutsHelp";
+import CommandPalette from "./components/CommandPalette";
+import type { Command } from "./lib/palette";
+import { theme } from "./lib/theme";
 import SettingsPanel from "./components/SettingsPanel";
 import { TopProgress } from "./components/SyncIndicator";
 import { snack, SnackbarHost } from "./components/Snackbar";
@@ -66,6 +69,7 @@ export default function App() {
   const [collapsed, setCollapsed] = createSignal(false);
   const [help, setHelp] = createSignal(false);
   const [settings, setSettings] = createSignal(false);
+  const [palette, setPalette] = createSignal(false);
   const [tick, setTick] = createSignal(0); // bump to reload after "mail-updated"
   const [overrides, setOverrides] = createSignal<Record<string, Override>>({});
   const [msgs, setMsgs] = createSignal<Message[]>([]);
@@ -485,6 +489,15 @@ export default function App() {
       settings: () => setSettings(true),
     });
     onCleanup(remove);
+    // Ctrl+K opens the palette from anywhere, even while typing.
+    const onPaletteKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (!onboarding()) setPalette((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onPaletteKey);
+    onCleanup(() => window.removeEventListener("keydown", onPaletteKey));
   });
 
   const removeAccount = async (accountId: number) => {
@@ -568,6 +581,50 @@ export default function App() {
     const name = labelName(label(), labels().find((l) => l.id === label())?.name ?? label());
     return { icon: "inboxEmpty", title: `Nothing in ${name}`, hint: "Older mail appears here as the download progresses." };
   };
+  // Everything the Ctrl+K palette can do, built fresh when it opens.
+  const paletteCommands = (): Command[] => {
+    const cmds: Command[] = [];
+    const t = current();
+    const add = (c: Omit<Command, "id"> & { id?: string }) => cmds.push({ id: c.id ?? `${c.group}:${c.title}`, ...c });
+    if (t) {
+      if (inInbox()) add({ group: "Conversation", title: "Archive", icon: "archive", keys: "e", run: () => archive(t) });
+      add({ group: "Conversation", title: t.starred ? "Remove star" : "Star", icon: "star", keys: "s", run: () => toggleStar(t) });
+      add({ group: "Conversation", title: t.unread ? "Mark as read" : "Mark as unread", icon: t.unread ? "markRead" : "markUnread", keys: t.unread ? "Shift+I" : "Shift+U", run: () => setRead(t, t.unread) });
+      const code = [...messages()].reverse().find((m) => m.otpCode)?.otpCode;
+      if (code) add({ group: "Conversation", title: "Copy verification code", icon: "copy", keys: "Shift+C", words: "otp", run: () => void copyCode(code) });
+      if (selected()) add({ group: "Conversation", title: "Back to list", icon: "back", keys: "u", run: () => setSelected(null) });
+    }
+    const system: [string, string, IconName][] = [
+      ["INBOX", "Inbox", "inbox"],
+      ["STARRED", "Starred", "star"],
+      ["IMPORTANT", "Important", "important"],
+      ["SENT", "Sent", "send"],
+      ["DRAFT", "Drafts", "draft"],
+      ["SPAM", "Spam", "spam"],
+      ["TRASH", "Trash", "trash"],
+    ];
+    for (const [id, name, icon] of system) add({ group: "Go to", title: name, icon, words: "go open folder", run: () => goto(id) });
+    for (const l of labels())
+      if (l.kind === "user") add({ group: "Go to", title: labelName(l.id, l.name), icon: "label", hint: "Label", words: "label", run: () => goto(l.id) });
+    if (accounts().length > 1) {
+      add({ group: "Accounts", title: "All inboxes", icon: "allInbox", words: "unified switch", run: () => batch(() => (setAccountView(null), setSelected(null))) });
+      for (const a of accounts()) add({ group: "Accounts", title: a.email, icon: "person", hint: a.unread ? `${a.unread} unread` : undefined, words: "switch account", run: () => batch(() => (setAccountView(a.id), setSelected(null))) });
+    }
+    add({ group: "Accounts", title: "Add another account", icon: "add", words: "sign in google", run: () => setOnboarding({ mode: "add" }) });
+    add({ group: "Actions", title: "Check mail now", icon: "refresh", keys: "Shift+R", words: "sync refresh", run: () => void api.syncNow() });
+    add({ group: "Actions", title: "Search mail", icon: "search", keys: "/", run: () => searchInput?.focus() });
+    add({ group: "Layout", title: "Reading pane: right of list", icon: "splitRight", words: "split side", run: () => uiPrefs.setPane("right") });
+    add({ group: "Layout", title: "Reading pane: below list", icon: "splitBottom", words: "split bottom", run: () => uiPrefs.setPane("bottom") });
+    add({ group: "Layout", title: "Reading pane: full page", icon: "noSplit", words: "no split", run: () => uiPrefs.setPane("full") });
+    add({ group: "Layout", title: collapsed() ? "Expand sidebar" : "Collapse sidebar", icon: "menu", run: () => setCollapsed((c) => !c) });
+    add({ group: "Appearance", title: "Theme: system", icon: "auto", words: "dark light", run: () => theme.set("system") });
+    add({ group: "Appearance", title: "Theme: light", icon: "sun", run: () => theme.set("light") });
+    add({ group: "Appearance", title: "Theme: dark", icon: "moon", run: () => theme.set("dark") });
+    add({ group: "App", title: "Settings", icon: "settings", keys: ",", words: "preferences options", run: () => setSettings(true) });
+    add({ group: "App", title: "Keyboard shortcuts", icon: "keyboard", keys: "?", words: "help", run: () => setHelp(true) });
+    return cmds;
+  };
+
   // Reading pane: right / bottom / full page, falling back to full page
   // when the window is too small for the split.
   const [viewport, setViewport] = createSignal({ w: window.innerWidth, h: window.innerHeight });
@@ -706,6 +763,13 @@ export default function App() {
           </Show>
         </main>
       </div>
+      <Show when={palette()}>
+        <CommandPalette
+          commands={paletteCommands()}
+          onSearch={(q) => batch(() => (setSelected(null), setQuery(q)))}
+          onClose={() => setPalette(false)}
+        />
+      </Show>
       <Show when={help()}>
         <ShortcutsHelp onClose={() => setHelp(false)} />
       </Show>

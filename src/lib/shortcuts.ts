@@ -33,6 +33,7 @@ export const SHORTCUTS: [string, string][] = [
   ["g then d", "Go to Drafts"],
   ["Shift + r", "Check mail now"],
   [",", "Settings"],
+  ["Ctrl + k", "Command palette"],
   ["?", "Show keyboard shortcuts"],
 ];
 
