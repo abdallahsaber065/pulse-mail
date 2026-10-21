@@ -175,7 +175,7 @@ pub fn list_threads(
 ) -> CmdResult<Vec<ThreadRow>> {
     let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
     match store.primary_account()? {
-        Some(a) => Ok(store.list_threads(a.id, &label_id, limit.clamp(1, 500), offset.max(0))?),
+        Some(a) => Ok(store.list_threads(a.id, &label_id, limit.clamp(1, 5000), offset.max(0))?),
         None => Ok(Vec::new()),
     }
 }
@@ -254,11 +254,10 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> CmdResult<bool> {
 #[tauri::command]
 pub async fn load_thread(state: State<'_, AppState>, thread_id: String) -> CmdResult<Vec<MessageRow>> {
     let engine = state.sync.lock().await.as_ref().map(|c| c.engine());
-    if let Some(engine) = engine
-        && let Err(e) = engine.load_thread_bodies(&thread_id).await
-    {
-        // Still show what we have (headers + snippet); the UI offers retry.
-        tracing::warn!(error = %e, "loading thread bodies failed");
+    if let Some(engine) = engine {
+        // On failure the UI keeps the cached headers + snippet and shows an
+        // inline "Couldn't load" state with Retry.
+        engine.load_thread_bodies(&thread_id).await?;
     }
     get_thread(state, thread_id)
 }

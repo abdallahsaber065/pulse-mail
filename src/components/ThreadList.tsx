@@ -21,6 +21,8 @@ interface Props {
   actions: RowActions;
   onOpen(t: ThreadRow, index: number): void;
   onCopyCode(code: string): void;
+  /** The user scrolled near the bottom: load the next page if there is one. */
+  onEndReached?(): void;
 }
 
 function Skeleton() {
@@ -62,6 +64,13 @@ export default function ThreadList(p: Props) {
   // Keep the keyboard cursor in view.
   createEffect(() => {
     if (p.cursor >= 0 && p.cursor < p.threads.length) virtualizer.scrollToIndex(p.cursor, { align: "auto" });
+  });
+
+  // Ask for more rows when the last rendered row is close to the end.
+  createEffect(() => {
+    const items = virtualizer.getVirtualItems();
+    const last = items[items.length - 1];
+    if (last && p.threads.length > 0 && last.index >= p.threads.length - 20) p.onEndReached?.();
   });
 
   const comfy = () => prefs.density() === "comfortable";

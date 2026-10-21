@@ -10,6 +10,9 @@ interface Props {
   messages: Message[];
   /** Thread clicked but nothing cached for it yet. */
   loading: boolean;
+  /** Bodies couldn't be downloaded; show an inline retry instead of a skeleton. */
+  error: string | null;
+  onRetry(): void;
   onBack(): void;
   onCopyCode(code: string): void;
   onArchive?(): void;
@@ -139,7 +142,15 @@ export default function Reader(p: Props) {
                     fallback={
                       <>
                         <p class="selectable mb-2 text-sm text-muted">{m.snippet}</p>
-                        <BodySkeleton />
+                        <Show when={p.error} fallback={<BodySkeleton />}>
+                          <div class="flex items-center gap-3 rounded-xl bg-danger-container px-4 py-3 text-sm text-on-danger-container" role="alert">
+                            <Icon name="error" size={18} />
+                            <span class="flex-1">Couldn't load this message. {p.error}</span>
+                            <button class="rounded-full px-3 py-1 font-medium text-primary hover:bg-hover" onClick={p.onRetry}>
+                              Retry
+                            </button>
+                          </div>
+                        </Show>
                       </>
                     }
                   >

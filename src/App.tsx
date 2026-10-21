@@ -42,6 +42,8 @@ export default function App() {
   const [overrides, setOverrides] = createSignal<Record<string, Override>>({});
   const [msgs, setMsgs] = createSignal<Message[]>([]);
   const [msgLoading, setMsgLoading] = createSignal(false);
+  /** Body download for the open thread failed (offline, Gmail error). */
+  const [bodyError, setBodyError] = createSignal<string | null>(null);
   let searchInput: HTMLInputElement | undefined;
 
   const signedIn = () => !!status()?.account;
@@ -50,11 +52,17 @@ export default function App() {
   const [labels, { refetch: refetchLabels }] = createResource(() => (signedIn() ? tick() + 1 : false), () => api.labels(), {
     initialValue: [],
   });
+  // Infinite scroll: the list grows a page at a time as you near the end.
+  const PAGE = 200;
+  const [limit, setLimit] = createSignal(PAGE);
   const [threads] = createResource(
-    () => (signedIn() ? { label: label(), q: debounced(), t: tick() } : false),
-    ({ label, q }) => (q.trim() ? api.search(q) : api.threads(label)),
+    () => (signedIn() ? { label: label(), q: debounced(), t: tick(), n: limit() } : false),
+    ({ label, q, n }) => (q.trim() ? api.search(q) : api.threads(label, n)),
     { initialValue: [] },
   );
+  const loadMore = () => {
+    if (!debounced().trim() && !threads.loading && threads().length >= limit()) setLimit((n) => n + PAGE);
+  };
 
   const rows = createMemo(() => {
     const o = overrides();
@@ -91,7 +99,16 @@ export default function App() {
       onCleanup(() => clearTimeout(h));
     }),
   );
-  createEffect(on([label, debounced], () => setCursor(0), { defer: true }));
+  createEffect(
+    on(
+      [label, debounced],
+      () => {
+        setCursor(0);
+        setLimit(PAGE);
+      },
+      { defer: true },
+    ),
+  );
   createEffect(() => {
     const s = status();
     if (s) setSync(s.sync);
@@ -110,11 +127,12 @@ export default function App() {
     if (seq !== loadSeq) return;
     if (cached.length) setMsgs(cached);
     if (fetchBodies && (cached.length === 0 || cached.some((m) => !m.bodyLoaded))) {
+      setBodyError(null);
       try {
         const full = await api.loadThread(id);
         if (seq === loadSeq) setMsgs(full);
       } catch (e) {
-        if (seq === loadSeq) snack((e as Error).message, { action: { label: "Retry", run: () => void loadThread(id, true) } });
+        if (seq === loadSeq) setBodyError((e as Error).message);
       }
     }
     if (seq === loadSeq) setMsgLoading(false);
@@ -122,6 +140,7 @@ export default function App() {
   createEffect(
     on(selected, (id) => {
       setMsgs([]);
+      setBodyError(null);
       if (id) {
         setMsgLoading(true);
         void loadThread(id, true);
@@ -392,6 +411,7 @@ export default function App() {
                 empty={empty()}
                 actions={actions}
                 onOpen={openThread}
+                onEndReached={loadMore}
                 onCopyCode={(c) => void copyCode(c)}
               />
             </section>
@@ -400,6 +420,11 @@ export default function App() {
                 <Reader
                   messages={messages()}
                   loading={msgLoading()}
+                  error={bodyError()}
+                  onRetry={() => {
+                    const id = selected();
+                    if (id) void loadThread(id, true);
+                  }}
                   onBack={() => setSelected(null)}
                   onCopyCode={(c) => void copyCode(c)}
                   onArchive={

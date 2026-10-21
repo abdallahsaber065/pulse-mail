@@ -90,8 +90,10 @@ pub fn show_new_mail(app: &AppHandle, t: NewMailToast) {
                 Ok(())
             })
             .show();
-        if let Err(e) = result {
-            tracing::warn!(error = %e, "failed to show toast");
+        match result {
+            // Timestamped marker for measuring push-to-toast latency (PLAN.md).
+            Ok(()) => tracing::info!(otp = t.otp.is_some(), "toast shown"),
+            Err(e) => tracing::warn!(error = %e, "failed to show toast"),
         }
     });
 }

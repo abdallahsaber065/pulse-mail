@@ -102,24 +102,18 @@ but with a real gap · **Stubbed** = visible in the UI but does nothing yet ·
 
 ## Known bugs and limitations
 
-0. **Bug: Settings crashes the dev UI.** The dev log of 2026-10-21 18:50
-   shows `TypeError: Cannot read properties of undefined (reading 'when')`
-   thrown from Solid's built-in `<Switch>`. `SettingsPanel.tsx` declares its
-   own component named `Switch`; in the dev build Solid's JSX transform
-   appears to resolve `<Switch>` to the built-in control-flow component
-   instead. The production build (`vite preview`) rendered fine. Fix: rename
-   the local component (for example `Toggle`) and re-test in `pnpm tauri dev`.
+0. ~~Settings crashed the dev UI~~ **Fixed** (2026-10-21): the local `Switch` component in `SettingsPanel.tsx` was renamed to `Toggle`, so it can no longer collide with Solid's built-in `<Switch>`.
 1. **Search is local only.** Mail older than the 90-day / 500-message window is invisible, Gmail operators (`from:`, `has:attachment`) aren't understood, and results are per message, so one thread can appear more than once.
-2. **List cap.** The UI asks for 200 threads per label and never pages further.
+2. ~~List cap~~ **Fixed:** the list loads 200 rows and grows by 200 as you scroll near the end (`ThreadList` `onEndReached`). It can only page through what is cached.
 3. **Backfill cap.** 90 days, 500 messages, metadata only. No "load older mail" anywhere.
 4. **Unread counts lag.** Sidebar counts come from Gmail's label totals; they update on the next sync, not on local actions.
 5. **Dev toasts show PowerShell** as the sender and icon. Installed builds should use the app id, but that hasn't been checked.
-6. **Toast latency and RAM are not measured.** There's no `toast shown` log line yet, so the latency method in PLAN.md can't be used as written.
+6. **Toast latency and RAM are not measured.** A `toast shown` info line is now logged, so latency can be measured from the log; it hasn't been measured yet.
 7. **Compose is disabled.** No reply, forward or drafts.
 8. **No attachments.** Can't see or save files; inline `cid:` images don't render.
 9. **Single account only** (see the matrix).
 10. **IMAP watches INBOX only.** Changes made elsewhere (for example in Gmail web) to other labels show up on the next poll, up to 15 minutes later.
-11. **Bug: offline open never stops loading.** `load_thread` logs a failed body download and returns the cached rows, so the reader keeps showing the snippet and a loading skeleton with no error and no Retry. Reopening the thread tries again. Fix: return a "body unavailable" flag and show an inline retry.
+11. ~~Offline open never stops loading~~ **Fixed:** `load_thread` now returns the error; the reader keeps the cached headers and snippet and shows "Couldn't load this message" with **Retry**.
 12. **Sign out while the background backfill runs:** the job sees the stop flag at its next step and exits; a request already in flight still finishes.
 13. **Cache not encrypted at rest; codes stay on the clipboard; codes can show on the lock screen** (see [SECURITY.md](SECURITY.md)).
 14. **Default Tauri icon** in the tray, taskbar and installer.

@@ -39,7 +39,7 @@ function Segmented<T extends string>(p: { value: T; options: [T, string][]; onCh
   );
 }
 
-function Switch(p: { checked: boolean; onChange(v: boolean): void; label: string }) {
+function Toggle(p: { checked: boolean; onChange(v: boolean): void; label: string }) {
   return (
     <button
       role="switch"
@@ -106,7 +106,7 @@ export default function SettingsPanel(p: Props) {
         <div class="flex-1 overflow-y-auto px-6 pb-8">
           <Section title="General">
             <Row title="Start with Windows" desc="Opens minimized to the tray when you sign in to Windows.">
-              <Switch label="Start with Windows" checked={p.status.autostart} onChange={p.onAutostart} />
+              <Toggle label="Start with Windows" checked={p.status.autostart} onChange={p.onAutostart} />
             </Row>
             <Row title="When I close the window" stack>
               <Segmented
