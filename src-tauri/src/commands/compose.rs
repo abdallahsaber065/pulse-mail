@@ -3,7 +3,7 @@
 
 use super::{CmdError, CmdResult, engine_for, resolve_account, validate};
 use crate::AppState;
-use crate::compose::{self, ComposeInit, Draft, Mode};
+use crate::compose::{self, ComposeInit, Draft, FilePart, Mode};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -14,6 +14,117 @@ use tauri::{AppHandle, Emitter, Manager, State};
 /// Sends waiting out their undo window: id → account.
 static OUTBOX: LazyLock<Mutex<HashMap<u64, i64>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static NEXT_SEND: AtomicU64 = AtomicU64::new(1);
+
+/// Files picked or dropped in compose, held in memory until the app quits
+/// (the Gmail draft holds them too once saved): id -> file.
+static STAGED: LazyLock<Mutex<HashMap<String, Staged>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Cap on staged bytes kept in memory.
+const STAGED_MAX: usize = 300 * 1024 * 1024;
+
+struct Staged {
+    name: String,
+    mime: String,
+    bytes: std::sync::Arc<Vec<u8>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StagedRef {
+    id: String,
+    name: String,
+    mime: String,
+    size: i64,
+}
+
+fn header<'a>(request: &'a tauri::ipc::Request<'_>, name: &str) -> Option<&'a str> {
+    request.headers().get(name).and_then(|v| v.to_str().ok())
+}
+
+/// Percent-decoding for the file name header (the UI encodes it).
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len()
+            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+        {
+            out.push(v);
+            i += 3;
+            continue;
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Receive one file for the compose window as a raw IPC body (no base64).
+/// Headers: `x-name` (percent-encoded file name), `x-mime`.
+#[tauri::command]
+pub fn stage_attachment(request: tauri::ipc::Request<'_>) -> CmdResult<StagedRef> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(CmdError::new("Couldn't read that file."));
+    };
+    if bytes.len() as i64 > compose::MAX_ATTACH_TOTAL {
+        return Err(CmdError::new("Files can be up to 25 MB (Gmail's limit)."));
+    }
+    let name = crate::sync::mime::safe_filename(&percent_decode(header(&request, "x-name").unwrap_or("attachment")));
+    let name = if name.is_empty() { "attachment".to_string() } else { name };
+    let mime = compose::safe_mime(header(&request, "x-mime").unwrap_or(""));
+    let mut staged = STAGED.lock().unwrap_or_else(|e| e.into_inner());
+    let used: usize = staged.values().map(|s| s.bytes.len()).sum();
+    if used + bytes.len() > STAGED_MAX {
+        return Err(CmdError::new("Too many large files are open in compose. Send or discard a message first."));
+    }
+    let id = format!("s{}", NEXT_SEND.fetch_add(1, Ordering::SeqCst));
+    let size = bytes.len() as i64;
+    staged.insert(id.clone(), Staged { name: name.clone(), mime: mime.clone(), bytes: std::sync::Arc::new(bytes.clone()) });
+    Ok(StagedRef { id, name, mime, size })
+}
+
+/// Forget a file removed from compose.
+#[tauri::command]
+pub fn unstage_attachment(id: String) {
+    STAGED.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+}
+
+/// Bytes for every attachment of a draft: staged files from memory,
+/// forwarded ones from this PC's attachment store or from Gmail.
+async fn resolve_files(state: &AppState, d: &Draft, account_id: i64) -> CmdResult<Vec<FilePart>> {
+    let mut out = Vec::new();
+    let mut raws: HashMap<String, Vec<u8>> = HashMap::new();
+    for a in &d.attachments {
+        if let Some(id) = &a.staged {
+            let s = STAGED.lock().unwrap_or_else(|e| e.into_inner());
+            let f = s.get(id).ok_or_else(|| CmdError::new(format!("\"{}\" isn't available any more. Attach it again.", a.name)))?;
+            out.push(FilePart { name: f.name.clone(), mime: f.mime.clone(), bytes: f.bytes.as_ref().clone() });
+            continue;
+        }
+        let (Some(mid), Some(part)) = (&a.source_message, a.source_part) else { continue };
+        validate::gmail_id(mid)?;
+        let stored = {
+            let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+            store.attachment_stored(account_id, mid, part)?
+        };
+        let local = if stored { crate::files::read(&state.files_dir, account_id, mid, part) } else { None };
+        let bytes = match local {
+            Some(b) => b,
+            None => {
+                if !raws.contains_key(mid) {
+                    let engine = engine_for(state, Some(account_id)).await?;
+                    raws.insert(mid.clone(), engine.fetch_raw(mid).await?);
+                }
+                mail_parser::MessageParser::default()
+                    .parse(&raws[mid])
+                    .and_then(|p| p.attachment(part).map(|x| x.contents().to_vec()))
+                    .ok_or_else(|| CmdError::new(format!("Couldn't attach \"{}\" from the original.", a.name)))?
+            }
+        };
+        out.push(FilePart { name: a.name.clone(), mime: a.mime.clone(), bytes });
+    }
+    Ok(out)
+}
 
 fn check_ids(d: &Draft) -> CmdResult<()> {
     if let Some(id) = &d.draft_id {
@@ -69,7 +180,8 @@ async fn save(state: &AppState, d: &Draft, account_id: Option<i64>, sending: boo
     let p = d.prepare(sending).map_err(CmdError::new)?;
     let account = resolve_account(state, account_id)?;
     let engine = engine_for(state, Some(account.id)).await?;
-    let raw = compose::build_raw(d, &p, &account.email);
+    let files = resolve_files(state, d, account.id).await?;
+    let raw = compose::build_raw(d, &p, &account.email, &account.display_name, files);
     let r = engine
         .with_token(|t| {
             let (raw, engine) = (&raw, &engine);
@@ -154,6 +266,14 @@ pub async fn send_message(
         let event = match result {
             Ok(_) => {
                 tracing::info!("message sent");
+                {
+                    let mut staged = STAGED.lock().unwrap_or_else(|e| e.into_inner());
+                    for a in &draft.attachments {
+                        if let Some(id) = &a.staged {
+                            staged.remove(id);
+                        }
+                    }
+                }
                 if let Some(c) = state.syncs.lock().await.get(&account) {
                     c.sync_now(false);
                 }

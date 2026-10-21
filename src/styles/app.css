@@ -245,3 +245,19 @@ button:active > .star-pop { transform: scale(1.25); }
     margin: 0 !important;
   }
 }
+
+/* Compose editor (TipTap). Preflight strips list and quote styles. */
+.pm-editor {
+  min-height: 140px;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pm-editor p { margin: 0 0 0.5em; }
+.pm-editor ul { list-style: disc; padding-inline-start: 1.5em; margin: 0 0 0.5em; }
+.pm-editor ol { list-style: decimal; padding-inline-start: 1.5em; margin: 0 0 0.5em; }
+.pm-editor blockquote { border-inline-start: 2px solid var(--color-divider, #ccc); padding-inline-start: 0.75em; color: var(--color-muted, inherit); margin: 0 0 0.5em; }
+.pm-editor a { color: var(--color-primary, #0b57d0); text-decoration: underline; }
+.pm-editor code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; }
+.pm-editor h2 { font-size: 1.25em; font-weight: 600; }
+.pm-editor h3 { font-size: 1.1em; font-weight: 600; }

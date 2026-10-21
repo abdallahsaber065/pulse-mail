@@ -7,6 +7,9 @@ use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
 use serde::Deserialize;
 
 const BASE: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
+const UPLOAD_BASE: &str = "https://gmail.googleapis.com/upload/gmail/v1/users/me";
+/// Drafts bigger than this use the upload endpoint.
+const UPLOAD_ABOVE: usize = 3 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GmailError {
@@ -558,6 +561,11 @@ impl Gmail {
         raw: &[u8],
         thread_id: Option<&str>,
     ) -> Result<DraftRef, GmailError> {
+        // Gmail's JSON endpoint takes messages up to ~5 MB; bigger ones
+        // (attachments) go through the upload endpoint.
+        if raw.len() > UPLOAD_ABOVE {
+            return self.upload_draft(token, draft_id, raw, thread_id).await;
+        }
         let mut message = serde_json::json!({ "raw": URL_SAFE_NO_PAD.encode(raw) });
         if let Some(t) = thread_id {
             message["threadId"] = t.into();
@@ -566,6 +574,48 @@ impl Gmail {
         match draft_id {
             Some(id) => self.write_json(token, reqwest::Method::PUT, &format!("/drafts/{id}"), &body).await,
             None => self.write_json(token, reqwest::Method::POST, "/drafts", &body).await,
+        }
+    }
+
+    /// drafts.create / drafts.update via `uploadType=multipart`
+    /// (metadata JSON + the message as `message/rfc822`), up to 35 MB.
+    async fn upload_draft(
+        &self,
+        token: &Secret,
+        draft_id: Option<&str>,
+        raw: &[u8],
+        thread_id: Option<&str>,
+    ) -> Result<DraftRef, GmailError> {
+        let mut meta = serde_json::json!({ "message": {} });
+        if let Some(t) = thread_id {
+            meta["message"]["threadId"] = t.into();
+        }
+        if let Some(id) = draft_id {
+            meta["id"] = id.into();
+        }
+        let boundary = "pulse_mail_upload_7d1f";
+        let mut body = format!(
+            "--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{meta}\r\n--{boundary}\r\nContent-Type: message/rfc822\r\n\r\n"
+        )
+        .into_bytes();
+        body.extend_from_slice(raw);
+        body.extend_from_slice(format!("\r\n--{boundary}--").as_bytes());
+        let (method, url) = match draft_id {
+            Some(id) => (reqwest::Method::PUT, format!("{UPLOAD_BASE}/drafts/{id}?uploadType=multipart")),
+            None => (reqwest::Method::POST, format!("{UPLOAD_BASE}/drafts?uploadType=multipart")),
+        };
+        let resp = self
+            .http
+            .request(method, url)
+            .bearer_auth(token.expose())
+            .header("Content-Type", format!("multipart/related; boundary={boundary}"))
+            .timeout(std::time::Duration::from_secs(300))
+            .body(body)
+            .send()
+            .await?;
+        match resp.status().as_u16() {
+            200..=299 => Ok(resp.json().await?),
+            _ => Err(classify_error(resp).await),
         }
     }
 

@@ -197,6 +197,8 @@ pub fn run() {
             commands::compose::delete_draft,
             commands::compose::send_message,
             commands::compose::cancel_send,
+            commands::compose::stage_attachment,
+            commands::compose::unstage_attachment,
             commands::mail::render_message,
             commands::mail::set_image_sender,
             commands::mail::set_pref,

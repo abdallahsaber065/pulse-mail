@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { draftFrom, emptyDraft, hasContent, parseMailto, sameContent } from "./compose";
+import { attachTotal, draftFrom, emptyDraft, hasContent, parseMailto, sameContent, textToHtml, withSignature } from "./compose";
 import type { ComposeInit } from "./types";
 
 const init: ComposeInit = {
@@ -15,6 +15,7 @@ const init: ComposeInit = {
   originalDate: Date.UTC(2026, 9, 21, 18, 34),
   originalSubject: "Q4",
   originalText: "numbers attached",
+  attachments: [],
 };
 
 describe("compose helpers", () => {
@@ -45,5 +46,25 @@ describe("compose helpers", () => {
     expect(hasContent(b)).toBe(true);
     expect(sameContent(a, b)).toBe(false);
     expect(sameContent(b, { ...b, draftId: "d1" })).toBe(true);
+  });
+});
+
+describe("rich compose helpers", () => {
+  it("text to editor html, escaped", () => {
+    expect(textToHtml("a <b>\nline\n\nnext")).toBe("<p>a &lt;b&gt;<br>line</p><p>next</p>");
+    expect(textToHtml("")).toBe("");
+  });
+  it("signature goes below the body in both parts", () => {
+    const d = withSignature({ ...emptyDraft(), body: "Hi" }, "Abdallah\n<CEO>");
+    expect(d.body).toBe("Hi\n\n-- \nAbdallah\n<CEO>");
+    expect(d.html).toContain("-- <br>Abdallah<br>&lt;CEO&gt;");
+    expect(withSignature(emptyDraft(), "  ").html).toBeNull();
+  });
+  it("attachments count as content and change detection", () => {
+    const a = emptyDraft();
+    const b = { ...a, attachments: [{ name: "x.pdf", mime: "application/pdf", size: 10, staged: "s1" }] };
+    expect(hasContent(b)).toBe(true);
+    expect(sameContent(a, b)).toBe(false);
+    expect(attachTotal(b.attachments)).toBe(10);
   });
 });

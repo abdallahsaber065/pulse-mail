@@ -18,6 +18,7 @@ import type {
   RenderedMessage,
   SavedAttachment,
   SignedIn,
+  StagedRef,
   SyncStatus,
   SyncWindow,
   ThreadRow,
@@ -54,6 +55,20 @@ export const api = {
   resumeHistory: (accountId: number) => call<void>("resume_history", { accountId }),
   setAccountSettings: (accountId: number, settings: AccountSettings) => call<void>("set_account_settings", { accountId, settings }),
   accountStorage: (accountId: number) => call<AccountStorage>("account_storage", { accountId }),
+  /** Upload one file for compose as a raw IPC body (no base64). */
+  stageAttachment: async (file: File): Promise<StagedRef> => {
+    if (!inTauri) return mock.handle("stage_attachment", { name: file.name, mime: file.type, size: file.size }) as Promise<StagedRef>;
+    const { invoke } = await import("@tauri-apps/api/core");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    try {
+      return await invoke<StagedRef>("stage_attachment", bytes, {
+        headers: { "x-name": encodeURIComponent(file.name), "x-mime": file.type || "application/octet-stream" },
+      });
+    } catch (e) {
+      throw new Error((e as { message?: string })?.message ?? "Couldn't attach that file.");
+    }
+  },
+  unstageAttachment: (id: string) => call<void>("unstage_attachment", { id }),
   labels: (accountId: Acct = null) => call<Label[]>("list_labels", { accountId }),
   threads: (labelId: string, limit = 200, offset = 0, accountId: Acct = null) =>
     call<ThreadRow[]>("list_threads", { labelId, limit, offset, accountId }),

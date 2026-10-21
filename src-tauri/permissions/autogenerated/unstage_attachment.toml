@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-unstage-attachment"
+description = "Enables the unstage_attachment command without any pre-configured scope."
+commands.allow = ["unstage_attachment"]
+
+[[permission]]
+identifier = "deny-unstage-attachment"
+description = "Denies the unstage_attachment command without any pre-configured scope."
+commands.deny = ["unstage_attachment"]

@@ -7,7 +7,7 @@ import Onboarding from "./components/Onboarding";
 import ShortcutsHelp from "./components/ShortcutsHelp";
 import CommandPalette from "./components/CommandPalette";
 import Compose from "./components/Compose";
-import { draftFrom, emptyDraft, hasContent, parseMailto } from "./lib/compose";
+import { draftFrom, emptyDraft, withSignature, hasContent, parseMailto } from "./lib/compose";
 import type { Command } from "./lib/palette";
 import { theme } from "./lib/theme";
 import SettingsPanel from "./components/SettingsPanel";
@@ -299,13 +299,15 @@ export default function App() {
     }
     setCompose({ key: ++composeKey, title, initial, accountId, canPick });
   };
-  const newMessage = (initial: Draft = emptyDraft()) => openCompose(initial, "New message", defaultAccount(), true);
+  const signed = (d: Draft, acct: number | null) =>
+    withSignature(d, (accounts().find((a) => a.id === acct) ?? accounts()[0])?.signature ?? "");
+  const newMessage = (initial: Draft = emptyDraft()) => openCompose(signed(initial, defaultAccount()), "New message", defaultAccount(), true);
   const answer = async (m: Message, mode: "reply" | "reply_all" | "forward") => {
     if (compose()) return snack("Finish or close the message you're writing first.");
     const acct = selectedAccount();
     try {
       const init = await api.composeContext(m.id, mode, acct);
-      openCompose(draftFrom(init, mode), mode === "forward" ? "Forward" : mode === "reply_all" ? "Reply all" : "Reply", acct, false);
+      openCompose(signed(draftFrom(init, mode), acct), mode === "forward" ? "Forward" : mode === "reply_all" ? "Reply all" : "Reply", acct, false);
     } catch (e) {
       snack((e as Error).message);
     }
@@ -583,11 +585,21 @@ export default function App() {
     // Ctrl+K opens the palette from anywhere, even while typing.
     const onPaletteKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
+        // In the compose editor Ctrl+K inserts a link.
+        if (e.target instanceof Element && e.target.closest(".ProseMirror")) return;
         e.preventDefault();
         if (!onboarding()) setPalette((v) => !v);
       }
     };
     window.addEventListener("keydown", onPaletteKey);
+    // Files dropped outside the compose drop zone must never navigate the
+    // webview to the file.
+    const noDrop = (e: DragEvent) => {
+      if (!(e.target instanceof Element && e.target.closest("[data-dropzone]"))) e.preventDefault();
+    };
+    window.addEventListener("dragover", noDrop);
+    window.addEventListener("drop", noDrop);
+    onCleanup(() => (window.removeEventListener("dragover", noDrop), window.removeEventListener("drop", noDrop)));
     onCleanup(() => window.removeEventListener("keydown", onPaletteKey));
   });
 

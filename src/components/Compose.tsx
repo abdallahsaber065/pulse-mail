@@ -1,10 +1,14 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import Icon from "./Icon";
 import { api } from "../lib/api";
-import { hasContent, sameContent } from "../lib/compose";
-import type { Account, Draft } from "../lib/types";
+import { attachTotal, hasContent, MAX_ATTACH_TOTAL, sameContent, textToHtml } from "../lib/compose";
+import { formatSize } from "../lib/format";
+import type { Account, Draft, DraftAttachment } from "../lib/types";
+import RichEditor, { type EditorApi } from "./RichEditor";
 
 const AUTOSAVE_MS = 2000;
+/** Drafts with big files re-upload on every save: save less often. */
+const AUTOSAVE_BIG_MS = 10_000;
 
 interface Props {
   title: string;
@@ -30,14 +34,51 @@ export default function Compose(p: Props) {
   let saved: Draft | null = p.initial.draftId ? { ...p.initial } : null;
   let pending: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let body: HTMLTextAreaElement | undefined;
+  let body: EditorApi | undefined;
   let to: HTMLInputElement | undefined;
+  let picker: HTMLInputElement | undefined;
+  const [uploading, setUploading] = createSignal(0);
+  const [dragging, setDragging] = createSignal(false);
 
-  const set = (k: keyof Draft, v: string) => {
-    setD((x) => ({ ...x, [k]: v }));
+  const schedule = () => {
     setError(null);
     clearTimeout(timer);
-    timer = setTimeout(() => void save(), AUTOSAVE_MS);
+    timer = setTimeout(() => void save(), attachTotal(d().attachments) > 5 * 1024 * 1024 ? AUTOSAVE_BIG_MS : AUTOSAVE_MS);
+  };
+  const set = (k: "to" | "cc" | "bcc" | "subject" | "body", v: string) => {
+    setD((x) => ({ ...x, [k]: v }));
+    schedule();
+  };
+  const setBody = (html: string, text: string) => {
+    setD((x) => ({ ...x, html: html || null, body: text }));
+    schedule();
+  };
+
+  /** Upload picked or dropped files (Gmail: 25 MB in total). */
+  const addFiles = async (files: FileList | File[]) => {
+    for (const f of Array.from(files)) {
+      if (attachTotal(d().attachments) + f.size > MAX_ATTACH_TOTAL) {
+        setError(`"${f.name}" doesn't fit: Gmail allows 25 MB of attachments per message.`);
+        continue;
+      }
+      setUploading((n) => n + 1);
+      try {
+        const r = await api.stageAttachment(f);
+        const a: DraftAttachment = { name: r.name, mime: r.mime, size: r.size, staged: r.id };
+        setD((x) => ({ ...x, attachments: [...x.attachments, a] }));
+        schedule();
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
+  };
+  const removeFile = (i: number) => {
+    const a = d().attachments[i];
+    if (a?.staged) void api.unstageAttachment(a.staged).catch(() => {});
+    setD((x) => ({ ...x, attachments: x.attachments.filter((_, j) => j !== i) }));
+    schedule();
   };
 
   /** Save to Gmail Drafts if anything changed since the last save. */
@@ -68,6 +109,10 @@ export default function Compose(p: Props) {
   const send = async () => {
     clearTimeout(timer);
     if (pending) await pending;
+    if (uploading() > 0) {
+      setError("Wait for the attachments to finish uploading.");
+      return;
+    }
     if (!d().to.trim() && !d().cc.trim() && !d().bcc.trim()) {
       setError("Add at least one recipient.");
       to?.focus();
@@ -89,8 +134,8 @@ export default function Compose(p: Props) {
   };
 
   onMount(() => {
-    (p.initial.to ? body : to)?.focus();
-    if (p.initial.to) body?.setSelectionRange(0, 0);
+    if (p.initial.to) queueMicrotask(() => body?.focus(true));
+    else to?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (!(e.target instanceof Node) || !root?.contains(e.target)) return;
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
@@ -116,6 +161,21 @@ export default function Compose(p: Props) {
   return (
     <div
       ref={root}
+      data-dropzone
+      onDragOver={(e) => {
+        if (e.dataTransfer?.types.includes("Files")) {
+          e.preventDefault();
+          setDragging(true);
+        }
+      }}
+      onDragLeave={(e) => {
+        if (!root?.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        if (e.dataTransfer?.files.length) void addFiles(e.dataTransfer.files);
+      }}
       class="fixed bottom-0 right-6 z-40 flex h-[min(600px,calc(100vh-88px))] w-[560px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-t-2xl bg-surface shadow-2xl ring-1 ring-black/10 animate-dialog-in dark:ring-white/10"
       role="dialog"
       aria-label={p.title}
@@ -171,14 +231,26 @@ export default function Compose(p: Props) {
       </div>
 
       <div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3">
-        <textarea
-          ref={body}
-          class="no-ring min-h-[160px] w-full flex-1 resize-none bg-transparent text-sm leading-6 text-text outline-none"
-          value={d().body}
-          onInput={(e) => set("body", e.currentTarget.value)}
-          aria-label="Message"
-          dir="auto"
-        />
+        <RichEditor html={p.initial.html ?? textToHtml(p.initial.body)} onChange={setBody} ref={(api) => (body = api)} />
+        <Show when={d().attachments.length || uploading()}>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <For each={d().attachments}>
+              {(a, i) => (
+                <div class="flex h-8 max-w-[240px] items-center gap-1.5 rounded-lg bg-surface-container pl-2 pr-1 text-xs text-text">
+                  <Icon name="attachment" size={16} class="shrink-0 text-muted" />
+                  <span class="min-w-0 truncate" dir="auto">{a.name}</span>
+                  <span class="shrink-0 text-faint">{formatSize(a.size)}</span>
+                  <button class="grid size-6 shrink-0 place-items-center rounded-full text-muted hover:bg-hover" title={`Remove ${a.name}`} aria-label={`Remove ${a.name}`} onClick={() => removeFile(i())}>
+                    <Icon name="close" size={14} />
+                  </button>
+                </div>
+              )}
+            </For>
+            <Show when={uploading()}>
+              <div class="flex h-8 items-center rounded-lg bg-surface-container px-3 text-xs text-muted">Attaching…</div>
+            </Show>
+          </div>
+        </Show>
         <Show when={d().quote}>
           <div class="mt-2">
             <button
@@ -199,7 +271,7 @@ export default function Compose(p: Props) {
                 class="mt-1 text-xs text-primary hover:underline"
                 onClick={() => {
                   setD((x) => ({ ...x, quote: null }));
-                  set("body", d().body);
+                  schedule();
                 }}
               >
                 Remove quoted text
@@ -223,10 +295,31 @@ export default function Compose(p: Props) {
           Send <Icon name="send" size={16} />
         </button>
         <span class="text-xs text-faint">Ctrl+Enter</span>
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          class="hidden"
+          onChange={(e) => {
+            if (e.currentTarget.files?.length) void addFiles(e.currentTarget.files);
+            e.currentTarget.value = "";
+          }}
+        />
+        <button class="ml-2 grid size-9 place-items-center rounded-full text-muted hover:bg-hover" title="Attach files (or drop them here)" aria-label="Attach files" onClick={() => picker?.click()}>
+          <Icon name="attach" size={20} />
+        </button>
+        <Show when={d().attachments.length}>
+          <span class="text-xs text-faint">{formatSize(attachTotal(d().attachments))} of 25 MB</span>
+        </Show>
         <button class="ml-auto grid size-9 place-items-center rounded-full text-muted hover:bg-hover" title="Discard draft" onClick={() => void discard()}>
           <Icon name="trash" size={18} />
         </button>
       </div>
+      <Show when={dragging()}>
+        <div class="pointer-events-none absolute inset-0 grid place-items-center rounded-t-2xl border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary">
+          Drop files to attach
+        </div>
+      </Show>
     </div>
   );
 }

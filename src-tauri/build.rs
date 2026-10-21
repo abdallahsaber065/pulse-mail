@@ -33,6 +33,8 @@ const COMMANDS: &[&str] = &[
     "delete_draft",
     "send_message",
     "cancel_send",
+    "stage_attachment",
+    "unstage_attachment",
     "render_message",
     "set_image_sender",
     "set_pref",

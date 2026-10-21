@@ -1,5 +1,32 @@
 // Compose helpers (pure): drafts from reply context, quote headers, mailto.
-import type { ComposeInit, ComposeMode, Draft } from "./types";
+import type { ComposeInit, ComposeMode, Draft, DraftAttachment } from "./types";
+
+/** Gmail's limit for the files of one message. */
+export const MAX_ATTACH_TOTAL = 25 * 1024 * 1024;
+
+export const attachTotal = (list: DraftAttachment[]) => list.reduce((n, a) => n + a.size, 0);
+
+export function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
+/** Plain text → editor paragraphs (blank lines split paragraphs). */
+export function textToHtml(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/)
+    .map((p) => `<p>${escapeHtml(p).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
+/** Add the account signature below the cursor position (Gmail style "-- "). */
+export function withSignature(d: Draft, signature: string): Draft {
+  const sig = signature.trim();
+  if (!sig) return d;
+  const html = (d.html ?? textToHtml(d.body)) + `<p></p><p>-- <br>${escapeHtml(sig).replace(/\n/g, "<br>")}</p>`;
+  return { ...d, html, body: `${d.body}\n\n-- \n${sig}` };
+}
 
 export const emptyDraft = (): Draft => ({
   to: "",
@@ -12,6 +39,8 @@ export const emptyDraft = (): Draft => ({
   references: "",
   threadId: null,
   draftId: null,
+  html: null,
+  attachments: [],
 });
 
 /** "Tue, Oct 21, 2026 at 9:34 PM" (Gmail's quote date style, English UI). */
@@ -33,6 +62,7 @@ export function draftFrom(init: ComposeInit, mode: Exclude<ComposeMode, "new">):
   d.references = init.references;
   d.threadId = init.threadId;
   if (mode === "forward") {
+    d.attachments = init.attachments ?? [];
     const lines = [
       "---------- Forwarded message ---------",
       `From: ${plain(init.originalFrom)}`,
@@ -49,11 +79,17 @@ export function draftFrom(init: ComposeInit, mode: Exclude<ComposeMode, "new">):
 }
 
 /** Anything worth saving as a draft? */
-export const hasContent = (d: Draft) => !!(d.to.trim() || d.cc.trim() || d.bcc.trim() || d.subject.trim() || d.body.trim());
+export const hasContent = (d: Draft) =>
+  !!(d.to.trim() || d.cc.trim() || d.bcc.trim() || d.subject.trim() || d.body.trim() || d.attachments.length);
+
+const attachKey = (l: DraftAttachment[]) => l.map((a) => a.staged ?? `${a.sourceMessage}/${a.sourcePart}`).join("|");
 
 /** Same content (ignores ids), to skip redundant autosaves. */
 export const sameContent = (a: Draft, b: Draft) =>
-  a.to === b.to && a.cc === b.cc && a.bcc === b.bcc && a.subject === b.subject && a.body === b.body && (a.quote?.text ?? null) === (b.quote?.text ?? null);
+  a.to === b.to && a.cc === b.cc && a.bcc === b.bcc && a.subject === b.subject && a.body === b.body &&
+  (a.html ?? null) === (b.html ?? null) &&
+  attachKey(a.attachments) === attachKey(b.attachments) &&
+  (a.quote?.text ?? null) === (b.quote?.text ?? null);
 
 /** A `mailto:` link → draft fields (to, cc, bcc, subject, body). */
 export function parseMailto(href: string): Draft | null {

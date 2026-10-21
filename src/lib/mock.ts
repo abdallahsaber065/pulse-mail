@@ -130,7 +130,6 @@ const status: AppStatus = {
     clipboard_clear_secs: "60",
     otp_lockscreen: "hide",
     undo_send_secs: "5",
-    offline_days: "90",
     storage_budget_mb: "1024",
   },
 };
@@ -183,6 +182,7 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
         originalDate: t.internalDate,
         originalSubject: t.subject,
         originalText: t.snippet,
+        attachments: mode === "forward" ? [{ name: "report.pdf", mime: "application/pdf", size: 240_000, sourceMessage: t.lastMessageId, sourcePart: 0 }] : [],
       };
     }
     case "save_draft":
@@ -288,6 +288,10 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       if (a) Object.assign(a, Object.fromEntries(Object.entries((args?.settings ?? {}) as object).filter(([, v]) => v !== undefined)));
       return;
     }
+    case "stage_attachment":
+      return { id: `s${Math.random().toString(36).slice(2, 8)}`, name: args?.name, mime: args?.mime || "application/octet-stream", size: args?.size };
+    case "unstage_attachment":
+      return;
     case "account_storage":
       return { messages: 4210, dbBytes: 180e6, filesBytes: 240e6 };
     case "sign_out":

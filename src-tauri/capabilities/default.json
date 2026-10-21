@@ -38,6 +38,8 @@
     "allow-delete-draft",
     "allow-send-message",
     "allow-cancel-send",
+    "allow-stage-attachment",
+    "allow-unstage-attachment",
     "allow-render-message",
     "allow-set-image-sender",
     "allow-set-pref",

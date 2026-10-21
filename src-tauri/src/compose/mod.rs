@@ -14,6 +14,65 @@ use serde::{Deserialize, Serialize};
 pub const MAX_RECIPIENTS: usize = 100;
 pub const MAX_BODY: usize = 1_000_000;
 pub const MAX_SUBJECT: usize = 500;
+/// Gmail's limit for files attached to one message.
+pub const MAX_ATTACH_TOTAL: i64 = 25 * 1024 * 1024;
+pub const MAX_ATTACHMENTS: usize = 50;
+pub const MAX_HTML: usize = 2_000_000;
+
+/// A file in the compose window: either uploaded from this PC (`staged`,
+/// held in memory by `commands::compose`) or an attachment of the message
+/// being forwarded (`source_message` + `source_part`).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftAttachment {
+    pub name: String,
+    pub mime: String,
+    pub size: i64,
+    #[serde(default)]
+    pub staged: Option<String>,
+    #[serde(default)]
+    pub source_message: Option<String>,
+    #[serde(default)]
+    pub source_part: Option<u32>,
+}
+
+/// Bytes of one attachment, resolved by the caller.
+pub struct FilePart {
+    pub name: String,
+    pub mime: String,
+    pub bytes: Vec<u8>,
+}
+
+/// "type/subtype" made of safe characters, else octet-stream.
+pub fn safe_mime(m: &str) -> String {
+    let m = m.trim().to_ascii_lowercase();
+    let ok = m.len() <= 100
+        && m.split_once('/').is_some_and(|(a, b)| {
+            !a.is_empty() && !b.is_empty() && (a.to_string() + b).bytes().all(|c| c.is_ascii_alphanumeric() || b"+-.".contains(&c))
+        });
+    if ok { m } else { "application/octet-stream".into() }
+}
+
+/// Sanitize the compose editor's HTML: formatting only (paragraphs, lists,
+/// quotes, links, bold/italic/underline/strike, code). Everything else,
+/// including styles, classes, images and scripts, is dropped.
+pub fn sanitize_compose_html(html: &str) -> String {
+    use std::collections::HashSet;
+    ammonia::Builder::empty()
+        .add_tags([
+            "p", "br", "div", "span", "strong", "b", "em", "i", "u", "s", "strike", "ul", "ol", "li", "blockquote", "a",
+            "h1", "h2", "h3", "code", "pre", "hr",
+        ])
+        .add_generic_attributes(["dir"])
+        .add_tag_attributes("a", ["href"])
+        .add_tag_attributes("ol", ["start"])
+        .url_schemes(HashSet::from(["http", "https", "mailto"]))
+        .url_relative(ammonia::UrlRelative::Deny)
+        .link_rel(Some("noopener noreferrer"))
+        .strip_comments(true)
+        .clean(html)
+        .to_string()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Recipient {
@@ -99,6 +158,12 @@ pub struct Draft {
     pub thread_id: Option<String>,
     #[serde(default)]
     pub draft_id: Option<String>,
+    /// Rich body from the editor (sanitized again in Rust). `body` is its
+    /// plain-text version and is used for the text/plain part.
+    #[serde(default)]
+    pub html: Option<String>,
+    #[serde(default)]
+    pub attachments: Vec<DraftAttachment>,
 }
 
 #[derive(Debug)]
@@ -122,6 +187,21 @@ impl Draft {
         let quote_len = self.quote.as_ref().map_or(0, |q| q.text.len() + q.header.len());
         if self.body.len() + quote_len > MAX_BODY || self.subject.len() > MAX_SUBJECT || self.body.contains('\0') {
             return Err("This message is too long.".into());
+        }
+        if self.html.as_ref().is_some_and(|h| h.len() > MAX_HTML) {
+            return Err("This message is too long.".into());
+        }
+        if self.attachments.len() > MAX_ATTACHMENTS {
+            return Err(format!("Up to {MAX_ATTACHMENTS} attachments per message."));
+        }
+        let total: i64 = self.attachments.iter().map(|a| a.size.max(0)).sum();
+        if total > MAX_ATTACH_TOTAL {
+            return Err("Attachments are larger than Gmail's 25 MB limit.".into());
+        }
+        for a in &self.attachments {
+            if a.name.is_empty() || a.name.len() > 255 || (a.staged.is_none() && a.source_message.is_none()) {
+                return Err("One of the attachments isn't available.".into());
+            }
         }
         Ok(p)
     }
@@ -178,9 +258,13 @@ pub fn text_body(d: &Draft) -> String {
     out
 }
 
-/// HTML part, built only from escaped text (Gmail-compatible quote markup).
+/// HTML part: the sanitized editor HTML (or escaped text), then the quote
+/// built from escaped text (Gmail-compatible quote markup).
 pub fn html_body(d: &Draft) -> String {
-    let mut out = format!("<div dir=\"auto\">{}</div>", escape_html(&d.body));
+    let mut out = match d.html.as_deref().filter(|h| !h.trim().is_empty()) {
+        Some(h) => format!("<div dir=\"auto\">{}</div>", sanitize_compose_html(h)),
+        None => format!("<div dir=\"auto\">{}</div>", escape_html(&d.body)),
+    };
     if let Some(q) = &d.quote {
         if q.forward {
             out.push_str(&format!(
@@ -214,8 +298,9 @@ fn addresses(list: &[Recipient]) -> Address<'static> {
 
 /// RFC 822 bytes for Gmail. `from` is the account address. Bcc is kept in
 /// the message (Gmail strips it when sending and needs it to deliver).
-pub fn build_raw(d: &Draft, p: &Prepared, from: &str) -> Vec<u8> {
-    let mut b = MessageBuilder::new().from(Address::new_address(None::<String>, from.to_string()));
+pub fn build_raw(d: &Draft, p: &Prepared, from: &str, from_name: &str, files: Vec<FilePart>) -> Vec<u8> {
+    let name = single_line(from_name);
+    let mut b = MessageBuilder::new().from(Address::new_address((!name.is_empty()).then_some(name), from.to_string()));
     if !p.to.is_empty() {
         b = b.to(addresses(&p.to));
     }
@@ -234,7 +319,12 @@ pub fn build_raw(d: &Draft, p: &Prepared, from: &str) -> Vec<u8> {
         b = b.references(refs);
     }
     b = b.header("X-Mailer", mail_builder::headers::raw::Raw::new("Pulse Mail"));
-    b.text_body(text_body(d)).html_body(html_body(d)).write_to_vec().unwrap_or_default()
+    b = b.text_body(text_body(d)).html_body(html_body(d));
+    for f in files {
+        let name = crate::sync::mime::safe_filename(&single_line(&f.name));
+        b = b.attachment(safe_mime(&f.mime), if name.is_empty() { "attachment".to_string() } else { name }, f.bytes);
+    }
+    b.write_to_vec().unwrap_or_default()
 }
 
 /// Reply / reply all / forward.
@@ -264,6 +354,8 @@ pub struct ComposeInit {
     pub original_date: i64,
     pub original_subject: String,
     pub original_text: String,
+    /// Forward: the original's files, attached by default.
+    pub attachments: Vec<DraftAttachment>,
 }
 
 fn prefixed(subject: &str, prefix: &str) -> String {
@@ -299,6 +391,19 @@ pub fn reply_context(m: &MessageRow, me: &str, mode: Mode) -> ComposeInit {
     match mode {
         Mode::Forward => {
             init.subject = prefixed(&m.subject, "Fwd:");
+            init.attachments = m
+                .attachments
+                .iter()
+                .filter(|a| !a.inline)
+                .map(|a| DraftAttachment {
+                    name: a.filename.clone(),
+                    mime: a.mime.clone(),
+                    size: a.size,
+                    staged: None,
+                    source_message: Some(m.id.clone()),
+                    source_part: Some(a.part),
+                })
+                .collect();
         }
         Mode::Reply | Mode::ReplyAll => {
             init.subject = prefixed(&m.subject, "Re:");

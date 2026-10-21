@@ -132,7 +132,6 @@ export interface Prefs {
   clipboard_clear_secs: "0" | "30" | "60" | "120";
   otp_lockscreen: "hide" | "show";
   undo_send_secs: "0" | "5" | "10" | "20" | "30";
-  offline_days: "30" | "90" | "365";
   storage_budget_mb: "512" | "1024" | "2048" | "5120";
 }
 
@@ -232,6 +231,25 @@ export interface ComposeInit {
   originalDate: number;
   originalSubject: string;
   originalText: string;
+  /** Forward: the original's files. */
+  attachments: DraftAttachment[];
+}
+
+/** A file in compose: uploaded from this PC (staged) or from the forwarded mail. */
+export interface DraftAttachment {
+  name: string;
+  mime: string;
+  size: number;
+  staged?: string | null;
+  sourceMessage?: string | null;
+  sourcePart?: number | null;
+}
+
+export interface StagedRef {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
 }
 
 export interface Quote {
@@ -252,6 +270,9 @@ export interface Draft {
   references: string;
   threadId: string | null;
   draftId: string | null;
+  /** Rich body from the editor (sanitized again in Rust); null = plain text. */
+  html: string | null;
+  attachments: DraftAttachment[];
 }
 
 export interface Sending {

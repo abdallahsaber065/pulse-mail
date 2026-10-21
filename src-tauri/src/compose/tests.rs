@@ -105,7 +105,7 @@ fn bodies_escape_and_quote() {
 fn raw_message_headers_are_safe() {
     let d = draft();
     let p = d.prepare(true).unwrap();
-    let raw = String::from_utf8(build_raw(&d, &p, "me@gmail.com")).unwrap();
+    let raw = String::from_utf8(build_raw(&d, &p, "me@gmail.com", "", vec![])).unwrap();
     let headers = raw.split("\r\n\r\n").next().unwrap();
     assert!(headers.contains("From: <me@gmail.com>") || headers.contains("From: me@gmail.com"), "{headers}");
     assert!(headers.contains("ana@x.test"));
@@ -127,4 +127,40 @@ fn prepare_validates() {
     d.body = "x".repeat(MAX_BODY + 1);
     assert!(d.prepare(true).is_err());
     assert_eq!(message_ids("<a@b> <bad> c@d <e@f>"), ["a@b", "e@f"]);
+}
+
+#[test]
+fn rich_html_is_sanitized_and_files_attached() {
+    let d = Draft {
+        to: "ana@x.test".into(),
+        subject: "Pulse Mail test".into(),
+        body: "Hello bold".into(),
+        html: Some(r#"<p dir="auto" style="color:red" onclick="x()">Hello <strong>bold</strong><script>alert(1)</script> <a href="javascript:alert(1)">x</a> <a href="https://ok.test">ok</a><img src="https://t.test/p.gif"></p>"#.into()),
+        attachments: vec![DraftAttachment { name: "a.txt".into(), mime: "text/plain".into(), size: 5, staged: Some("1".into()), ..Default::default() }],
+        ..Default::default()
+    };
+    let html = html_body(&d);
+    assert!(html.contains("<strong>bold</strong>") && html.contains(r#"<p dir="auto">"#));
+    for bad in ["script", "onclick", "style=", "javascript:", "<img"] {
+        assert!(!html.contains(bad), "{bad} survived: {html}");
+    }
+    assert!(html.contains(r#"href="https://ok.test""#));
+    let p = d.prepare(true).unwrap();
+    let raw = String::from_utf8_lossy(&build_raw(&d, &p, "me@gmail.com", "Me", vec![FilePart { name: "a\r\n.txt".into(), mime: "text/plain\r\nX: y".into(), bytes: b"hello".to_vec() }])).to_string();
+    assert!(raw.contains("multipart/mixed") && raw.contains("multipart/alternative"));
+    assert!(raw.contains("application/octet-stream"), "unsafe mime replaced");
+    assert!(!raw.contains("\r\nX: y"));
+    assert!(raw.contains("From: \"Me\" <me@gmail.com>") || raw.contains("From: Me <me@gmail.com>"));
+}
+
+#[test]
+fn attachment_limits() {
+    let mut d = Draft { to: "ana@x.test".into(), ..Default::default() };
+    d.attachments = vec![DraftAttachment { name: "big.bin".into(), mime: "application/zip".into(), size: MAX_ATTACH_TOTAL + 1, staged: Some("1".into()), ..Default::default() }];
+    assert!(d.prepare(true).unwrap_err().contains("25 MB"));
+    d.attachments[0].size = 10;
+    d.attachments[0].staged = None;
+    assert!(d.prepare(true).is_err(), "attachment without bytes source");
+    assert_eq!(safe_mime("Image/PNG"), "image/png");
+    assert_eq!(safe_mime("bad"), "application/octet-stream");
 }
