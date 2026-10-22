@@ -50,8 +50,8 @@ const PREFETCH_BODIES: i64 = 12;
 /// Gmail allows 250 quota units/s per user; messages.get costs 5. Ten
 /// in-flight requests (~0.6 s each from here) stays under that; 429s are
 /// retried. Only used for the few batch parts that come back throttled.
-const META_CONCURRENCY: usize = 10;
-const RAW_CONCURRENCY: usize = 6;
+const META_CONCURRENCY: usize = 6;
+const RAW_CONCURRENCY: usize = 2;
 /// A push/poll delta at least this big is shown in the UI (catch-up after
 /// being offline); smaller ones are applied quietly.
 const LOUD_DELTA: u32 = 25;
@@ -149,6 +149,7 @@ pub fn spawn(
         hist: Mutex::new(HistSession::default()),
         manual: AtomicBool::new(false),
         failures: AtomicU32::new(0),
+        cooldown_until: Mutex::new(None),
     });
     status.update(|s| {
         s.running = true;
@@ -230,6 +231,8 @@ pub struct Engine {
     files_dir: PathBuf,
     /// Consecutive failed history-download runs (for the retry backoff).
     retries: AtomicU32,
+    /// Shared rate limit cooldown across concurrent workers to prevent thundering herd.
+    cooldown_until: Mutex<Option<Instant>>,
 }
 
 impl Engine {
@@ -600,16 +603,27 @@ impl Engine {
         F: Fn(Secret) -> Fut,
         Fut: std::future::Future<Output = Result<T, GmailError>>,
     {
-        let mut backoff = Duration::from_secs(2);
+        let mut backoff = Duration::from_secs(3);
         let mut transient = 0;
         loop {
             if self.halted() {
                 return Ok(None);
             }
+            // Honor shared cooldown across all workers to eliminate the thundering herd
+            let wait = {
+                let lock = self.cooldown_until.lock().unwrap_or_else(|e| e.into_inner());
+                lock.and_then(|until| until.checked_duration_since(Instant::now()))
+            };
+            if let Some(d) = wait {
+                tokio::time::sleep(d).await;
+            }
+
             match tokio::time::timeout(STEP_TIMEOUT, self.with_token(&f)).await {
                 Ok(Ok(v)) => return Ok(Some(v)),
                 Ok(Err(SyncError::Gmail(GmailError::RateLimited))) => {
                     tracing::info!(secs = backoff.as_secs(), "history download rate limited; backing off");
+                    let mut lock = self.cooldown_until.lock().unwrap_or_else(|e| e.into_inner());
+                    *lock = Some(Instant::now() + backoff);
                 }
                 Ok(Err(SyncError::Gmail(GmailError::Network(_) | GmailError::Status(500..=599))))
                     if transient < STEP_RETRIES =>
@@ -759,6 +773,12 @@ impl Engine {
             phase = "bodies".into();
         }
 
+        // On first setup there may have been no sent mail in the cache yet.
+        // Retry after indexing; a name lookup must never block mail download.
+        if let Err(e) = self.fill_account_name_from_sent() {
+            tracing::debug!(error = %e, "cached account name lookup skipped");
+        }
+
         let budget_mb = self.db(|s| Ok(crate::prefs::get_num(s, "storage_budget_mb")))?;
         let budget = budget_mb as i64 * 1024 * 1024;
         // The account's range is the one download setting: full messages for
@@ -832,12 +852,14 @@ impl Engine {
     async fn fetch_bodies_hist(&self, ids: &[String], a: &Account) -> Result<Option<()>, SyncError> {
         let mut stream = futures::stream::iter(ids.to_vec())
             .map(|id| async move {
+                // Smooth pacing between raw downloads so we stay well within quota
+                tokio::time::sleep(Duration::from_millis(150)).await;
                 self.hist_call(|t| {
                     let id = id.clone();
                     async move {
                         match self.gmail.get_raw(&t, &id).await {
-                            Err(GmailError::Status(404)) => Ok(None),
-                            r => r.map(Some),
+                            Err(GmailError::Status(404)) => Ok((id, None)),
+                            r => r.map(|raw| (id, Some(raw))),
                         }
                     }
                 })
@@ -847,8 +869,11 @@ impl Engine {
         while let Some(res) = stream.next().await {
             match res? {
                 None => return Ok(None),
-                Some(None) => {}
-                Some(Some(raw)) => self.store_raw(&raw, a)?,
+                Some((id, None)) => {
+                    // Message was deleted from Gmail (404); delete orphan cache row so it never loops
+                    let _ = self.db(|s| s.delete_message(self.account_id, &id));
+                }
+                Some((_id, Some(raw))) => self.store_raw(&raw, a)?,
             }
             self.hist_tick(1);
             if self.halted() {
@@ -964,18 +989,26 @@ impl Engine {
         let mut stream = futures::stream::iter(ids)
             .map(|id| {
                 let token = token.clone();
-                async move { self.gmail.get_raw(&token, &id).await }
+                async move {
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    match self.gmail.get_raw(&token, &id).await {
+                        Err(GmailError::Status(404)) => Ok((id, None)),
+                        r => r.map(|raw| (id, Some(raw))),
+                    }
+                }
             })
             .buffer_unordered(RAW_CONCURRENCY);
         let mut done = 0u32;
         while let Some(res) = stream.next().await {
             match res {
-                Ok(raw) => {
+                Ok((_id, Some(raw))) => {
                     let bytes = raw.decode_raw().unwrap_or_default();
                     let m = mime::to_new_message(&raw, &bytes);
                     self.db(|s| s.upsert_message(self.account_id, &m))?;
                 }
-                Err(GmailError::Status(404)) => {}
+                Ok((id, None)) => {
+                    let _ = self.db(|s| s.delete_message(self.account_id, &id));
+                }
                 Err(e) => return Err(e.into()),
             }
             done += 1;
@@ -1087,6 +1120,23 @@ impl Engine {
 
     /// Archive / star / read: local first (instant UI), then Gmail. On
     /// failure the local change is rolled back.
+    /// Bulk read writes remotely first: failures never turn previously read
+    /// messages unread during rollback. The command emits once per batch.
+    pub async fn mark_thread_read(&self, thread_id: &str) -> Result<(), SyncError> {
+        let remove = ["UNREAD".to_string()];
+        let token = self.tokens.access_token().await?;
+        match self.gmail.modify_thread(&token, thread_id, &[], &remove).await {
+            Err(GmailError::Unauthorized) => {
+                self.tokens.invalidate().await;
+                let token = self.tokens.access_token().await?;
+                self.gmail.modify_thread(&token, thread_id, &[], &remove).await?;
+            }
+            r => r?,
+        }
+        self.db(|s| s.modify_thread_labels(self.account_id, thread_id, &[], &remove))?;
+        Ok(())
+    }
+
     pub async fn modify_thread(&self, thread_id: &str, add: &[String], remove: &[String]) -> Result<(), SyncError> {
         self.db(|s| s.modify_thread_labels(self.account_id, thread_id, add, remove))?;
         let _ = self.app.emit("mail-updated", ());
@@ -1228,23 +1278,31 @@ impl Engine {
         Ok(added)
     }
 
-    /// An account without a name takes the one Gmail sends mail with
-    /// (avatar initials, From name, account list). The user can change it.
+    /// Cached sent mail can supply a name without a token or network request.
+    fn fill_account_name_from_sent(&self) -> Result<bool, SyncError> {
+        let changed = self.db(|s| s.fill_account_name_from_sent(self.account_id))?;
+        if changed {
+            tracing::info!("account name taken from cached sent mail");
+            let _ = self.app.emit("accounts-changed", ());
+        }
+        Ok(changed)
+    }
+
+    /// An unnamed account uses its cached From name, then Gmail send-as.
+    /// User-entered names always win, including during a network lookup.
     async fn ensure_account_name(&self) -> Result<(), SyncError> {
+        if self.fill_account_name_from_sent()? {
+            return Ok(());
+        }
         let unnamed = self.db(|s| s.account(self.account_id))?.is_some_and(|a| a.display_name.is_empty());
         if unnamed {
             let token = self.tokens.access_token().await?;
             match self.gmail.primary_send_as_name(&token).await {
                 Ok(Some(name)) => {
-                    let name: String = name.chars().filter(|c| !c.is_control()).take(80).collect();
-                    self.db(|s| {
-                        s.set_account_settings(
-                            self.account_id,
-                            &crate::store::AccountSettings { display_name: Some(name), ..Default::default() },
-                        )
-                    })?;
-                    tracing::info!("account name taken from Gmail send-as");
-                    let _ = self.app.emit("accounts-changed", ());
+                    if self.db(|s| s.set_account_name_if_empty(self.account_id, &name))? {
+                        tracing::info!("account name taken from Gmail send-as");
+                        let _ = self.app.emit("accounts-changed", ());
+                    }
                 }
                 Ok(None) => tracing::info!("Gmail send-as has no display name"),
                 Err(e) => tracing::debug!(error = %e, "send-as name lookup failed"),

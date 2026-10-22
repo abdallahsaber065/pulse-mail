@@ -85,3 +85,12 @@ Cached mail is re-scored once per detector version, at startup and in batches
 - A small on-device ML model: needs a model download and real labeled data
   we don't have. Weighted rules are explainable and testable.
 - Gmail's own OTP features: none in the API.
+
+## Update (2026-10-22, current working tree)
+
+Hyphenated mixed codes (`K7Q2-9XMP`, 3–4 characters per group) are now
+supported without relaxing keyword/layout or identifier checks. Added
+regressions cover Unicode digits and negative tracking/URL/product/promo
+cases. Cache re-scoring advances to v5. The original holdout's known miss
+is now fixed; all its 20 samples pass, so it is treated as a regression set
+rather than independent evidence of precision/recall.

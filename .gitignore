@@ -24,6 +24,9 @@ secrets/
 *.sqlite
 *.log
 logs/
+release/
+dev.ps1
+dev.bat
 
 # editors / OS
 .DS_Store

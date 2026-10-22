@@ -29,12 +29,25 @@ interface Props {
   onAttachment(m: Message, a: Attachment, open: boolean): void;
   /** Dark-theme email colors: smart invert or the sender's own. */
   emailDark: "smart" | "original";
-  onToggleEmailDark(): void;
+  onToggleEmailDark(): void | Promise<void>;
   /** Reply / reply all / forward a message. */
   onCompose(m: Message, mode: "reply" | "reply_all" | "forward"): void;
+  /** Edit a draft message. */
+  onEditDraft?(m: Message): void;
+  /** Move conversation to a category tab. */
+  onMoveCategory?(c: Category): void;
 }
 
-const HIDDEN_LABELS = new Set(["UNREAD", "STARRED", "CATEGORY_PERSONAL", "CATEGORY_UPDATES", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS", "IMPORTANT", "SENT"]);
+import type { Category } from "../lib/types";
+
+const SYSTEM_INTERNAL = new Set(["UNREAD", "STARRED", "IMPORTANT", "SENT", "INBOX", "CHAT"]);
+const CATEGORY_NAMES: Record<string, string> = {
+  CATEGORY_PERSONAL: "Primary",
+  CATEGORY_SOCIAL: "Social",
+  CATEGORY_PROMOTIONS: "Promotions",
+  CATEGORY_UPDATES: "Updates",
+  CATEGORY_FORUMS: "Forums",
+};
 
 function BodySkeleton() {
   return (
@@ -98,6 +111,18 @@ export default function Reader(p: Props) {
   const fileIcon = (a: Attachment): IconName =>
     a.mime.startsWith("image/") ? "image" : a.mime === "application/pdf" ? "pdf" : "attachment";
 
+  const [togglingDark, setTogglingDark] = createSignal(false);
+  const handleToggleEmailDark = async () => {
+    if (togglingDark()) return;
+    setTogglingDark(true);
+    try {
+      await p.onToggleEmailDark();
+      setVersion((v) => v + 1);
+    } finally {
+      setTogglingDark(false);
+    }
+  };
+
   return (
     <Show
       when={first()}
@@ -123,13 +148,28 @@ export default function Reader(p: Props) {
             onClick={p.onToggleRead}
           />
           <Btn icon={starred() ? "starFilled" : "star"} title={starred() ? "Unstar (s)" : "Star (s)"} onClick={p.onToggleStar} active={starred()} />
+          <Show when={p.onMoveCategory}>
+            <div class="mx-1 h-5 w-px bg-divider" />
+            <select
+              class="no-ring h-7 rounded-full bg-surface-container px-2.5 text-xs font-medium text-text hover:bg-hover outline-none cursor-pointer"
+              value={first().labelIds.find((l) => l in CATEGORY_NAMES) ?? "CATEGORY_PERSONAL"}
+              onChange={(e) => p.onMoveCategory?.(e.currentTarget.value as Category)}
+              title="Move conversation to category tab"
+            >
+              <option value="CATEGORY_PERSONAL">Tab: Primary</option>
+              <option value="CATEGORY_PROMOTIONS">Tab: Promotions</option>
+              <option value="CATEGORY_SOCIAL">Tab: Social</option>
+              <option value="CATEGORY_UPDATES">Tab: Updates</option>
+              <option value="CATEGORY_FORUMS">Tab: Forums</option>
+            </select>
+          </Show>
           <div class="ml-auto flex items-center gap-1">
             <span class="pr-2 text-xs text-faint">{p.messages.length > 1 ? `${p.messages.length} messages` : ""}</span>
             <Show when={theme.isDark()}>
               <Btn
                 icon={p.emailDark === "smart" ? "contrast" : "lightMode"}
                 title={p.emailDark === "smart" ? "Show emails in their original colors" : "Show emails in dark colors"}
-                onClick={p.onToggleEmailDark}
+                onClick={handleToggleEmailDark}
               />
             </Show>
             <Btn icon="print" title="Print" onClick={() => window.print()} />
@@ -141,8 +181,22 @@ export default function Reader(p: Props) {
             <h1 class="selectable font-display text-[22px] leading-tight text-text" dir="auto">
               {first().subject || "(no subject)"}
             </h1>
-            <For each={first().labelIds.filter((l) => !HIDDEN_LABELS.has(l))}>
-              {(l) => <span class="rounded bg-surface-container px-1.5 py-0.5 text-xs text-muted">{labelName(l, l)}</span>}
+            <For each={first().labelIds.filter((l) => !SYSTEM_INTERNAL.has(l))}>
+              {(l) => {
+                const isCat = l in CATEGORY_NAMES;
+                return (
+                  <span
+                    class={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      isCat
+                        ? "bg-secondary-container text-on-secondary-container font-semibold"
+                        : "bg-surface-container text-muted border border-outline-variant"
+                    }`}
+                  >
+                    <Show when={isCat}><Icon name="label" size={12} /></Show>
+                    {isCat ? CATEGORY_NAMES[l] : labelName(l, l)}
+                  </span>
+                );
+              }}
             </For>
           </div>
 
@@ -315,6 +369,16 @@ export default function Reader(p: Props) {
           </For>
           <Show when={p.messages.length > 0}>
             <div class="no-print ml-14 mt-2 flex flex-wrap gap-2">
+              <Show when={p.messages.find((m) => m.labelIds.includes("DRAFT") || m.id.startsWith("draft_"))}>
+                {(draft) => (
+                  <button
+                    class="flex h-10 items-center gap-2 rounded-full bg-primary px-5 text-sm font-medium text-on-primary hover:shadow"
+                    onClick={() => p.onEditDraft?.(draft())}
+                  >
+                    <Icon name="pencil" size={18} /> Edit draft
+                  </button>
+                )}
+              </Show>
               <For
                 each={
                   [

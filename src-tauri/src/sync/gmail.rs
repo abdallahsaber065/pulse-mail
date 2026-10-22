@@ -545,16 +545,25 @@ impl Gmail {
         add: &[String],
         remove: &[String],
     ) -> Result<(), GmailError> {
-        let resp = self
-            .http
-            .post(format!("{BASE}/threads/{thread_id}/modify"))
-            .bearer_auth(token.expose())
-            .json(&serde_json::json!({ "addLabelIds": add, "removeLabelIds": remove }))
-            .send()
-            .await?;
-        match resp.status().as_u16() {
-            200..=299 => Ok(()),
-            _ => Err(classify_error(resp).await),
+        let mut delay = std::time::Duration::from_millis(500);
+        let mut attempt = 0;
+        loop {
+            let resp = self
+                .http
+                .post(format!("{BASE}/threads/{thread_id}/modify"))
+                .bearer_auth(token.expose())
+                .json(&serde_json::json!({ "addLabelIds": add, "removeLabelIds": remove }))
+                .send()
+                .await?;
+            match resp.status().as_u16() {
+                200..=299 => return Ok(()),
+                429 if attempt < 3 => {
+                    attempt += 1;
+                    tokio::time::sleep(delay).await;
+                    delay *= 2;
+                }
+                _ => return Err(classify_error(resp).await),
+            }
         }
     }
 

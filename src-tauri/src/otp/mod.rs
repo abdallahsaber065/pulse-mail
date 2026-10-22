@@ -612,6 +612,38 @@ mod tests {
     }
 
     #[test]
+    fn split_alphanumeric_codes_are_normalized() {
+        for (raw, want) in [
+            ("K7Q2-9XMP", "K7Q29XMP"),
+            ("A7K-9QZ", "A7K9QZ"),
+            ("ABCD-1234", "ABCD1234"),
+            ("1234-ABCD", "1234ABCD"),
+        ] {
+            let body = format!("Your verification code is:\n\n{raw}\n\nExpires in 10 minutes.");
+            assert_eq!(code("Verify your email", &body).as_deref(), Some(want), "{raw}");
+        }
+        assert_eq!(
+            code("رمز التحقق", "🔐 رمز التحقق:\u{a0}K7Q٢-٩XMP\u{a0}").as_deref(),
+            Some("K7Q29XMP")
+        );
+    }
+
+    #[test]
+    fn split_alphanumeric_identifiers_are_not_codes() {
+        for body in [
+            "Verification code unavailable. Tracking number: K7Q2-9XMP.",
+            "Your code is at https://example.com/code/K7Q2-9XMP.",
+            "Verification code: project-K7Q2-9XMP",
+            "Verification code: K7Q2-9XMP-extra",
+            "Verification code: K7Q2-9XMP-Z3B8",
+            "Your device K7Q2-9XMP supports verification codes.",
+            "Use promo code K7Q2-9XMP at checkout.",
+        ] {
+            assert_eq!(code("Notice", body), None, "{body}");
+        }
+    }
+
+    #[test]
     fn arabic_with_arabic_indic_digits() {
         assert_eq!(
             code("رمز التحقق", "رمز التحقق الخاص بك هو ٤٥٨٢١٣"),

@@ -3,6 +3,10 @@
 Pulse Mail holds full access to a Gmail account (`https://mail.google.com/`).
 Treat everything below as requirements.
 
+The user approved `openid profile` on 2026-10-22 for the Google account name
+and photo (ADR 0023). Existing Gmail-only grants keep working until the user
+reconnects; no silent consent upgrade or sign-out.
+
 ## Assets and where they live
 
 | Asset | Where | Never in |
@@ -32,7 +36,13 @@ For Desktop-app clients Google treats the client secret as non-confidential
 **Network**
 - HTTPS only (`reqwest` with `https_only(true)`), rustls with the Windows certificate store through `rustls-platform-verifier`.
 - IMAP over implicit TLS (993) with webpki roots.
-- Endpoints: `accounts.google.com`, `oauth2.googleapis.com`, `gmail.googleapis.com` (REST and `/batch/gmail/v1`), `imap.gmail.com`. Nothing else, no telemetry. Adding any endpoint requires asking the user.
+- Endpoints: `accounts.google.com`, `oauth2.googleapis.com`, `gmail.googleapis.com` (REST and `/batch/gmail/v1`), `imap.gmail.com`; approved profile additions are `openidconnect.googleapis.com/v1/userinfo` and HTTPS subdomains of `googleusercontent.com` for the supplied photo. No telemetry. Adding any other endpoint requires asking the user.
+- Profile data is requested only after sign-in/reconnect. Rust caps JSON at
+  16 KiB and photos at 256 KiB, refuses redirects, sniffs raster formats and
+  stores a data URL in SQLite. Photo downloads carry no OAuth token, cookies
+  or referrer; the UI accepts only bounded raster data URLs. Failure leaves
+  cached details/initials usable and never stops sync. Custom names remain
+  separate from the Google default. No unverified ID token is used.
 
 **Rendering hostile email** ([ADR 0015](decisions/0015-email-rendering-pipeline.md))
 - Sanitized in Rust before the UI sees it: ammonia allowlist (no scripts,

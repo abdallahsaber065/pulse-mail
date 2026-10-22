@@ -131,6 +131,54 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-22 (bulk selection/search, working tree):** User requested
+  selecting conversations, Select all, bulk mark-read, long-list efficiency
+  and better search. Implement a frozen key-only Rust snapshot for every
+  matching cached folder/category/local search result; the renderer keeps a
+  token, count and unchecked exceptions. Gmail-only queries select loaded
+  results explicitly. Keep virtual rendering, check membership only for
+  loaded rows; process ten read operations per batch, offer Stop, retain
+  failures and clear selections on view changes. Search: safe quick filters,
+  clear action, stale-result isolation and retry. Acceptance: offline scope,
+  account, exclusion, snapshot and filter regression tests; build/typecheck,
+  Clippy and browser-mock flows. No real Google writes during verification.
+  Result: 131 offline Rust tests, 43 UI tests, typecheck/build and all-target
+  Clippy (`-D warnings`) pass. New Rust modules pass rustfmt; existing global
+  format drift remains. Browser mock: 10,000 selected with 21 rendered rows;
+  scrolling requests only offset 200, stays at its scroll position, and
+  checks new rows (34 rendered including overscan). Fixed cursor-follow
+  reacting to row-count changes, which had reset scrolling on page append.
+  Bulk exclusions, Stop, failure retention, scope reset and search retry
+  were exercised. Current entry: 214.93 kB / 71.83 kB gzip; compose remains
+  deferred (393.64 kB). No native performance or live Gmail-write claim.
+
+- **2026-10-22 (reading layout, working tree):** Make the existing layout
+  preference easy to find at the top of Settings, with explicit Side pane,
+  Full view and Below list choices and descriptions. Keep the saved preference,
+  responsive fallback and Back-to-list behavior. Acceptance: UI build/tests;
+  browser mock checks for switching, reload persistence and returning to the list.
+  Result: side/full modes, saved selection, native radio keyboard navigation
+  and Back-to-list verified with the browser mock. Responsive fallback has
+  offline coverage. The browser resize tool did not provide the requested
+  tall viewport, so below-list stacking was not visually confirmed.
+
+- **2026-10-22 (working tree):** Continue local polish: accept split
+  alphanumeric verification codes; infer unnamed accounts from cached own
+  SENT messages. Add Google name/photo on sign-in and account reconnect
+  (user approved `openid profile` and Google's profile/photo endpoints;
+  ADR 0023). Acceptance: offline tests for detector negatives, name override
+  preservation, safe/bounded avatar handling and migration preservation;
+  UI build/tests and Rust tests/Clippy. Live Google consent is left to the user.
+  Startup optimization: split the rich compose editor out of the inbox entry
+  chunk (baseline after profile changes: 595.65 kB / 192.14 kB gzip); show a
+  loading sheet until the local compose module is ready.
+  Result: 203.90 kB / 68.24 kB gzip entry, separate 393.64 kB compose chunk
+  (66% smaller entry, not a measured launch-time improvement). Gates: 128
+  offline Rust unit tests, 39 UI tests, build/typecheck and all-target Clippy
+  with `-D warnings` pass. Browser inspection was blocked by tool approval;
+  real Google sign-in was not exercised. Full fmt check finds pre-existing
+  repository formatting drift; no broad formatting rewrite was made.
+
 - **2026-10-21 (night, 2):** `503baa5` history download v2 (stall fix, exact count,
   resumable queue, Retry), attachments policy and on-disk store, per-account page.
   `f0af3d7` one "Download to this PC" range (drops `offline_days`, migration 7).

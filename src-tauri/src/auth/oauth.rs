@@ -17,7 +17,7 @@ pub const REVOKE_URL: &str = "https://oauth2.googleapis.com/revoke";
 /// Full Gmail access: needed for IMAP (XOAUTH2) and for later actions
 /// (archive, mark read, send). Restricted scope -> personal "In production"
 /// unverified app; see docs/SETUP-GOOGLE-OAUTH.md.
-pub const SCOPE: &str = "https://mail.google.com/";
+pub const SCOPE: &str = "https://mail.google.com/ openid profile";
 /// How long we wait for the user to finish in the browser.
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -69,7 +69,7 @@ pub struct PendingLogin {
     verifier: String,
 }
 
-pub async fn begin_login(client: &OAuthClient) -> Result<PendingLogin, AuthError> {
+pub async fn begin_login(client: &OAuthClient, login_hint: Option<&str>) -> Result<PendingLogin, AuthError> {
     // Loopback on IPv4 literal (not "localhost") per Google's guidance.
     let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
     let port = listener.local_addr()?.port();
@@ -89,6 +89,10 @@ pub async fn begin_login(client: &OAuthClient) -> Result<PendingLogin, AuthError
         .append_pair("access_type", "offline")
         // Always show consent so Google issues a refresh token every time.
         .append_pair("prompt", "consent");
+
+    if let Some(email) = login_hint {
+        url.query_pairs_mut().append_pair("login_hint", email);
+    }
 
     Ok(PendingLogin {
         auth_url: url.into(),
@@ -317,14 +321,20 @@ mod tests {
         let client =
             super::super::client_config::parse(r#"{"client_id":"1.apps.googleusercontent.com","client_secret":"s"}"#)
                 .unwrap();
-        let p = begin_login(&client).await.unwrap();
+        let p = begin_login(&client, Some("fixture@example.com")).await.unwrap();
         let url = Url::parse(&p.auth_url).unwrap();
         let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
         assert_eq!(q["code_challenge_method"], "S256");
         assert_eq!(q["code_challenge"], pkce::challenge_for(&p.verifier));
         assert!(q["redirect_uri"].starts_with("http://127.0.0.1:"));
         assert_eq!(q["access_type"], "offline");
+        assert_eq!(q["login_hint"], "fixture@example.com");
         assert_eq!(q["scope"], SCOPE);
+        let scopes: std::collections::BTreeSet<_> = q["scope"].split_whitespace().collect();
+        assert_eq!(
+            scopes,
+            ["https://mail.google.com/", "openid", "profile"].into_iter().collect()
+        );
         assert!(!p.auth_url.contains("client_secret"));
     }
 }

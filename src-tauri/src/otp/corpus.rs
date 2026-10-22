@@ -281,6 +281,8 @@ fn corpus_precision_recall() {
     }
     assert!(SAMPLES.len() >= 80, "corpus too small");
     assert!(precision >= 0.97 && recall >= 0.95, "precision {precision:.3} recall {recall:.3}: {failures:#?}");
+    // Now a regression set: its known split-code miss has been addressed.
+    assert!(hfail.is_empty(), "former holdout regressions: {hfail:#?}");
 }
 
 #[test]

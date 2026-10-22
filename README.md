@@ -59,6 +59,7 @@ How changes are made (gates, commits, dev console, logs): [docs/WORKFLOW.md](doc
 | [docs/SECURITY.md](docs/SECURITY.md) | Where secrets live and how email HTML is contained |
 | [docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md) | Step-by-step Google Cloud setup |
 | [docs/decisions/](docs/decisions/) | Architecture decision records |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guide, setup, and PR conventions |
 
 ## Where things are stored
 
@@ -69,5 +70,13 @@ How changes are made (gates, commits, dev console, logs): [docs/WORKFLOW.md](doc
 | Mail cache | `%APPDATA%\com.abdallah.pulsemail\pulse-mail.db` |
 | UI preferences (theme, density) | WebView2 `localStorage` |
 | Logs | stderr in dev, teed to `%TEMP%\pulse-mail-dev.log` by the dev console (`PULSE_MAIL_LOG=debug` for more); no log file in release yet |
+
+## Contributing
+
+Contributions are welcome! Please check out [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, development guidelines, and PR checklists.
+
+## License
+
+[MIT](LICENSE) © 2026 Abdallah Saber.
 
 Personal project; not affiliated with Google. Gmail is a trademark of Google LLC.

@@ -4,6 +4,7 @@
 pub mod client_config;
 pub mod oauth;
 pub mod pkce;
+pub mod profile;
 pub mod secret;
 pub mod token_store;
 

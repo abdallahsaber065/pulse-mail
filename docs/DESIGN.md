@@ -163,8 +163,9 @@ Not built yet; see [ROADMAP.md](ROADMAP.md) for priorities.
 
 ## Reading pane modes
 
-**Built (`a26a03b`):** Settings → Reading mail → Reading pane: Right ·
-Bottom · Full page, also in the palette. Right needs ≥ 1024 px width and
+**Built (`a26a03b`, refined in the current working tree):** Settings →
+Open emails (first section): Side pane · Full view · Below list, also in
+the palette. Side pane needs ≥ 1024 px width and
 Bottom ≥ 640 px height, otherwise Full page. Dividers aren't draggable yet;
 the separate thread window isn't built.
 

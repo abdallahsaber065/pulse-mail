@@ -1,5 +1,5 @@
 // Compose helpers (pure): drafts from reply context, quote headers, mailto.
-import type { ComposeInit, ComposeMode, Draft, DraftAttachment } from "./types";
+import type { ComposeInit, ComposeMode, Draft, DraftAttachment, Message } from "./types";
 
 /** Gmail's limit for the files of one message. */
 export const MAX_ATTACH_TOTAL = 25 * 1024 * 1024;
@@ -76,6 +76,30 @@ export function draftFrom(init: ComposeInit, mode: Exclude<ComposeMode, "new">):
     d.quote = { header: `On ${quoteDate(init.originalDate)} ${plain(init.originalFrom)} wrote:`, text: init.originalText, forward: false };
   }
   return d;
+}
+
+/** Construct an editable Draft from an existing cached draft Message. */
+export function draftFromMessage(m: Message): Draft {
+  return {
+    to: m.toList || "",
+    cc: m.ccList || "",
+    bcc: "",
+    subject: m.subject || "",
+    body: m.bodyText || "",
+    html: m.bodyHtml || null,
+    quote: null,
+    inReplyTo: m.rfcMessageId || "",
+    references: m.rfcReferences || "",
+    threadId: m.threadId || null,
+    draftId: m.id,
+    attachments: (m.attachments || []).map((a) => ({
+      name: a.filename,
+      mime: a.mime,
+      size: a.size,
+      sourceMessage: m.id,
+      sourcePart: a.part,
+    })),
+  };
 }
 
 /** Anything worth saving as a draft? */

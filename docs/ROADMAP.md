@@ -33,8 +33,24 @@ Quota numbers: Gmail allows 250 units per user per second; `messages.get` = 5,
 | 9 | [App icon, AUMID, installer, tray badge](#w1) | P1 | 💡 |
 | 10 | [Command palette (Ctrl+K)](#k1) | P1 | 💡 |
 
-Then trash/spam/snooze (T1, T3), OTP extras (O1), notification rules (N1, N2),
-per-sender images (V1), labels management (T2), offline outbox (X1).
+### Current priorities (2026-10-22)
+
+The historical order above includes already-built work. Reading modes,
+server search, rich compose, attachments and the command palette exist.
+The current working tree adds the requested layout discoverability, bulk
+selection/mark-read and search filters/paging. Proposed next slices:
+
+| Order | Feature | Acceptance and boundary |
+| --- | --- | --- |
+| 1 | Reopen existing Gmail drafts | Open from Drafts into compose with recipients, rich text and attachments intact; save back to the same draft; ask before any additional endpoint. |
+| 2 | Cached recipient autocomplete ([C3](#c3)) | Rank addresses from local correspondents by recency/frequency; keyboard selection; deduplicate by address and respect account boundaries. No Contacts permission. |
+| 3 | Quiet hours ([N2](#n2)) | Local schedule crossing midnight, explicit OTP exception, no new timer loop; test boundary times. |
+| 4 | Bulk archive / mark unread | Reuse frozen selections and paced writes; accurate per-message undo state and partial-failure handling before adding destructive actions. |
+
+These are recommendations, not completed features. Offline outbox and send
+later need durable retry/idempotency design; defer them until the daily
+reading/compose gaps are closed. Performance measurement ([M1](#m1)) remains
+open; no live-account benchmark runs without permission.
 
 ---
 
@@ -125,6 +141,9 @@ row. One SQL query across `account_id`s; actions route to the right account.
 <a id="a3"></a>
 
 ### A3. Per-account appearance 💡 · P1
+> Built in the current working tree (2026-10-22; untested live): Google name
+> and locally cached profile photo on sign-in/reconnect; manual names take
+> priority (ADR 0023). Name/color settings already exist.
 Color (auto from email hash, editable), display name, optional emoji/avatar.
 
 <a id="a5"></a>
@@ -155,6 +174,9 @@ the bar is only for user-started or long work (after 400 ms, ≥ 600 ms).
 <a id="r1"></a>
 
 ### R1. Reading pane modes 🧑 · P0 · ✅ built (`a26a03b`, right/bottom/full; separate window open)
+> Working-tree refinement: Settings → **Open emails** is now first, with
+> Side pane / Full view / Below list and explanatory text. The saved choice
+> applies immediately. Resizable dividers and separate windows remain open.
 Like Gmail's "Reading pane" setting:
 - **Right split** (today's behavior, resizable divider, width remembered).
 - **Bottom split** (list on top, reader below; good on portrait screens).
@@ -275,6 +297,14 @@ reply through C1's send path.
 
 <a id="t1"></a>
 
+### T0. Select conversations and bulk mark-read 🧑 · P0
+> Built in the working tree (2026-10-22): row checkboxes, Select all matching
+> cached conversations (including unloaded rows), unchecked exceptions,
+> frozen account/thread keys in Rust, bounded read batches, Stop and failure
+> reporting. Gmail-only searches select loaded results explicitly. List
+> rendering stays virtualized; folder/local-search paging grows in 200-row
+> chunks. Shift+I acts on the selection. [ADR 0024](decisions/0024-bulk-selection.md).
+
 ### T1. Trash, spam, mute 💡 · P1
 Delete (`#`), report spam (`!`), mute (`m`) via `threads.modify`
 (TRASH / SPAM labels; mute = custom label + rule). Undo snackbar for all.
@@ -353,13 +383,14 @@ When 5+ mails arrive together, one summary toast instead of five.
 
 <a id="o1"></a>
 
-### O1. OTP extras 💡 · P1 · mostly built (corpus 90 at P/R 1.00; holdout 20 at 1.00/0.93; open: split alphanumeric codes, live toast check)
+### O1. OTP extras 💡 · P1 · mostly built (corpus 90 and former holdout 20 pass; split alphanumeric codes in current working tree; live toast check open)
 > As built (2026-10-22): auto-copy, clipboard clear, lock-screen hiding,
 > per-sender learning ("Not a code" and copy feedback), magic-link detection
 > with "Open" in the reader, expiry on the toast. The scored pipeline is in
 > [ADR 0022](decisions/0022-otp-pipeline.md). Still open: SPF/DKIM checks
-> for first-time senders, expiring chips, "Open link" on the toast, and split
-> alphanumeric codes.
+> for first-time senders, expiring chips, "Open link" on the toast, and
+> spaced alphanumeric codes. Hyphenated mixed codes are supported in the
+> current working tree (2026-10-22).
 
 - Auto-copy new codes (off by default) with a toast "Code copied".
 - Clear the clipboard after N seconds if it still holds the code (default 60 s).

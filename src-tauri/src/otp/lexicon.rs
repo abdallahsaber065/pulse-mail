@@ -70,7 +70,7 @@ pub static NOT_CODE_SPANS: LazyLock<Regex> = LazyLock::new(|| {
 /// Candidate tokens: optional short prefix like `G-`, then `123 456` /
 /// `123-456` / `1234 5678`, plain 4-8 digits, or 4-8 uppercase alphanumerics.
 pub static CANDIDATE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b(?:[A-Z]{1,3}-)?(\d{3,4}[ -]\d{3,4}|\d{4,8}|[A-Z0-9]{4,8})\b").unwrap()
+    Regex::new(r"\b(?:[A-Z]{1,3}-)?(\d{3,4}[ -]\d{3,4}|[A-Z0-9]{3,4}-[A-Z0-9]{3,4}|\d{4,8}|[A-Z0-9]{4,8})\b").unwrap()
 });
 
 /// WebOTP / origin-bound one-time code line: `@example.com #123456`.

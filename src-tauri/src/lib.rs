@@ -140,6 +140,7 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&config_dir)?;
             std::fs::create_dir_all(&data_dir)?;
+            notify::init(&handle);
 
             let store = store::Store::open(&data_dir.join("pulse-mail.db"))?;
             let destroy_on_close = store.get_setting("destroy_on_close")?.as_deref() == Some("1");
@@ -157,6 +158,7 @@ pub fn run() {
             });
 
             tray::build(&handle)?;
+            app.manage(commands::selection::Selections::default());
 
             let minimized = std::env::args().any(|a| a == "--minimized");
             if !minimized {
@@ -187,6 +189,9 @@ pub fn run() {
             commands::set_autostart,
             commands::load_thread,
             commands::modify_thread,
+            commands::selection::create_selection,
+            commands::selection::selection_members,
+            commands::selection::mark_selection_read,
             commands::get_activity,
             commands::set_notifications,
             commands::account_estimates,

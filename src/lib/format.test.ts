@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { avatarHue, initials, labelName, listDate, relative } from "./format";
+import { avatarHue, avatarSource, initials, labelName, listDate, relative } from "./format";
 
 describe("format", () => {
+  it("only uses bounded cached raster data for account photos", () => {
+    expect(avatarSource("data:image/png;base64,iVBORw0KGgo=")).toBe("data:image/png;base64,iVBORw0KGgo=");
+    for (const value of [null, undefined, "", "https://lh3.googleusercontent.com/photo", "data:image/svg+xml;base64,PHN2Zz4=", "data:text/html;base64,PGh0bWw+", "data:image/png;base64,invalid!", `data:image/png;base64,${"A".repeat(400_000)}`]) {
+      expect(avatarSource(value)).toBeNull();
+    }
+  });
   it("names system labels like Gmail", () => {
     expect(labelName("INBOX", "INBOX")).toBe("Inbox");
     expect(labelName("DRAFT", "DRAFT")).toBe("Drafts");

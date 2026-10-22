@@ -1,14 +1,17 @@
-import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show } from "solid-js";
+import { batch, createEffect, createMemo, createResource, createSignal, lazy, on, onCleanup, onMount, Show, Suspense } from "solid-js";
 import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import ThreadList, { type RowActions } from "./components/ThreadList";
+import SelectionToolbar from "./components/SelectionToolbar";
+import SearchFilters from "./components/SearchFilters";
+import { loadRows } from "./lib/paging";
+import { emptySelection, selectAll, toggleSelected, isSelected, selectedCount, threadKey, type ThreadKey } from "./lib/selection";
 import Reader from "./components/Reader";
 import { InboxTabs, CATEGORY_TABS } from "./components/InboxTabs";
 import Onboarding from "./components/Onboarding";
 import ShortcutsHelp from "./components/ShortcutsHelp";
 import CommandPalette from "./components/CommandPalette";
-import Compose from "./components/Compose";
-import { draftFrom, emptyDraft, withSignature, hasContent, parseMailto } from "./lib/compose";
+import { draftFrom, draftFromMessage, emptyDraft, withSignature, hasContent, parseMailto } from "./lib/compose";
 import type { Command } from "./lib/palette";
 import { theme } from "./lib/theme";
 import SettingsPanel from "./components/SettingsPanel";
@@ -43,12 +46,16 @@ import type {
 type ThreadRef = Pick<ThreadRow, "threadId" | "unread" | "starred"> & { accountId: number | null };
 
 const VIEW_KEY = "pm.accountView";
+// Keep TipTap/ProseMirror out of the inbox startup path.
+const Compose = lazy(() => import("./components/Compose"));
 
 /** Optimistic per-thread state shown until the next reload confirms it. */
 interface Override {
   unread?: boolean;
   starred?: boolean;
   removed?: boolean;
+  removedFromCategory?: string;
+  removedFromLabel?: string;
 }
 
 export default function App() {
@@ -106,11 +113,12 @@ export default function App() {
     });
   });
   const sync = createMemo(() => combineSync(accounts().map((a) => a.sync)));
-  const signedIn = () => accounts().length > 0;
+  const signedIn = createMemo(() => (status()?.accounts.length ?? 0) > 0);
   // Forget a view of an account that was removed.
   createEffect(() => {
     const v = accountView();
-    if (v != null && status() && !accounts().some((a) => a.id === v)) setAccountView(null);
+    const s = status();
+    if (v != null && s && !s.accounts.some((a) => a.id === v)) setAccountView(null);
   });
   createEffect(() => {
     const v = accountView();
@@ -120,37 +128,55 @@ export default function App() {
   const inInbox = () => label() === "INBOX" && !debounced().trim();
   // Gmail inbox tabs: on when the viewed account (or any, in All inboxes) wants them.
   const [category, setCategory] = createSignal<Category>("CATEGORY_PERSONAL");
-  const tabsOn = () => {
+  const tabsOn = createMemo(() => {
+    if (!inInbox()) return false;
     const v = accountView();
-    return inInbox() && accounts().some((a) => (v == null || a.id === v) && a.categoryTabs !== false);
-  };
+    const list = status()?.accounts ?? [];
+    return list.some((a) => (v == null || a.id === v) && a.categoryTabs !== false);
+  });
   const [categoryCounts] = createResource(
-    () => (signedIn() && tabsOn() ? { t: tick(), a: accountView() } : false),
-    ({ a }) => api.categoryCounts(a),
+    () => (signedIn() && tabsOn() ? `${tick()}|${accountView() ?? ""}` : false),
+    () => api.categoryCounts(accountView()),
     { initialValue: [] },
   );
 
   const [labels, { refetch: refetchLabels }] = createResource(
-    () => (signedIn() ? { t: tick(), a: accountView() } : false),
-    ({ a }) => api.labels(a),
+    () => (signedIn() ? `${tick()}|${accountView() ?? ""}` : false),
+    () => api.labels(accountView()),
     { initialValue: [] },
   );
   // Infinite scroll: the list grows a page at a time as you near the end.
   const PAGE = 200;
   const [limit, setLimit] = createSignal(PAGE);
+  const pageContexts = new WeakMap<ThreadRow[], string>();
   const [threads] = createResource(
     () =>
       signedIn()
-        ? { label: label(), q: debounced(), t: tick(), n: limit(), a: accountView(), c: tabsOn() ? category() : null }
+        ? `${label()}|${debounced().trim()}|${tick()}|${limit()}|${accountView() ?? ""}|${tabsOn() ? category() : ""}`
         : false,
-    ({ label, q, n, a, c }) => (q.trim() ? api.search(q, 100, a) : api.threads(label, n, 0, a, c)),
-    { initialValue: [] },
+    async (sourceKey, info) => {
+      if (!sourceKey) return [];
+      const [lbl, q, tStr, nStr, aStr, cStr] = sourceKey.split("|");
+      const n = Number(nStr);
+      const a = aStr ? Number(aStr) : null;
+      const c = (cStr || null) as Category | null;
+      const context = `${lbl}|${q}|${tStr}|${aStr}|${cStr}`;
+      const previous = info.value && pageContexts.get(info.value) === context && info.value.length < n ? info.value : [];
+      const result = await loadRows((offset, count) => q ? api.search(q, count, a, offset) : api.threads(lbl, count, offset, a, c), n, previous);
+      pageContexts.set(result, context);
+      return result;
+    },
+    { initialValue: [] as ThreadRow[] },
   );
   // Gmail server search runs a little after the local one (it costs quota
   // and a round trip) and adds what isn't cached; results merge by thread.
   const [serverQ, setServerQ] = createSignal("");
+  const [serverRetry, setServerRetry] = createSignal(0);
   createEffect(
     on(debounced, (q) => {
+      setServerQ("");
+      setServerHits([]);
+      setServerState("idle");
       const h = setTimeout(() => setServerQ(serverSearchable(q) ? q.trim() : ""), 450);
       onCleanup(() => clearTimeout(h));
     }),
@@ -158,7 +184,7 @@ export default function App() {
   const [serverHits, setServerHits] = createSignal<ThreadRow[]>([]);
   const [serverState, setServerState] = createSignal<"idle" | "loading" | "done" | "error">("idle");
   createEffect(
-    on([serverQ, accountView, signedIn], ([q, a, ok]) => {
+    on([serverQ, accountView, signedIn, serverRetry], ([q, a, ok]) => {
       setServerHits([]);
       if (!q || !ok) return setServerState("idle");
       let live = true;
@@ -172,19 +198,158 @@ export default function App() {
   );
   const searching = () => !!debounced().trim();
   const loadMore = () => {
-    if (!debounced().trim() && !threads.loading && threads().length >= limit()) setLimit((n) => n + PAGE);
+    if (!threads.loading && threads().length >= limit() && threads().length > 0) setLimit((n) => n + PAGE);
   };
 
   const rows = createMemo(() => {
     const o = overrides();
     const base = searching() ? mergeResults(threads(), serverHits()) : threads();
+    const q = debounced().toLowerCase();
+    const unreadOnly = label() === "UNREAD" || q.includes("is:unread");
+    const starredOnly = label() === "STARRED" || q.includes("is:starred");
+    const curLabel = label();
+    const curCat = tabsOn() ? category() : null;
+
     return base
-      .filter((t) => !o[t.threadId]?.removed)
+      .filter((t) => {
+        const x = o[t.threadId];
+        if (x) {
+          if (x.removed) return false;
+          if (x.removedFromLabel && x.removedFromLabel === curLabel) return false;
+          if (x.removedFromCategory && x.removedFromCategory === curCat) return false;
+          const isUnread = x.unread ?? t.unread;
+          if (unreadOnly && !isUnread) return false;
+          const isStarred = x.starred ?? t.starred;
+          if (starredOnly && !isStarred) return false;
+        } else {
+          if (unreadOnly && !t.unread) return false;
+          if (starredOnly && !t.starred) return false;
+        }
+        return true;
+      })
       .map((t) => {
         const x = o[t.threadId];
         return x ? { ...t, unread: x.unread ?? t.unread, starred: x.starred ?? t.starred } : t;
       });
   });
+  const [selection, setSelection] = createSignal(emptySelection());
+  const [members, setMembers] = createSignal<ReadonlySet<string>>(new Set());
+  const [selectingAll, setSelectingAll] = createSignal(false);
+  const [bulkBusy, setBulkBusy] = createSignal(false);
+  const [bulkProgress, setBulkProgress] = createSignal("");
+  let selectionEpoch = 0;
+  let stopBulk = false;
+  const selectionCount = () => selectedCount(selection());
+  const selectionScope = createMemo(() => JSON.stringify([accountView(), label(), tabsOn() ? category() : null, query().trim()]));
+  const selectionReady = () => !threads.loading && query().trim() === debounced().trim() && (!needsServer(debounced()) || serverState() === "done" || serverState() === "error");
+  createEffect(on(selectionScope, () => {
+    selectionEpoch++;
+    stopBulk = true;
+    setSelection(emptySelection());
+    setMembers(new Set<string>());
+    setSelectingAll(false);
+    setSelected(null);
+  }));
+  const selectionKey = (key: string): ThreadKey => {
+    const at = key.indexOf(":");
+    return { accountId: Number(key.slice(0, at)), threadId: key.slice(at + 1) };
+  };
+  const checkAll = async () => {
+    if (!selectionReady() || selectingAll() || bulkBusy()) return;
+    const epoch = ++selectionEpoch;
+    setSelectingAll(true);
+    try {
+      // Unsupported local operators select exactly the loaded Gmail results.
+      const source = searching() && needsServer(debounced())
+        ? { kind: "threads" as const, threads: rows().map(({ accountId, threadId }) => ({ accountId, threadId })) }
+        : { kind: "view" as const, accountId: accountView(), labelId: label(), category: tabsOn() ? category() : null, query: debounced() };
+      const all = await api.createSelection(source);
+      if (epoch !== selectionEpoch) return;
+      setSelection(selectAll(all));
+    } catch (e) {
+      if (epoch === selectionEpoch) snack((e as Error).message);
+    } finally {
+      if (epoch === selectionEpoch) setSelectingAll(false);
+    }
+  };
+  // Ask about just the loaded keys; never transfer an entire mailbox to the UI.
+  const allSelection = createMemo(() => selection().all);
+  createEffect(() => {
+    const all = allSelection();
+    const keys = rows().map(({ accountId, threadId }) => ({ accountId, threadId }));
+    if (!all) return;
+    let live = true;
+    onCleanup(() => { live = false; });
+    const pages: Promise<ThreadKey[]>[] = [];
+    for (let i = 0; i < keys.length; i += 5000) pages.push(api.selectionMembers(all.id, keys.slice(i, i + 5000)));
+    void Promise.all(pages).then((found) => {
+      if (live) setMembers(new Set(found.flat().map(threadKey)));
+    }, () => { if (live) setMembers(new Set<string>()); });
+  });
+  const checked = (t: ThreadRow) => isSelected(selection(), threadKey(t), members().has(threadKey(t)));
+  const checkThread = (t: ThreadRow) => {
+    if (bulkBusy() || selectingAll() || !selectionReady()) return;
+    if (selection().all && !members().has(threadKey(t))) return;
+    setSelection((s) => toggleSelected(s, threadKey(t)));
+  };
+  const clearSelection = () => { selectionEpoch++; setSelection(emptySelection()); setMembers(new Set<string>()); };
+  const markSelected = async (targetRead: boolean) => {
+    if (bulkBusy() || !selectionCount() || !selectionReady()) return;
+    const chosen = selection();
+    stopBulk = false;
+    setBulkBusy(true);
+    setBulkProgress(`Marking selected conversations as ${targetRead ? "read" : "unread"}…`);
+
+    // 1. Instant optimistic update: update all visible matching rows immediately in 0ms!
+    const visibleChosen = rows().filter((t) => checked(t));
+    const toChange = visibleChosen.filter((t) => (targetRead ? t.unread : !t.unread));
+    const optimistic: Record<string, Override> = {};
+    for (const t of visibleChosen) {
+      optimistic[t.threadId] = { unread: !targetRead };
+    }
+    setOverrides((o) => ({ ...o, ...optimistic }));
+
+    let changed = 0;
+    let failed = 0;
+    try {
+      if (chosen.all && toChange.length === 0 && rows().length >= 200 && targetRead) {
+        // Bulk folder selection with hundreds of unloaded items
+        const all = chosen.all;
+        const excluded = [...chosen.exceptions].map(selectionKey);
+        let offset = 0;
+        while (!stopBulk && offset < all.total) {
+          const result = await api.markSelectionRead(all.id, offset, offset === 0 ? excluded : []);
+          offset = result.nextOffset;
+          changed += result.changed;
+          failed += result.failed;
+          if (result.error || result.done) break;
+        }
+      } else {
+        // Fast targeted one-shot update of the threads that actually need changing
+        const targets = toChange.length > 0 ? toChange : visibleChosen;
+        const add = targetRead ? [] : ["UNREAD"];
+        const remove = targetRead ? ["UNREAD"] : [];
+        await Promise.all(
+          targets.map((t) =>
+            api.modifyThread(t.threadId, add, remove, t.accountId).then(
+              () => { changed++; settled.add(t.threadId); },
+              () => { failed++; }
+            )
+          )
+        );
+      }
+      clearSelection();
+      snack(`${changed > 0 ? changed.toLocaleString() : "Selected conversations"} marked as ${targetRead ? "read" : "unread"}`);
+    } catch (e) {
+      failed++;
+      snack((e as Error).message);
+    } finally {
+      setBulkBusy(false);
+      setTick((n) => n + 1);
+      void refetchLabels();
+      void refetchStatus();
+    }
+  };
   const messages = createMemo(() => {
     const x = selected() ? overrides()[selected()!] : undefined;
     return x ? msgs().map((m) => ({ ...m, unread: x.unread ?? m.unread, starred: x.starred ?? m.starred })) : msgs();
@@ -213,7 +378,7 @@ export default function App() {
   );
   createEffect(
     on(
-      [label, debounced, accountView],
+      [label, debounced, accountView, category],
       () => {
         setCursor(0);
         setLimit(PAGE);
@@ -294,6 +459,16 @@ export default function App() {
     if (s) setPrefs(s.prefs);
   });
   const setPref = async <K extends PrefKey>(key: K, value: Prefs[K]) => {
+    // For email_dark, await backend commit first so render_message doesn't race against uncommitted SQLite state.
+    if (key === "email_dark") {
+      try {
+        await api.setPref(key, value);
+        setPrefs((p) => (p ? { ...p, [key]: value } : p));
+      } catch (e) {
+        snack((e as Error).message);
+      }
+      return;
+    }
     const prev = prefs();
     if (prev) setPrefs({ ...prev, [key]: value });
     try {
@@ -454,10 +629,10 @@ export default function App() {
 
   const archive = (t: ThreadRef) => {
     if (selected() === t.threadId) setSelected(null);
-    void modify(t, { removed: true }, [], ["INBOX"]).then((ok) => {
+    void modify(t, { removedFromLabel: "INBOX" }, [], ["INBOX"]).then((ok) => {
       if (ok)
         snack("Conversation archived", {
-          action: { label: "Undo", run: () => void modify(t, { removed: false }, ["INBOX"], []) },
+          action: { label: "Undo", run: () => void modify(t, { removedFromLabel: undefined }, ["INBOX"], []) },
         });
     });
   };
@@ -488,8 +663,24 @@ export default function App() {
       : undefined;
   };
 
-  const openThread = (t: ThreadRow, index: number) => {
+  const editDraftMessage = (m: Message, accountId: number | null) => {
+    openCompose(draftFromMessage(m), "Edit draft", accountId, false);
+  };
+
+  const openThread = async (t: ThreadRow, index: number) => {
     setCursor(index);
+    if (label() === "DRAFT") {
+      try {
+        const cached = await api.thread(t.threadId, t.accountId);
+        const draftMsg = cached.find((m) => m.labelIds.includes("DRAFT") || m.id.startsWith("draft_")) ?? cached[cached.length - 1];
+        if (draftMsg) {
+          editDraftMessage(draftMsg, t.accountId);
+          return;
+        }
+      } catch {
+        // Fallback to opening thread
+      }
+    }
     batch(() => {
       setSelectedAccount(t.accountId);
       setSelected(t.threadId);
@@ -512,11 +703,38 @@ export default function App() {
   // Move a thread to another Gmail inbox tab (CATEGORY_* labels).
   const moveToTab = async (t: ThreadRef, c: Category) => {
     const others = CATEGORY_TABS.map((x) => x.id).filter((x) => x !== c);
+    const prev = overrides()[t.threadId];
+    const sourceCategory = category();
+    // Real-time optimistic removal from the current category view
+    setOverrides((o) => ({ ...o, [t.threadId]: { ...o[t.threadId], removedFromCategory: sourceCategory } }));
+    if (selected() === t.threadId && layout() === "full") {
+      setSelected(null);
+    }
     try {
       await api.modifyThread(t.threadId, [c], others, t.accountId);
-      snack(`Moved to ${CATEGORY_TABS.find((x) => x.id === c)?.name ?? "tab"}`);
+      settled.add(t.threadId);
+      snack(`Moved to ${CATEGORY_TABS.find((x) => x.id === c)?.name ?? "tab"}`, {
+        action: {
+          label: "Undo",
+          run: () => {
+            setOverrides((o) => {
+              const n = { ...o };
+              if (prev) n[t.threadId] = prev;
+              else delete n[t.threadId];
+              return n;
+            });
+            void api.modifyThread(t.threadId, [sourceCategory], [c], t.accountId);
+          },
+        },
+      });
       setTick((n) => n + 1);
     } catch (e) {
+      setOverrides((o) => {
+        const n = { ...o };
+        if (prev) n[t.threadId] = prev;
+        else delete n[t.threadId];
+        return n;
+      });
       snack((e as Error).message);
     }
   };
@@ -531,8 +749,12 @@ export default function App() {
     // Register cleanups synchronously (inside the owner), then do async work.
     let disposed = false;
     let unlisteners: (() => void)[] = [];
+    let mailTimer: ReturnType<typeof setTimeout> | undefined;
     void Promise.all([
-      onEvent<null>("mail-updated", () => setTick((n) => n + 1)),
+      onEvent<null>("mail-updated", () => {
+        clearTimeout(mailTimer);
+        mailTimer = setTimeout(() => setTick((n) => n + 1), 350);
+      }),
       onEvent<null>("accounts-changed", () => void refetchStatus()),
       onEvent<SyncStatus>("sync-status", (s) => {
         setSyncs((m) => ({ ...m, [s.accountId]: s }));
@@ -566,6 +788,7 @@ export default function App() {
     window.addEventListener("offline", goOffline);
     onCleanup(() => {
       disposed = true;
+      clearTimeout(mailTimer);
       unlisteners.forEach((u) => u());
       window.removeEventListener("online", goOnline);
       window.removeEventListener("offline", goOffline);
@@ -605,8 +828,8 @@ export default function App() {
       toggleHelp: () => setHelp((h) => !h),
       archive: withCurrent((t) => (inInbox() ? archive(t) : snack("Archive works from the Inbox"))),
       star: withCurrent(toggleStar),
-      markRead: withCurrent((t) => setRead(t, true)),
-      markUnread: withCurrent((t) => setRead(t, false)),
+      markRead: () => selectionCount() ? void markSelected(true) : withCurrent((t) => setRead(t, true))(),
+      markUnread: () => selectionCount() ? void markSelected(false) : withCurrent((t) => setRead(t, false))(),
       settings: () => setSettings(true),
     });
     onCleanup(remove);
@@ -706,7 +929,9 @@ export default function App() {
             ? "Searching all of Gmail…"
             : serverState() === "error"
               ? "Couldn't reach Gmail, so only mail saved on this PC was searched."
-              : "Searched Gmail and the mail saved on this PC.",
+              : serverState() === "idle"
+                ? "Searched the mail saved on this PC. Type at least two characters to also search Gmail."
+                : "Searched Gmail and the mail saved on this PC.",
       };
     if (label() === "INBOX") return { icon: "doneAll", title: "You're all caught up", hint: "New mail shows up here the moment it arrives." };
     const name = labelName(label(), labels().find((l) => l.id === label())?.name ?? label());
@@ -758,9 +983,9 @@ export default function App() {
     }
     add({ group: "Actions", title: "Check mail now", icon: "refresh", keys: "Shift+R", words: "sync refresh", run: () => void api.syncNow() });
     add({ group: "Actions", title: "Search mail", icon: "search", keys: "/", run: () => searchInput?.focus() });
-    add({ group: "Layout", title: "Reading pane: right of list", icon: "splitRight", words: "split side", run: () => uiPrefs.setPane("right") });
-    add({ group: "Layout", title: "Reading pane: below list", icon: "splitBottom", words: "split bottom", run: () => uiPrefs.setPane("bottom") });
-    add({ group: "Layout", title: "Reading pane: full page", icon: "noSplit", words: "no split", run: () => uiPrefs.setPane("full") });
+    add({ group: "Layout", title: "Open emails: side pane", icon: "splitRight", words: "reading pane split right list", run: () => uiPrefs.setPane("right") });
+    add({ group: "Layout", title: "Open emails: below list", icon: "splitBottom", words: "reading pane split bottom", run: () => uiPrefs.setPane("bottom") });
+    add({ group: "Layout", title: "Open emails: full view", icon: "noSplit", words: "reading pane full page no split gmail", run: () => uiPrefs.setPane("full") });
     add({ group: "Layout", title: collapsed() ? "Expand sidebar" : "Collapse sidebar", icon: "menu", run: () => setCollapsed((c) => !c) });
     add({ group: "Appearance", title: "Theme: system", icon: "auto", words: "dark light", run: () => theme.set("system") });
     add({ group: "Appearance", title: "Theme: light", icon: "sun", run: () => theme.set("light") });
@@ -826,19 +1051,40 @@ export default function App() {
       <div class="flex min-h-0 flex-1">
         <Sidebar
           labels={labels()}
+          categoryCounts={categoryCounts()}
           current={label()}
+          category={tabsOn() ? category() : null}
           collapsed={collapsed()}
           onCompose={() => newMessage()}
           onSelect={(id) => {
             goto(id);
             void refetchLabels();
           }}
+          onSelectCategory={(c) => {
+            batch(() => {
+              setQuery("");
+              setSelected(null);
+              setLabel("INBOX");
+              setCategory(c);
+            });
+            void refetchLabels();
+          }}
         />
         <main class={`mb-4 mr-4 flex min-w-0 flex-1 overflow-hidden rounded-2xl bg-surface ${layout() === "bottom" ? "flex-col" : ""}`}>
           <Show when={status() && signedIn()}>
             <section class={`thread-list-pane flex min-w-0 flex-col ${listClass()}`}>
-              <Show when={searching() && rows().length > 0}>
-                <div class="flex h-9 shrink-0 items-center gap-2 border-b border-divider px-4 text-xs text-muted" role="status">
+              <SearchFilters query={query()} disabled={bulkBusy()} onQuery={setQuery} />
+              <SelectionToolbar
+                count={selectionCount()} all={!!selection().all && selection().exceptions.size === 0}
+                disabled={!selectionReady()} selecting={selectingAll()} busy={bulkBusy()} progress={bulkProgress()}
+                scope={selection().all
+                  ? searching() && needsServer(debounced()) ? "Selection covers loaded Gmail results only." : "Selection includes matching mail saved on this PC, including unloaded rows. New arrivals are excluded."
+                  : "Select all matching conversations saved on this PC, including unloaded rows"}
+                onSelectAll={() => void checkAll()} onClear={clearSelection} onRead={() => void markSelected(true)} onUnread={() => void markSelected(false)}
+                onStop={() => { stopBulk = true; setBulkProgress("Stopping after this batch…"); }}
+              />
+              <Show when={searching()}>
+                <div class="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b border-divider px-4 py-1 text-xs text-muted" role="status">
                   <Show
                     when={serverState() === "loading"}
                     fallback={
@@ -846,13 +1092,16 @@ export default function App() {
                         {serverState() === "error"
                           ? "Couldn't reach Gmail · showing mail saved on this PC"
                           : serverState() === "done"
-                            ? "Results from Gmail and this PC"
+                            ? `${rows().length.toLocaleString()} loaded results from Gmail and this PC`
                             : "Results from this PC"}
                       </span>
                     }
                   >
                     <span class="inline-block size-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     <span>Searching all of Gmail…</span>
+                  </Show>
+                  <Show when={serverState() === "error"}>
+                    <button class="rounded-full px-2 py-1 font-medium text-primary hover:bg-hover" onClick={() => setServerRetry((n) => n + 1)}>Retry Gmail search</button>
                   </Show>
                 </div>
               </Show>
@@ -877,6 +1126,10 @@ export default function App() {
                 loading={listLoading()}
                 empty={empty()}
                 actions={actions}
+                isChecked={checked}
+                onCheck={checkThread}
+                selectionDisabled={bulkBusy() || selectingAll() || !selectionReady()}
+                viewKey={selectionScope()}
                 onOpen={openThread}
                 onEndReached={loadMore}
                 onCopyCode={(c) => void copyCode(c)}
@@ -921,7 +1174,16 @@ export default function App() {
                   onAttachment={(m, a, open) => void attachment(m, a, open)}
                   emailDark={prefs()?.email_dark ?? "smart"}
                   onCompose={(m, mode) => void answer(m, mode)}
-                  onToggleEmailDark={() => void setPref("email_dark", prefs()?.email_dark === "original" ? "smart" : "original")}
+                  onEditDraft={(m) => editDraftMessage(m, selectedAccount())}
+                  onMoveCategory={(c) => {
+                    const t = current();
+                    if (t) void moveToTab(t, c);
+                  }}
+                  onToggleEmailDark={async () => {
+                    const cur = prefs()?.email_dark ?? "smart";
+                    const next = cur === "original" ? "smart" : "original";
+                    await setPref("email_dark", next);
+                  }}
                 />
               </section>
             </Show>
@@ -930,16 +1192,18 @@ export default function App() {
       </div>
       <Show when={compose()} keyed>
         {(c) => (
-          <Compose
-            title={c.title}
-            initial={c.initial}
-            accountId={c.accountId}
-            accounts={accounts()}
-            canPickAccount={c.canPick}
-            onSend={(d, a) => void sendDraft(d, a)}
-            onClose={closeCompose}
-            onDiscard={(d, a) => void discardCompose(d, a)}
-          />
+          <Suspense fallback={<div role="status" class="fixed bottom-0 right-5 z-40 flex h-16 max-w-full items-center rounded-t-2xl bg-surface-high px-5 text-sm text-muted shadow-2xl">Opening message…</div>}>
+            <Compose
+              title={c.title}
+              initial={c.initial}
+              accountId={c.accountId}
+              accounts={accounts()}
+              canPickAccount={c.canPick}
+              onSend={(d, a) => void sendDraft(d, a)}
+              onClose={closeCompose}
+              onDiscard={(d, a) => void discardCompose(d, a)}
+            />
+          </Suspense>
         )}
       </Show>
       <Show when={palette()}>

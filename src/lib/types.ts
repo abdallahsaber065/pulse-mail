@@ -79,6 +79,8 @@ export interface Account {
   attachMode: AttachMode;
   attachMaxMb: number;
   displayName: string;
+  /** Cached raster data URL; the webview never fetches Google photos. */
+  avatarData: string | null;
   color: string;
   signature: string;
   /** Show Gmail's inbox tabs. */

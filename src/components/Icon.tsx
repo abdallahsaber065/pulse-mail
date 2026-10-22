@@ -49,6 +49,7 @@ const PATHS = {
   link: "M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z",
   minimize: "M6 19h12v2H6z",
   fullscreen: "M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z",
+  fullscreenExit: "M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z",
   splitRight: "M3 5v14h18V5H3zm8 12H5V7h6v10zm8 0h-6V7h6v10z",
   splitBottom: "M3 5v14h18V5H3zm16 12H5v-4h14v4zm0-6H5V7h14v4z",
   noSplit: "M3 5v14h18V5H3zm16 12H5V7h14v10z",

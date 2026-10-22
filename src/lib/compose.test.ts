@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { attachTotal, draftFrom, emptyDraft, hasContent, parseMailto, sameContent, textToHtml, withSignature } from "./compose";
-import type { ComposeInit } from "./types";
+import { attachTotal, draftFrom, draftFromMessage, emptyDraft, hasContent, parseMailto, sameContent, textToHtml, withSignature } from "./compose";
+import type { ComposeInit, Message } from "./types";
 
 const init: ComposeInit = {
   to: '"Ana Lima" <ana@x.test>',
@@ -66,5 +66,40 @@ describe("rich compose helpers", () => {
     expect(hasContent(b)).toBe(true);
     expect(sameContent(a, b)).toBe(false);
     expect(attachTotal(b.attachments)).toBe(10);
+  });
+  it("converts existing message into an editable draft", () => {
+    const msg: Message = {
+      id: "m_draft1",
+      threadId: "t_draft1",
+      internalDate: 1700000000,
+      fromName: "Me",
+      fromEmail: "me@example.test",
+      toList: '"Partner" <partner@example.test>',
+      ccList: "team@example.test",
+      replyTo: "",
+      rfcMessageId: "<draft1@example.test>",
+      rfcReferences: "",
+      subject: "Important proposal",
+      snippet: "Please find proposal below.",
+      bodyText: "Please find proposal below.",
+      bodyHtml: "<p>Please find proposal below.</p>",
+      bodyLoaded: true,
+      labelIds: ["DRAFT"],
+      unread: false,
+      starred: false,
+      hasAttachments: true,
+      attachments: [{ part: 1, filename: "proposal.pdf", mime: "application/pdf", size: 1024, inline: false }],
+      otpCode: null,
+    };
+    const draft = draftFromMessage(msg);
+    expect(draft.to).toBe('"Partner" <partner@example.test>');
+    expect(draft.cc).toBe("team@example.test");
+    expect(draft.subject).toBe("Important proposal");
+    expect(draft.body).toBe("Please find proposal below.");
+    expect(draft.html).toBe("<p>Please find proposal below.</p>");
+    expect(draft.draftId).toBe("m_draft1");
+    expect(draft.threadId).toBe("t_draft1");
+    expect(draft.attachments.length).toBe(1);
+    expect(draft.attachments[0].name).toBe("proposal.pdf");
   });
 });

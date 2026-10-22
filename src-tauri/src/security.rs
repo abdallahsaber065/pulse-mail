@@ -67,6 +67,7 @@ mod tests {
             include_str!("sync/imap_idle.rs"),
             include_str!("auth/mod.rs"),
             include_str!("auth/oauth.rs"),
+            include_str!("auth/profile.rs"),
             include_str!("notify/mod.rs"),
             include_str!("render/mod.rs"),
             include_str!("render/proxy.rs"),

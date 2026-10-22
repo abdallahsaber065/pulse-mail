@@ -1,5 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createSignal, For, Index, Show } from "solid-js";
+import { createEffect, createSignal, For, Index, on, Show } from "solid-js";
 import Icon, { type IconName } from "./Icon";
 import { listDate } from "../lib/format";
 import { prefs } from "../lib/prefs";
@@ -19,6 +19,10 @@ interface Props {
   loading: boolean;
   empty: { icon: IconName; title: string; hint: string };
   actions: RowActions;
+  isChecked(t: ThreadRow): boolean;
+  onCheck(t: ThreadRow): void;
+  selectionDisabled: boolean;
+  viewKey: string;
   onOpen(t: ThreadRow, index: number): void;
   onCopyCode(code: string): void;
   /** The user scrolled near the bottom: load the next page if there is one. */
@@ -62,15 +66,18 @@ export default function ThreadList(p: Props) {
   });
 
   // Keep the keyboard cursor in view.
-  createEffect(() => {
-    if (p.cursor >= 0 && p.cursor < p.threads.length) virtualizer.scrollToIndex(p.cursor, { align: "auto" });
-  });
+  createEffect(on(() => p.cursor, (cursor) => {
+    if (cursor >= 0 && cursor < p.threads.length) virtualizer.scrollToIndex(cursor, { align: "auto" });
+  }, { defer: true }));
+  // Changing filters starts at the top; adding a page keeps the scroll position.
+  createEffect(on(() => p.viewKey, () => { scrollEl.scrollTop = 0; }));
 
   // Ask for more rows when the last rendered row is close to the end.
   createEffect(() => {
+    if (p.loading) return;
     const items = virtualizer.getVirtualItems();
     const last = items[items.length - 1];
-    if (last && p.threads.length > 0 && last.index >= p.threads.length - 20) p.onEndReached?.();
+    if (last && p.threads.length >= 200 && last.index >= p.threads.length - 15) p.onEndReached?.();
   });
 
   const comfy = () => prefs.density() === "comfortable";
@@ -120,13 +127,23 @@ export default function ThreadList(p: Props) {
                   <div
                     role="listitem"
                     class={`row group absolute left-0 right-0 flex cursor-pointer items-center gap-3 border-b border-divider pl-2 pr-3 text-sm transition-colors ${
-                      selected() ? "bg-selected" : t().unread ? "bg-surface" : "bg-surface-dim"
+                      selected() || p.isChecked(t()) ? "bg-selected" : t().unread ? "bg-surface" : "bg-surface-dim"
                     } hover:z-10 hover:shadow-[inset_1px_0_0_var(--outline),inset_-1px_0_0_var(--outline),0_1px_2px_rgba(0,0,0,.25)] ${
                       focused() ? "shadow-[inset_3px_0_0_var(--primary)]" : ""
                     }`}
                     style={{ top: `${item.start}px`, height: `${prefs.rowHeight()}px` }}
                     onClick={() => p.onOpen(t(), item.index)}
                   >
+                    <label class="grid size-8 shrink-0 cursor-pointer place-items-center rounded-full hover:bg-hover" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        class="size-4 accent-primary"
+                        aria-label={`Select ${t().subject || "conversation"}`}
+                        checked={p.isChecked(t())}
+                        disabled={p.selectionDisabled}
+                        onChange={() => p.onCheck(t())}
+                      />
+                    </label>
                     <button
                       class={`grid size-8 shrink-0 place-items-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 ${
                         t().starred ? "text-star" : "text-outline hover:text-muted"

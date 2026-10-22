@@ -58,8 +58,17 @@ pub fn save_from_raw(base: &Path, store: &std::sync::Mutex<Store>, a: &Account, 
     };
     let mut written = 0;
     for part in wanted {
-        let Some(att) = parsed.attachment(part) else { continue };
-        let Some(p) = path(base, a.id, message_id, part) else { continue };
+        let Some(att) = parsed.attachment(part) else {
+            // Part was not present in raw MIME payload; mark stored to prevent infinite re-download loops
+            let s = store.lock().unwrap_or_else(|e| e.into_inner());
+            let _ = s.mark_stored(a.id, message_id, part);
+            continue;
+        };
+        let Some(p) = path(base, a.id, message_id, part) else {
+            let s = store.lock().unwrap_or_else(|e| e.into_inner());
+            let _ = s.mark_stored(a.id, message_id, part);
+            continue;
+        };
         let bytes = att.contents();
         let ok = p.parent().is_some_and(|d| std::fs::create_dir_all(d).is_ok()) && std::fs::write(&p, bytes).is_ok();
         if ok {
@@ -69,6 +78,8 @@ pub fn save_from_raw(base: &Path, store: &std::sync::Mutex<Store>, a: &Account, 
             }
         } else {
             tracing::warn!("couldn't save an attachment to disk");
+            let s = store.lock().unwrap_or_else(|e| e.into_inner());
+            let _ = s.mark_stored(a.id, message_id, part);
         }
     }
     written
@@ -109,6 +120,7 @@ mod tests {
             attach_mode: "limit".into(),
             attach_max_mb: 10,
             display_name: String::new(),
+            avatar_data: None,
             color: String::new(),
             signature: String::new(),
             category_tabs: true,

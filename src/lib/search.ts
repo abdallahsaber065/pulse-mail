@@ -17,9 +17,39 @@ export function mergeResults(local: ThreadRow[], server: ThreadRow[]): ThreadRow
 /** Gmail operators the local index can't answer (in:, label:, before:, -x, OR …). */
 export function needsServer(q: string): boolean {
   const local = new Set(["from", "subject", "is", "has", "http", "https", "re", "fwd", "fw"]);
-  return q
-    .split(/\s+/)
-    .some((t) => t === "OR" || (t.length > 1 && t.startsWith("-")) || ((m) => !!m && !local.has(m[1].toLowerCase()))(/^([a-z_]+):/i.exec(t)));
+  return searchTokens(q).some((t) => {
+    if (t === "OR" || t.startsWith("{") || t.startsWith("(") || (t.length > 1 && t.startsWith("-"))) return true;
+    const m = /^([a-z_]+):(.*)$/i.exec(t);
+    if (!m) return false;
+    const op = m[1].toLowerCase(), value = m[2].toLowerCase();
+    if (!local.has(op)) return true;
+    if (op === "is") return !["unread", "read", "starred"].includes(value);
+    if (op === "has") return value !== "attachment";
+    return (op === "from" || op === "subject") && !value.replace(/"/g, "").trim();
+  });
+}
+
+/** Keep quoted phrases together, including operator values and Arabic text. */
+function searchTokens(query: string): string[] {
+  const out: string[] = [];
+  let token = "", quoted = false;
+  for (const char of query) {
+    if (char === '"') quoted = !quoted;
+    if (/\s/u.test(char) && !quoted) {
+      if (token) out.push(token);
+      token = "";
+    } else token += char;
+  }
+  if (token) out.push(token);
+  return out;
+}
+export type SearchFilter = "is:unread" | "is:starred" | "has:attachment";
+export const hasSearchFilter = (query: string, filter: SearchFilter) => searchTokens(query).some((t) => t.toLowerCase() === filter);
+export function toggleSearchFilter(query: string, filter: SearchFilter): string {
+  const active = hasSearchFilter(query, filter);
+  const tokens = searchTokens(query).filter((t) => t.toLowerCase() !== filter && !(filter === "is:unread" && t.toLowerCase() === "is:read"));
+  if (!active) tokens.push(filter);
+  return tokens.join(" ");
 }
 
 /** Server search is worth it for 2+ characters of query. */

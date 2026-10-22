@@ -4,8 +4,9 @@ import HistoryProgress from "./HistoryProgress";
 import { api } from "../lib/api";
 import Icon from "./Icon";
 import { theme, type ThemePref } from "../lib/theme";
-import { prefs, type Density, type Pane } from "../lib/prefs";
+import { prefs, type Density } from "../lib/prefs";
 import Avatar from "./Avatar";
+import { snack } from "./Snackbar";
 import { phaseLabel, WINDOWS } from "../lib/accounts";
 import { formatSize } from "../lib/format";
 import type { Account, AccountSettings, AccountStorage, AppStatus, AttachMode, NotificationMode, PrefKey, Prefs, SyncWindow } from "../lib/types";
@@ -38,7 +39,7 @@ function AccountRow(p: { account: Account; onOpen(): void }) {
   const h = () => p.account.sync.history;
   return (
     <button class="mb-2 flex w-full items-center gap-3 rounded-2xl border border-divider p-3 text-left hover:bg-hover" onClick={p.onOpen}>
-      <Avatar name={accountName(p.account)} email={p.account.email} size={36} color={p.account.color} />
+      <Avatar name={accountName(p.account)} email={p.account.email} size={36} color={p.account.color} picture={p.account.avatarData} />
       <div class="min-w-0 flex-1">
         <div class="truncate text-sm font-medium text-text">{accountName(p.account)}</div>
         <div class={`truncate text-xs ${p.account.sync.error || h()?.error ? "text-danger" : "text-muted"}`}>
@@ -70,6 +71,21 @@ function AccountPage(p: {
 }) {
   const h = () => p.account.sync.history;
   const [storage, setStorage] = createSignal<AccountStorage | null>(null);
+  const [reconnecting, setReconnecting] = createSignal(false);
+  const [profileError, setProfileError] = createSignal<string | null>(null);
+  const reconnect = async () => {
+    if (reconnecting()) return;
+    setReconnecting(true);
+    setProfileError(null);
+    try {
+      await api.signIn(p.account.id);
+      snack("Google account reconnected.");
+    } catch (e) {
+      setProfileError(String(e));
+    } finally {
+      setReconnecting(false);
+    }
+  };
   onMount(() => void api.accountStorage(p.account.id).then(setStorage, () => {}));
   const saveText = (key: "displayName" | "signature", v: string) => {
     if (v !== p.account[key]) p.onSettings({ [key]: v });
@@ -80,7 +96,7 @@ function AccountPage(p: {
         <Icon name="back" size={18} /> All settings
       </button>
       <div class="mb-4 flex items-center gap-3">
-        <Avatar name={accountName(p.account)} email={p.account.email} size={44} color={p.account.color} />
+        <Avatar name={accountName(p.account)} email={p.account.email} size={44} color={p.account.color} picture={p.account.avatarData} />
         <div class="min-w-0 flex-1">
           <div class="truncate font-display text-lg text-text">{accountName(p.account)}</div>
           <Show when={p.account.displayName}>
@@ -92,6 +108,12 @@ function AccountPage(p: {
         <HistoryProgress history={h()!} onPause={p.onPause} onRetry={p.onRetry} />
       </Show>
       <Section title="This account">
+        <Row title="Google profile" desc="Update your Google name and photo. Your saved mail and settings stay in place." stack>
+          <button class="h-9 self-start rounded-full px-4 text-sm font-medium text-primary hover:bg-primary/10 disabled:opacity-50" disabled={reconnecting()} onClick={() => void reconnect()}>
+            {reconnecting() ? "Waiting for Google…" : "Reconnect Google"}
+          </button>
+          <Show when={profileError()}>{(error) => <p class="text-xs text-danger" role="alert">{error()}</p>}</Show>
+        </Row>
         <Row title="Name" desc="Shown in the account menu and as the sender name." stack>
           <input
             class="h-9 w-full rounded-lg border border-outline bg-surface px-3 text-sm text-text"
@@ -254,6 +276,45 @@ function Toggle(p: { checked: boolean; onChange(v: boolean): void; label: string
   );
 }
 
+function ReadingLayout() {
+  const options = [
+    { value: "right", title: "Side pane", desc: "Keep the list visible and read on the right.", icon: "splitRight" },
+    { value: "full", title: "Full view", desc: "Replace the list with the email, like Gmail. Back returns to the list.", icon: "noSplit" },
+    { value: "bottom", title: "Below list", desc: "Keep the list above the email.", icon: "splitBottom" },
+  ] as const;
+  return (
+    <fieldset class="mb-2 mt-4">
+      <legend class="text-xs font-medium uppercase tracking-wide text-primary">Open emails</legend>
+      <p id="reading-layout-help" class="mb-2 mt-2 text-xs text-muted">
+        Applies immediately and is remembered. Split views use full view when the window is too small.
+      </p>
+      <div aria-describedby="reading-layout-help">
+        <For each={options}>
+          {(option) => (
+            <label class={`flex cursor-pointer items-center gap-3 rounded-xl px-3 py-3 transition-colors ${prefs.pane() === option.value ? "bg-secondary-container text-on-secondary-container" : "text-text hover:bg-hover"}`}>
+              <Icon name={option.icon} size={24} class="shrink-0" />
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-medium">{option.title}</span>
+                <span class={`mt-0.5 block text-xs ${prefs.pane() === option.value ? "text-on-secondary-container" : "text-muted"}`}>{option.desc}</span>
+              </span>
+              <input
+                type="radio"
+                name="reading-layout"
+                value={option.value}
+                aria-label={option.title}
+                checked={prefs.pane() === option.value}
+                onChange={() => prefs.setPane(option.value)}
+                aria-describedby="reading-layout-help"
+                class="size-4 shrink-0 accent-primary"
+              />
+            </label>
+          )}
+        </For>
+      </div>
+    </fieldset>
+  );
+}
+
 function Row(p: { title: string; desc?: string; children: JSX.Element; stack?: boolean }) {
   return (
     <div class={`flex gap-4 py-3 ${p.stack ? "flex-col" : "items-center"}`}>
@@ -317,6 +378,7 @@ export default function SettingsPanel(p: Props) {
             )}
           </Show>
           <Show when={!pageAccount()}>
+          <ReadingLayout />
           <Section title="Accounts">
             <For each={p.accounts}>{(a) => <AccountRow account={a} onOpen={() => setPage(a.id)} />}</For>
             <button class="flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium text-primary hover:bg-primary/10" onClick={p.onAddAccount}>
@@ -385,18 +447,6 @@ export default function SettingsPanel(p: Props) {
           </Section>
 
           <Section title="Reading mail">
-            <Row title="Reading pane" desc="Where a conversation opens. Small windows always use the full page." stack>
-              <Segmented<Pane>
-                label="Reading pane"
-                value={prefs.pane()}
-                options={[
-                  ["right", "Right of list"],
-                  ["bottom", "Below list"],
-                  ["full", "Full page"],
-                ]}
-                onChange={(v) => prefs.setPane(v)}
-              />
-            </Row>
             <Row title="Images from the web" desc="Remote images can tell senders you opened a mail. Pulse Mail fetches them for you, never loads tracking pixels, and the message itself stays offline." stack>
               <Segmented<Prefs["images"]>
                 label="Images"

@@ -1,6 +1,54 @@
 # Status: what works today
 
-## Resume here (2026-10-22 05:30 Cairo)
+## Current working tree (2026-10-22)
+
+- **Base:** `b3fde9f`; the changes below are local and uncommitted.
+- **Opening emails:** the top of Settings now has explicit Side pane,
+  Full view (replaces the list) and Below list choices with descriptions;
+  the saved layout applies immediately. Palette labels match.
+- **Bulk selection:** row checkboxes and Select all; Rust freezes all
+  matching cached folder/category/local-search conversation keys, including
+  unloaded rows. The UI holds a token and exceptions and stays virtualized.
+  Gmail-only searches explicitly select loaded results. Mark as read runs
+  in paced batches of ten, offers Stop, skips already-read conversations and
+  stops on failure; scope changes clear selection. New arrivals stay outside
+  the snapshot. See ADR 0024.
+- **Search/list:** Unread, Starred and Has attachment quick filters preserve
+  quoted phrases; stale Gmail results are cleared on query changes and a
+  failed search offers Retry. Folder and local-search scrolling append
+  200-row pages instead of re-fetching the entire loaded list; local search
+  is no longer limited to the first 100 results, and folder scrolling no
+  longer stalls at 5,000 rows. Gmail-only search still loads at most 100
+  results per account (50 requested by the UI), without remote pagination.
+- **Google profile:** sign-in now requests `openid profile` alongside Gmail
+  (approved by the user). Rust fetches the Google name/photo in the background
+  and caches the photo locally. Settings → Accounts → account → **Reconnect
+  Google** upgrades an existing grant without clearing mail. User-entered
+  names take priority; cached own-address SENT mail supplies a fallback.
+  Migration 10 preserves existing names and mail. See ADR 0023.
+- **OTP:** hyphenated mixed codes such as `K7Q2-9XMP` are normalized. Existing
+  cache re-scoring advances to v5 on next startup. All 90 corpus samples and
+  the former 20-sample holdout pass; the latter is now a regression set,
+  not independent validation. Added negatives cover tracking ids, URLs,
+  product names, longer identifiers and promos.
+- **Startup payload:** rich compose now loads on demand. The inbox entry
+  chunk is 214.93 kB after the new selection/search UI, down from 595.65 kB
+  (gzip 192.14 → 71.83 kB); the
+  editor is a separate 393.64 kB chunk. This measures build output, not app
+  launch latency or RAM.
+- **Verification:** 131 offline Rust unit tests, 43 UI tests, UI typecheck/build
+  and Clippy on all targets with `-D warnings` pass. Repository-wide format
+  checking reports pre-existing formatting drift; new Rust selection modules
+  pass rustfmt. Browser mocks cover pane selection/persistence, bulk read
+  exclusions, scope changes, failure/Stop and Gmail search retry. A synthetic
+  10,000-conversation mailbox selected all 10,000 with 21 rows rendered;
+  scrolling fetched offset 200 only, kept its position and rendered 34 rows
+  including overscan. This is a UI fixture, not a native RAM/latency benchmark.
+- **Still unverified:** real Google consent/profile fetch, installed WebView
+  photo display, Gmail writes and live toasts. No Google credentials were used and
+  the running app was not restarted.
+
+## Last committed handoff (2026-10-22 05:30 Cairo)
 
 - **State:** all work is committed locally (not pushed). Latest commits: 30642cd OTP v2 + category backend · b038852 UI · 406fa6c ADRs 0021/0022 · 51b6e1b + 9704338 OTP tuning (rescan v4) · bbf58da tabs default off (migration 9), send-as name, initials · f3c1da7 docs · 29e11dc send-as name lookup at engine start · this docs commit. Nothing uncommitted.
 - **Gates at 29e11dc:** 116 Rust tests, clippy `-D warnings` clean, 38 vitest; build OK at bbf58da.
@@ -15,8 +63,8 @@
   4. Decide on the Wise privacy-notice link (score 65, possible false positive).
   5. Support split alphanumeric codes.
 
-An honest snapshot of the code at `HEAD` (2026-10-21, v0.1.0, through the 2026-10-22 commits plus later commits listed in [PLAN.md](PLAN.md#progress-log)). It
-describes what the code does, not what is planned. Plans live in
+The matrix below describes `HEAD` (v0.1.0) plus the working-tree changes
+listed above. It describes implemented behavior, not planned features. Plans live in
 [ROADMAP.md](ROADMAP.md) and [PLAN.md](PLAN.md).
 
 Legend: **Done** = works end to end on the user's PC · **Partial** = works
@@ -28,13 +76,13 @@ yet exercised against the real account.
 
 | Topic | Default | Where it can change |
 | --- | --- | --- |
-| Reading pane | Right of the list; bottom and full-page options | Settings → Reading mail → Reading pane |
+| Reading pane | Side pane by default; Full view replaces the list; Below list also available | Settings → Open emails |
 | Download to this PC | Per account: 30 days / 90 days / 1 year / everything (full messages); older mail fetched on open; attachments up to 10 MB kept; one 1 GB budget for all accounts | Settings → Accounts → account page; Settings → Storage (`storage_budget_mb`) |
 | Accounts | Several accounts, per-account inboxes + "All inboxes"; every account notifies | Settings → Accounts (per-account notifications) |
 | Shortcuts | `c` compose, `Shift+C` copy code, `r`/`a`/`f` reply / reply all / forward, Ctrl+K palette | `src/lib/shortcuts.ts` |
 | Codes | Not auto-copied (`otp_autocopy=0`); clipboard cleared after 60 s; codes hidden on the lock screen | Settings → Codes |
 | Close button | Hides to the tray | Settings → General |
-| Google scopes | No new scopes (`https://mail.google.com/` only) | — |
+| Google scopes | Gmail plus `openid profile` for account name/photo (approved 2026-10-22); old grants keep working | Reconnect Google in account settings |
 | Language | English UI; mail text uses `dir=auto` for RTL | — |
 | Snooze / send later | Local-only, behind a setting, later | ROADMAP T3 / C2 |
 
@@ -59,7 +107,7 @@ yet exercised against the real account.
 | --- | --- | --- | --- |
 | Fast first sync | Done | 50 newest INBOX ids + one Gmail batch of `format=metadata`; rows stream to the UI. ≈1.0 s in the benchmark, 2.4 s in the debug app | `sync/mod.rs::first_sync` |
 | History download (H1) | Done (v2, live on the existing account: exact count 2,253 in 1.8 s) | Phases count → index → bodies → files ([ADR 0019](decisions/0019-history-download-v2.md)). Resumable id queue, backoff on rate limits, stall detection with an error and **Retry now**, auto-retry. Progress: "Counting messages… N found", "Downloading n / N · x/s · ~t left", size estimate with and without attachments. Pause/resume | `Engine::history_download`, `hist_call`, `HistSession`, migrations 6–7 |
-| Per-account settings page | Done (untested live) | Name, color, notifications, "Download to this PC" range, attachments policy (on demand / small files 2·10·25 MB / all), storage used, sync status, signature, remove | `SettingsPanel.tsx` (`AccountPage`), `set_account_settings`, `account_storage` |
+| Per-account settings page | Done (untested live) | Name, color, Google profile reconnect, notifications, download range, attachments policy, storage, sync, signature, remove. Google photos are cached raster data; custom names override Google | `SettingsPanel.tsx` (`AccountPage`), `set_account_settings`, `account_storage`, `auth/profile.rs` |
 | Lazy bodies on open | Done | Older bodies download when opened | `commands::load_thread` |
 | Incremental sync (history.list) | Done | Adds, deletes, label changes; history 404 → fresh first sync and re-download of the range | `Engine::delta_sync` |
 | IMAP IDLE push | Done | INBOX only, per account; re-IDLE every 20 min; backoff 1 → 60 s | `sync/imap_idle.rs` |
@@ -81,7 +129,7 @@ yet exercised against the real account.
 | Links | Done | Opened in the system browser via `open_external` (http/https/mailto only); warns when the visible text names a different domain | `lib/links.ts` |
 | Attachments | Done | Listed with size/type; Open / Save (Mark-of-the-Web written; dangerous types are never opened directly); `cid:` inline images render | `commands/mail.rs`, `sync/mime.rs` |
 | Print | Done | From the reader | `Reader.tsx` |
-| Reading pane modes | Done | Right / bottom / full page (Settings → Reading mail). Falls back to full page when the window is too small (right needs ≥ 1024 px wide, bottom ≥ 640 px tall). In full page, j/k open the next/previous conversation | `lib/pane.ts`, `App.tsx` |
+| Reading pane modes | Done | Side pane / below list / full view (Settings → Open emails). Falls back to full view when the window is too small (side needs ≥ 1024 px wide, bottom ≥ 640 px tall). In full view, j/k open the next/previous conversation | `lib/pane.ts`, `App.tsx` |
 | Archive, star, read/unread | Done | Optimistic with rollback; Undo for archive | `Engine::modify_thread` |
 | Delete / trash, spam, snooze, label editing | Not started | | |
 | Search | Done (untested live) | Local FTS5 first (understands `from:`, `subject:`, `is:unread/read/starred`, `has:attachment`, phrases). 450 ms later Gmail's own search runs on every account with the full query (all Gmail operators: `in:`, `label:`, `before:`, `-x`, `OR`…); missing messages are fetched as metadata and merged by thread. Banner: "Searching all of Gmail…" / "Results from Gmail and this PC". Spam/trash excluded locally | `store/query.rs`, `Engine::server_search`, `lib/search.ts` |
@@ -96,7 +144,7 @@ yet exercised against the real account.
 | --- | --- | --- | --- |
 | Windows toasts | Partial | New unread INBOX mail < 15 min old, per account; with several accounts the toast says "To <account>". Dev builds show PowerShell as the sender (no AUMID) | `notify/mod.rs` |
 | Notification mode per account | Done | All / codes only / off, chosen in onboarding and in Settings → Accounts | `accounts.notify` |
-| OTP extraction (v2) | Done (corpus-tested; untested on live new mail) | Scored pipeline: WebOTP line, multilingual keywords (EN/AR/FR/ES/DE + CJK), split and prefixed codes, Arabic-Indic and full-width digits, HTML emphasis, filters for dates, times, phones, money, URLs, footers and promos, expiry, confidence (store ≥ 50, toast ≥ 60). Magic sign-in links get an "Open" card. "Not a code" and copy feedback per sender. Corpus 90 samples: P/R 1.00/1.00; held-out 20: P/R 1.00/0.93 ([ADR 0022](decisions/0022-otp-pipeline.md)). Cached mail re-scored once at startup | `otp/`, `Reader.tsx` |
+| OTP extraction (v2) | Done (corpus-tested; untested on live new mail) | Scored pipeline: WebOTP line, multilingual keywords (EN/AR/FR/ES/DE + CJK), split and prefixed codes, Arabic-Indic and full-width digits, HTML emphasis, filters for dates, times, phones, money, URLs, footers and promos, expiry, confidence (store ≥ 50, toast ≥ 60). Magic sign-in links get an "Open" card. "Not a code" and copy feedback per sender. Corpus 90 samples: P/R 1.00/1.00; former holdout 20 now passes as a regression set ([ADR 0022](decisions/0022-otp-pipeline.md)). Cached mail re-scored once at startup | `otp/`, `Reader.tsx` |
 | Inbox tabs (Gmail categories) | Done (untested live in the UI) | Primary / Promotions / Social / Updates / Forums from Gmail's `CATEGORY_*` labels, with unread counts. Off by default (Gmail's API can't tell if the user uses tabs; the single inbox matches Gmail with tabs off); per-account switch, "Move to <tab>" in the palette, Important marker, "Primary + codes" notifications ([ADR 0021](decisions/0021-gmail-category-tabs.md)) | `InboxTabs.tsx`, `store::list_threads_in`, `category_counts` |
 | Copy code (toast, chip, banner, Shift+C) | Done | Written with the Windows formats that keep it out of Clipboard History, cloud clipboard and clipboard monitors; cleared after 60 s if unchanged (setting); auto-copy off by default (setting) | `secure_clipboard.rs`, `lib.rs::copy_secret` |
 | Codes off the lock screen | Done | While the session is locked the toast hides the code | `notify::session_locked` |
@@ -119,9 +167,9 @@ yet exercised against the real account.
 
 | Item | State | Notes |
 | --- | --- | --- |
-| Rust unit tests | Done | 107 tests, offline |
-| UI unit tests | Done | 34 tests (vitest) |
-| Clippy / fmt | Done | `-D warnings`, `--all-targets` |
+| Rust unit tests | Done | 128 tests, offline (current working tree) |
+| UI unit tests | Done | 39 tests (vitest; current working tree) |
+| Clippy / fmt | Partial | All-target Clippy with `-D warnings` passes; repository-wide fmt reports pre-existing drift |
 | Security invariant tests | Done | IPC allowlist in sync, devtools off in release, log calls never format secrets (`security.rs`) |
 | Dependency audit | Done | `cargo audit`: no vulnerabilities; 5 allowed warnings, all Linux-only GTK/zbus crates not built on Windows. `pnpm audit`: none |
 | CI | Not started | Local gates only |
@@ -138,7 +186,7 @@ yet exercised against the real account.
 ## Known bugs and limitations
 
 1. **Compose and server search untested live.** Both are unit-tested and run against the mock UI; no real message has been sent from the app yet.
-2. **Compose is plain text**: no rich text, no attachments; forwards don't carry the original attachments; existing Gmail drafts can't be reopened from the Drafts folder yet.
+2. **Existing Gmail drafts can't be reopened** from the Drafts folder yet. Rich compose, attachments and forwarded files are implemented but sending is untested live.
 3. **Second account untested live.** The multi-account path is unit-tested and the existing account migrated (range 90 days); adding a real second account hasn't been tried.
 4. **Unread counts lag** local actions until the next sync.
 5. **Dev toasts show PowerShell** as the sender.

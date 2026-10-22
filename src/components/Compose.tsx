@@ -39,6 +39,7 @@ export default function Compose(p: Props) {
   let picker: HTMLInputElement | undefined;
   const [uploading, setUploading] = createSignal(0);
   const [dragging, setDragging] = createSignal(false);
+  const [maximized, setMaximized] = createSignal(false);
 
   const schedule = () => {
     setError(null);
@@ -176,7 +177,11 @@ export default function Compose(p: Props) {
         setDragging(false);
         if (e.dataTransfer?.files.length) void addFiles(e.dataTransfer.files);
       }}
-      class="fixed bottom-0 right-6 z-40 flex h-[min(600px,calc(100vh-88px))] w-[560px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-t-2xl bg-surface shadow-2xl ring-1 ring-black/10 animate-dialog-in dark:ring-white/10"
+      class={
+        maximized()
+          ? "fixed inset-4 z-40 flex flex-col rounded-2xl bg-surface shadow-2xl ring-1 ring-black/10 animate-dialog-in dark:ring-white/10"
+          : "fixed bottom-0 right-6 z-40 flex h-[min(600px,calc(100vh-88px))] w-[560px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-t-2xl bg-surface shadow-2xl ring-1 ring-black/10 animate-dialog-in dark:ring-white/10"
+      }
       role="dialog"
       aria-label={p.title}
     >
@@ -185,6 +190,13 @@ export default function Compose(p: Props) {
         <span class="text-xs text-faint" aria-live="polite">
           {status() === "saving" ? "Saving…" : status() === "saved" ? "Draft saved" : status() === "error" ? "Not saved" : ""}
         </span>
+        <button
+          class="grid size-8 place-items-center rounded-full text-muted hover:bg-hover"
+          title={maximized() ? "Exit full screen" : "Full screen"}
+          onClick={() => setMaximized((v) => !v)}
+        >
+          <Icon name={maximized() ? "fullscreenExit" : "fullscreen"} size={18} />
+        </button>
         <button class="grid size-8 place-items-center rounded-full text-muted hover:bg-hover" title="Save & close (Esc)" onClick={() => void close()}>
           <Icon name="close" size={18} />
         </button>

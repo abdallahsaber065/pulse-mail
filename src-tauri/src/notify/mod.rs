@@ -1,7 +1,7 @@
 //! Native Windows toasts. OTP mail gets a "Copy code" button that works
 //! without opening the window; clicking the toast opens that exact thread.
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone)]
 pub struct NewMailToast {
@@ -75,20 +75,103 @@ fn ellipsize(s: &str, max_chars: usize) -> String {
 }
 
 #[cfg(windows)]
-pub fn show_new_mail(app: &AppHandle, t: NewMailToast) {
-    use tauri_winrt_notification::{Duration, Sound, Toast};
-
-    // Dev builds aren't registered with an AppUserModelID, so borrow
-    // PowerShell's (documented limitation). Installed builds use ours.
-    let app_id = if cfg!(debug_assertions) {
-        Toast::POWERSHELL_APP_ID.to_string()
-    } else {
-        app.config().identifier.clone()
+pub fn init(app: &AppHandle) {
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegCreateKeyW, RegSetValueExW, HKEY_CURRENT_USER, REG_SZ,
     };
+    use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+
+    let app_id = &app.config().identifier;
+    let wide_app_id: Vec<u16> = app_id.encode_utf16().chain(std::iter::once(0)).collect();
+
+    unsafe {
+        let _ = SetCurrentProcessExplicitAppUserModelID(wide_app_id.as_ptr());
+    }
+
+    // Ensure icon exists in app_data_dir for toast display and registry icon uri
+    let icon_path = if let Ok(data_dir) = app.path().app_data_dir() {
+        let dest = data_dir.join("app-icon.png");
+        if !dest.exists() {
+            const ICON_BYTES: &[u8] = include_bytes!("../../icons/128x128.png");
+            let _ = std::fs::write(&dest, ICON_BYTES);
+        }
+        dest
+    } else {
+        std::path::PathBuf::new()
+    };
+
+    let subkey = format!("SOFTWARE\\Classes\\AppUserModelId\\{app_id}\0");
+    let wide_subkey: Vec<u16> = subkey.encode_utf16().collect();
+    let mut hkey = std::ptr::null_mut();
+
+    unsafe {
+        if RegCreateKeyW(
+            HKEY_CURRENT_USER,
+            wide_subkey.as_ptr(),
+            &mut hkey,
+        ) == 0
+            && !hkey.is_null()
+        {
+            let name: Vec<u16> = "Pulse Mail\0".encode_utf16().collect();
+            let val_name: Vec<u16> = "DisplayName\0".encode_utf16().collect();
+            let _ = RegSetValueExW(
+                hkey,
+                val_name.as_ptr(),
+                0,
+                REG_SZ,
+                name.as_ptr() as *const u8,
+                (name.len() * 2) as u32,
+            );
+
+            let bg: Vec<u16> = "0\0".encode_utf16().collect();
+            let val_bg: Vec<u16> = "IconBackgroundColor\0".encode_utf16().collect();
+            let _ = RegSetValueExW(
+                hkey,
+                val_bg.as_ptr(),
+                0,
+                REG_SZ,
+                bg.as_ptr() as *const u8,
+                (bg.len() * 2) as u32,
+            );
+
+            if let Some(s) = icon_path.to_str() {
+                let uri: Vec<u16> = format!("{s}\0").encode_utf16().collect();
+                let val_uri: Vec<u16> = "IconUri\0".encode_utf16().collect();
+                let _ = RegSetValueExW(
+                    hkey,
+                    val_uri.as_ptr(),
+                    0,
+                    REG_SZ,
+                    uri.as_ptr() as *const u8,
+                    (uri.len() * 2) as u32,
+                );
+            }
+
+            RegCloseKey(hkey);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn init(_app: &AppHandle) {}
+
+#[cfg(windows)]
+pub fn show_new_mail(app: &AppHandle, t: NewMailToast) {
+    use tauri_winrt_notification::{Duration, IconCrop, Sound, Toast};
+
+    let app_id = app.config().identifier.clone();
     let text = toast_text(&t);
     let app = app.clone();
     // WinRT calls can block briefly; keep them off the async runtime.
     std::thread::spawn(move || {
+        // Initialize COM on this worker thread so WinRT calls run cleanly in MTA
+        unsafe {
+            windows_sys::Win32::System::Com::CoInitializeEx(
+                std::ptr::null_mut(),
+                windows_sys::Win32::System::Com::COINIT_MULTITHREADED as u32,
+            );
+        }
+
         let mut toast = Toast::new(&app_id)
             .title(&text.title)
             .text1(&text.line1)
@@ -99,6 +182,14 @@ pub fn show_new_mail(app: &AppHandle, t: NewMailToast) {
             } else {
                 Duration::Short
             });
+
+        if let Ok(data_dir) = app.path().app_data_dir() {
+            let icon_path = data_dir.join("app-icon.png");
+            if icon_path.exists() {
+                toast = toast.icon(&icon_path, IconCrop::Square, "Pulse Mail");
+            }
+        }
+
         if t.otp.is_some() {
             toast = toast.add_button("Copy code", "copy").add_button("Open", "open");
         }
@@ -106,18 +197,35 @@ pub fn show_new_mail(app: &AppHandle, t: NewMailToast) {
         let thread_id = t.thread_id.clone();
         let message_id = t.message_id.clone();
         let account_id = t.account_id;
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tx_dismiss = tx.clone();
+
         let result = toast
             .on_activated(move |action| {
                 match (action.as_deref(), &otp) {
                     (Some("copy"), Some(code)) => crate::copy_secret(&app, code),
                     _ => crate::window::open_thread(&app, account_id, &thread_id, Some(&message_id)),
                 }
+                let _ = tx.send(());
+                Ok(())
+            })
+            .on_dismissed(move |_| {
+                let _ = tx_dismiss.send(());
                 Ok(())
             })
             .show();
         match result {
             // Timestamped marker for measuring push-to-toast latency (PLAN.md).
-            Ok(()) => tracing::info!(otp = t.otp.is_some(), "toast shown"),
+            Ok(()) => {
+                tracing::info!(otp = t.otp.is_some(), "toast shown");
+                let timeout = if t.otp.is_some() {
+                    std::time::Duration::from_secs(25)
+                } else {
+                    std::time::Duration::from_secs(10)
+                };
+                let _ = rx.recv_timeout(timeout);
+            }
             Err(e) => tracing::warn!(error = %e, "failed to show toast"),
         }
     });

@@ -5,6 +5,7 @@
 //! never hold the connection across an `.await`.
 
 mod migrations;
+pub mod selection;
 pub mod query;
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -97,6 +98,8 @@ pub struct Account {
     /// Per-file limit for "limit", in MB.
     pub attach_max_mb: i64,
     pub display_name: String,
+    /// Locally cached Google profile photo (a raster data URL).
+    pub avatar_data: Option<String>,
     /// Account color ("" = automatic).
     pub color: String,
     /// Plain-text signature appended to new messages and replies.
@@ -136,7 +139,8 @@ pub const BACKFILL_STATES: &[&str] = &["setup", "pending", "running", "paused", 
 
 const ACCOUNT_COLS: &str = "id, email, history_id, last_sync_at, sync_window, notify, backfill_state, backfill_page, \
                             backfill_done, backfill_total, messages_total, backfill_phase, backfill_error, \
-                            attach_mode, attach_max_mb, display_name, color, signature, category_tabs";
+                            attach_mode, attach_max_mb, COALESCE(NULLIF(display_name, ''), profile_name), \
+                            color, signature, category_tabs, NULLIF(avatar_data, '')";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -208,6 +212,19 @@ pub struct OtpRescanRow {
     pub html: Option<String>,
     pub body_loaded: bool,
     pub promotional: bool,
+    pub current_code: Option<String>,
+    pub current_link: Option<String>,
+    pub current_score: i32,
+}
+
+/// A changed OTP result to write back in batch.
+pub struct OtpRescanUpdate {
+    pub account_id: i64,
+    pub id: String,
+    pub from: String,
+    pub code: Option<String>,
+    pub link: Option<String>,
+    pub score: i32,
 }
 
 /// (from_email, body_html, body_text, body_loaded)
@@ -288,6 +305,61 @@ impl Store {
                 map_account,
             )
             .optional()
+    }
+
+    /// Apply an inferred name only if the user hasn't already chosen one.
+    /// The conditional write also protects against a delayed network lookup.
+    pub fn set_account_name_if_empty(&self, account_id: i64, name: &str) -> Result<bool> {
+        let name: String = name.chars().filter(|c| !c.is_control()).take(80).collect();
+        let name = name.trim();
+        if name.is_empty() {
+            return Ok(false);
+        }
+        self.conn
+            .execute(
+                "UPDATE accounts SET profile_name = ?2 WHERE id = ?1 AND display_name = '' AND profile_name = ''",
+                params![account_id, name],
+            )
+            .map(|n| n != 0)
+    }
+
+    /// Prefer the most frequent From name on this account's own sent mail.
+    /// Never infer identity from incoming mail, aliases, or another account.
+    pub fn fill_account_name_from_sent(&self, account_id: i64) -> Result<bool> {
+        let Some(account) = self.account(account_id)?.filter(|a| a.display_name.is_empty()) else {
+            return Ok(false);
+        };
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT trim(m.from_name) AS name
+             FROM message_labels ml
+             JOIN messages m ON m.account_id = ml.account_id AND m.id = ml.message_id
+             WHERE ml.account_id = ?1 AND ml.label_id = 'SENT'
+               AND m.from_email = ?2 COLLATE NOCASE
+               AND trim(m.from_name) != '' AND instr(m.from_name, '@') = 0
+             GROUP BY trim(m.from_name)
+             ORDER BY count(*) DESC, max(m.internal_date) DESC, name ASC",
+        )?;
+        let names = stmt.query_map(params![account_id, account.email], |r| r.get::<_, String>(0))?;
+        for name in names {
+            if self.set_account_name_if_empty(account_id, &name?)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Google can refresh the default name/photo; the user override is separate.
+    pub fn set_google_profile(&self, account_id: i64, name: &str, avatar: Option<&str>) -> Result<bool> {
+        let name: String = name.chars().filter(|c| !c.is_control()).take(80).collect();
+        self.conn
+            .execute(
+                "UPDATE accounts
+             SET profile_name = CASE WHEN ?2 = '' THEN profile_name ELSE ?2 END,
+                 avatar_data = COALESCE(?3, avatar_data)
+             WHERE id = ?1",
+                params![account_id, name.trim(), avatar],
+            )
+            .map(|n| n != 0)
     }
 
     /// All accounts, oldest first (the first is the default account).
@@ -580,7 +652,8 @@ impl Store {
             "SELECT m.rowid, m.account_id, m.id, m.subject, m.from_email,
                     CASE WHEN m.body_loaded = 1 THEN m.body_text ELSE m.snippet END, m.body_html, m.body_loaded,
                     EXISTS (SELECT 1 FROM message_labels c WHERE c.account_id = m.account_id AND c.message_id = m.id
-                            AND c.label_id = 'CATEGORY_PROMOTIONS')
+                            AND c.label_id = 'CATEGORY_PROMOTIONS'),
+                    m.otp_code, m.otp_link, m.otp_score
              FROM messages m WHERE m.rowid > ?1 ORDER BY m.rowid LIMIT ?2",
         )?;
         stmt.query_map(params![after_rowid, limit], |r| {
@@ -594,9 +667,38 @@ impl Store {
                 html: r.get(6)?,
                 body_loaded: r.get(7)?,
                 promotional: r.get(8)?,
+                current_code: r.get(9)?,
+                current_link: r.get(10)?,
+                current_score: r.get(11)?,
             })
         })?
         .collect()
+    }
+
+    /// Batch-update re-run OTP results inside a single transaction to avoid disk thrashing.
+    pub fn set_otp_batch(&mut self, updates: &[OtpRescanUpdate]) -> Result<()> {
+        if updates.is_empty() {
+            return Ok(());
+        }
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "UPDATE messages SET otp_code = ?3, otp_link = ?4, otp_score = ?5 WHERE account_id = ?1 AND id = ?2",
+            )?;
+            for u in updates {
+                let bias = otp_bias(&tx, u.account_id, &u.from)?;
+                let keep = u.score + bias >= crate::otp::STORE_THRESHOLD;
+                stmt.execute(params![
+                    u.account_id,
+                    u.id,
+                    u.code.as_deref().filter(|_| keep),
+                    u.link.as_deref().filter(|_| keep),
+                    u.score,
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Store a re-run OTP result (feedback still applies).
@@ -905,7 +1007,7 @@ impl Store {
                     EXISTS (SELECT 1 FROM message_labels mi WHERE mi.account_id = lm.account_id AND mi.label_id = 'IMPORTANT'
                        AND mi.message_id IN (SELECT id FROM messages t WHERE t.account_id = lm.account_id AND t.thread_id = lm.thread_id))
              FROM lm WHERE rn = 1
-             ORDER BY internal_date DESC
+             ORDER BY internal_date DESC, account_id, thread_id
              LIMIT ?3 OFFSET ?4",
         )?;
         stmt.query_map(params![account_id, label_id, limit, offset, category], map_thread)?
@@ -917,6 +1019,10 @@ impl Store {
     /// `has:attachment`), one row per thread (its newest match).
     /// `account_id` None = all. Queries needing the server return nothing.
     pub fn search(&self, account_id: Option<i64>, query: &str, limit: i64) -> Result<Vec<ThreadRow>> {
+        self.search_page(account_id, query, limit, 0)
+    }
+
+    pub fn search_page(&self, account_id: Option<i64>, query: &str, limit: i64, offset: i64) -> Result<Vec<ThreadRow>> {
         let q = query::parse(query);
         if q.is_empty() || !q.local_ok {
             return Ok(Vec::new());
@@ -942,10 +1048,10 @@ impl Store {
                     EXISTS (SELECT 1 FROM message_labels mi WHERE mi.account_id = hits.account_id AND mi.label_id = 'IMPORTANT'
                        AND mi.message_id IN (SELECT id FROM messages t WHERE t.account_id = hits.account_id AND t.thread_id = hits.thread_id))
              FROM hits WHERE rn = 1
-             ORDER BY internal_date DESC
-             LIMIT ?3",
+             ORDER BY internal_date DESC, account_id, thread_id
+             LIMIT ?3 OFFSET ?7",
         )?;
-        stmt.query_map(params![account_id, q.fts, limit, unread, q.starred, q.attachment], map_thread)?
+        stmt.query_map(params![account_id, q.fts, limit, unread, q.starred, q.attachment, offset], map_thread)?
             .collect()
     }
 
@@ -1191,6 +1297,7 @@ fn map_account(r: &rusqlite::Row<'_>) -> Result<Account> {
         color: r.get(16)?,
         signature: r.get(17)?,
         category_tabs: r.get(18)?,
+        avatar_data: r.get(19)?,
     })
 }
 
@@ -1294,6 +1401,124 @@ mod tests {
         assert_eq!(a.history_id.as_deref(), Some("12345"));
         s.clear_history_id(id).unwrap();
         assert_eq!(s.primary_account().unwrap().unwrap().history_id, None);
+    }
+
+    #[test]
+    fn account_name_uses_own_sent_mail_and_preserves_user_choice() {
+        let (mut s, id) = setup();
+        let other = s.upsert_account("other@example.com", 1).unwrap().id;
+        for (account, mid, name, email, date, labels) in [
+            (id, "s1", "Alex Saber", "ME@EXAMPLE.COM", 1, vec!["SENT"]),
+            (id, "s2", "Alex Saber", "me@example.com", 2, vec!["SENT"]),
+            (id, "s3", "Old Name", "me@example.com", 3, vec!["SENT"]),
+            (id, "s4", "Someone Else", "stranger@example.com", 4, vec!["SENT"]),
+            (id, "s5", "Incoming", "me@example.com", 5, vec!["INBOX"]),
+            (other, "s6", "Wrong Account", "me@example.com", 6, vec!["SENT"]),
+            (id, "s7", "me@example.com", "me@example.com", 7, vec!["SENT"]),
+        ] {
+            let mut m = msg(mid, mid, date, &labels, "Synthetic fixture");
+            m.from_name = name.into();
+            m.from_email = email.into();
+            s.upsert_metadata(account, &m).unwrap();
+        }
+        assert!(s.fill_account_name_from_sent(id).unwrap());
+        assert_eq!(s.account(id).unwrap().unwrap().display_name, "Alex Saber");
+        assert!(!s.fill_account_name_from_sent(id).unwrap());
+        s.set_account_settings(
+            id,
+            &AccountSettings {
+                display_name: Some("My choice".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!s.set_account_name_if_empty(id, "Late Gmail result").unwrap());
+        assert!(!s.fill_account_name_from_sent(id).unwrap());
+        assert_eq!(s.account(id).unwrap().unwrap().display_name, "My choice");
+        assert_eq!(s.account(other).unwrap().unwrap().display_name, "");
+    }
+
+    #[test]
+    fn account_name_ties_use_recency_then_name_and_handle_unicode() {
+        let (mut s, id) = setup();
+        assert!(!s.fill_account_name_from_sent(id).unwrap());
+        for (mid, name, date) in [("s1", "Old Name", 1), ("s2", "  زيد\n أحمد  ", 2), ("s3", "علي", 2)] {
+            let mut m = msg(mid, mid, date, &["SENT"], "Synthetic fixture");
+            m.from_name = name.into();
+            m.from_email = "me@example.com".into();
+            s.upsert_metadata(id, &m).unwrap();
+        }
+        assert!(s.fill_account_name_from_sent(id).unwrap());
+        assert_eq!(s.account(id).unwrap().unwrap().display_name, "زيد أحمد");
+        assert!(!s.set_account_name_if_empty(999, "Missing account").unwrap());
+    }
+
+    #[test]
+    fn inferred_account_names_are_bounded_and_blank_names_are_ignored() {
+        let (s, id) = setup();
+        assert!(!s.set_account_name_if_empty(id, " \n\t ").unwrap());
+        assert!(s.set_account_name_if_empty(id, &"🔐".repeat(100)).unwrap());
+        assert_eq!(s.account(id).unwrap().unwrap().display_name, "🔐".repeat(80));
+    }
+
+    #[test]
+    fn google_profile_replaces_inference_but_preserves_custom_names() {
+        let (s, id) = setup();
+        s.set_account_name_if_empty(id, "Name from sent mail").unwrap();
+        assert!(s.set_google_profile(id, " Google Name ", None).unwrap());
+        assert_eq!(s.account(id).unwrap().unwrap().display_name, "Google Name");
+        s.set_account_settings(
+            id,
+            &AccountSettings {
+                display_name: Some("My choice".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(s.set_google_profile(id, "New Google Name", None).unwrap());
+        assert_eq!(s.account(id).unwrap().unwrap().display_name, "My choice");
+        s.set_account_settings(
+            id,
+            &AccountSettings {
+                display_name: Some("".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(s.account(id).unwrap().unwrap().display_name, "New Google Name");
+        s.set_google_profile(id, "", None).unwrap();
+        assert_eq!(s.account(id).unwrap().unwrap().display_name, "New Google Name");
+        assert!(!s.set_google_profile(999, "Name", None).unwrap());
+    }
+
+    #[test]
+    fn google_profile_photo_roundtrips_and_survives_an_unavailable_photo() {
+        let (s, id) = setup();
+        let other = s.upsert_account("other@example.com", 1).unwrap().id;
+        let data = "data:image/png;base64,iVBORw0KGgo=";
+        assert!(s.account(id).unwrap().unwrap().avatar_data.is_none());
+        s.set_google_profile(id, "Google Name", Some(data)).unwrap();
+        assert_eq!(s.accounts().unwrap()[0].avatar_data.as_deref(), Some(data));
+        s.set_google_profile(id, "Google Name", None).unwrap();
+        assert_eq!(s.account(id).unwrap().unwrap().avatar_data.as_deref(), Some(data));
+        assert!(s.account(other).unwrap().unwrap().avatar_data.is_none());
+    }
+
+    #[test]
+    fn google_profile_migration_preserves_existing_names_and_mail() {
+        let conn = Connection::open_in_memory().unwrap();
+        for sql in &migrations::MIGRATIONS[..9] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 9).unwrap();
+        conn.execute("INSERT INTO accounts(id, email, created_at, display_name) VALUES (1, 'me@example.com', 1, 'My existing name')", []).unwrap();
+        conn.execute("INSERT INTO messages(account_id, id, thread_id, internal_date, body_text) VALUES (1, 'm1', 't1', 1, 'Offline fixture')", []).unwrap();
+        let s = Store::init(conn).unwrap();
+        assert_eq!(s.account(1).unwrap().unwrap().display_name, "My existing name");
+        assert!(s.account(1).unwrap().unwrap().avatar_data.is_none());
+        assert_eq!(s.get_thread(1, "t1").unwrap()[0].body_text, "Offline fixture");
+        s.set_google_profile(1, "Google Name", None).unwrap();
+        assert_eq!(s.account(1).unwrap().unwrap().display_name, "My existing name");
     }
 
     #[test]

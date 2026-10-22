@@ -3,6 +3,7 @@
 
 pub mod compose;
 pub mod mail;
+pub mod selection;
 pub mod validate;
 
 use crate::AppState;
@@ -183,9 +184,10 @@ pub struct SignedIn {
 /// while onboarding continues; the history download waits for
 /// `finish_onboarding`.
 #[tauri::command]
-pub async fn sign_in(app: AppHandle, state: State<'_, AppState>) -> CmdResult<SignedIn> {
+pub async fn sign_in(app: AppHandle, state: State<'_, AppState>, account_id: Option<i64>) -> CmdResult<SignedIn> {
+    let expected = account_id.map(|id| resolve_account(&state, Some(id))).transpose()?;
     let client = client_config::load(&client_config::resolve_path(&state.config_dir))?;
-    let pending = oauth::begin_login(&client).await?;
+    let pending = oauth::begin_login(&client, expected.as_ref().map(|a| a.email.as_str())).await?;
     app.opener().open_url(pending.auth_url.clone(), None::<&str>)?;
     let tokens = pending.finish(&state.http, &client).await?;
     let refresh = tokens
@@ -195,6 +197,9 @@ pub async fn sign_in(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Si
 
     let profile = Gmail::new(state.http.clone()).profile(&tokens.access_token).await?;
     let email = profile.email_address;
+    if expected.as_ref().is_some_and(|a| !a.email.eq_ignore_ascii_case(&email)) {
+        return Err(CmdError::new("Choose the same Google account to reconnect."));
+    }
     token_store::save_refresh_token(&email, &refresh)?;
     let account = {
         let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
@@ -206,6 +211,28 @@ pub async fn sign_in(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Si
 
     let manager = TokenManager::new(email.clone(), client, state.http.clone(), refresh);
     start_sync(&app, &state, manager, &account).await;
+    // Optional identity work must not hold up the inbox or sign-in result.
+    let (profile_app, profile_email, profile_id) = (app.clone(), email.clone(), account.id);
+    tauri::async_runtime::spawn(async move {
+        let Ok(profile) = crate::auth::profile::fetch(&tokens.access_token).await else {
+            tracing::debug!("Google profile unavailable; keeping cached account details");
+            return;
+        };
+        let state = profile_app.state::<AppState>();
+        let updated = {
+            let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+            // Removal/re-addition while the request was in flight may reuse an id.
+            match store.account(profile_id) {
+                Ok(Some(a)) if a.email == profile_email => store
+                    .set_google_profile(profile_id, &profile.name, profile.avatar_data.as_deref())
+                    .unwrap_or(false),
+                _ => false,
+            }
+        };
+        if updated {
+            let _ = profile_app.emit("accounts-changed", ());
+        }
+    });
     Ok(SignedIn {
         account_id: account.id,
         email,
@@ -411,10 +438,10 @@ pub async fn resume_history(state: State<'_, AppState>, account_id: i64) -> CmdR
 }
 
 /// Bump when the OTP detector changes enough to re-score cached mail.
-const OTP_VERSION: &str = "4";
+const OTP_VERSION: &str = "5";
 
 /// Re-run OTP detection over the cache once per detector version, in small
-/// batches so the store lock is never held for long.
+/// batches inside transactions so the store lock is never held for long.
 fn rescan_otp_if_needed(app: &AppHandle) {
     let state = app.state::<AppState>();
     let lock = || state.store.lock().unwrap_or_else(|e| e.into_inner());
@@ -428,34 +455,45 @@ fn rescan_otp_if_needed(app: &AppHandle) {
         if batch.is_empty() {
             break;
         }
-        let results: Vec<_> = batch
-            .iter()
-            .map(|r| {
-                let d = crate::sync::mime::safe_detect(&crate::otp::Input {
-                    subject: &r.subject,
-                    text: &r.text,
-                    html: if r.body_loaded { r.html.as_deref() } else { None },
-                    from: &r.from,
-                    promotional: r.promotional,
-                });
-                (r.rowid, r.account_id, r.id.clone(), r.from.clone(), d)
-            })
-            .collect();
-        let mut store = lock();
-        for (rowid, acct, id, from, d) in results {
-            after = rowid;
+        let mut updates = Vec::new();
+        for r in &batch {
+            after = r.rowid;
             scanned += 1;
+            let d = crate::sync::mime::safe_detect(&crate::otp::Input {
+                subject: &r.subject,
+                text: &r.text,
+                html: if r.body_loaded { r.html.as_deref() } else { None },
+                from: &r.from,
+                promotional: r.promotional,
+            });
             let (code, link, score) = match &d {
-                Some(d) if d.kind == crate::otp::Kind::Code => (Some(d.value.as_str()), None, d.confidence),
-                Some(d) => (None, Some(d.value.as_str()), d.confidence),
+                Some(d) if d.kind == crate::otp::Kind::Code => (Some(d.value.clone()), None, d.confidence),
+                Some(d) => (None, Some(d.value.clone()), d.confidence),
                 None => (None, None, 0),
             };
-            found += usize::from(d.is_some());
-            if let Err(e) = store.set_otp(acct, &id, &from, code, link, score) {
+            if d.is_some() {
+                found += 1;
+            }
+            if code != r.current_code || link != r.current_link || score != r.current_score {
+                updates.push(crate::store::OtpRescanUpdate {
+                    account_id: r.account_id,
+                    id: r.id.clone(),
+                    from: r.from.clone(),
+                    code,
+                    link,
+                    score,
+                });
+            }
+        }
+        if !updates.is_empty() {
+            let mut store = lock();
+            if let Err(e) = store.set_otp_batch(&updates) {
                 tracing::warn!(error = %e, "otp rescan write failed");
                 return;
             }
         }
+        // Yield execution between batches so UI queries acquire the lock without starvation.
+        std::thread::sleep(std::time::Duration::from_millis(15));
     }
     let _ = lock().set_setting("otp_version", OTP_VERSION);
     tracing::info!(scanned, found, ms = started.elapsed().as_millis() as u64, "otp rescan done");
@@ -476,7 +514,7 @@ pub fn list_labels(state: State<'_, AppState>, account_id: Option<i64>) -> CmdRe
         many => {
             let mut merged: Vec<LabelRow> = Vec::new();
             for a in many {
-                for l in store.list_labels(a.id)?.into_iter().filter(|l| l.kind == "system") {
+                for l in store.list_labels(a.id)? {
                     match merged.iter_mut().find(|m| m.id == l.id) {
                         Some(m) => {
                             m.unread += l.unread;
@@ -558,10 +596,10 @@ pub fn otp_feedback(
 }
 
 #[tauri::command]
-pub fn search(state: State<'_, AppState>, query: String, limit: i64, account_id: Option<i64>) -> CmdResult<Vec<ThreadRow>> {
+pub fn search(state: State<'_, AppState>, query: String, limit: i64, account_id: Option<i64>, offset: Option<i64>) -> CmdResult<Vec<ThreadRow>> {
     validate::text(&query, 500)?;
     let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
-    Ok(store.search(account_id, &query, limit.clamp(1, 200))?)
+    Ok(store.search_page(account_id, &query, limit.clamp(1, 200), offset.unwrap_or(0).max(0))?)
 }
 
 /// Search Gmail itself (all mail, every operator) for one account or all,
@@ -805,7 +843,11 @@ pub async fn start_sync(app: &AppHandle, state: &AppState, tokens: TokenManager,
 pub async fn resume(app: AppHandle) {
     let state = app.state::<AppState>();
     let rescan_app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || rescan_otp_if_needed(&rescan_app));
+    tauri::async_runtime::spawn(async move {
+        // Let initial window paint and initial queries finish before starting background rescan.
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        tauri::async_runtime::spawn_blocking(move || rescan_otp_if_needed(&rescan_app));
+    });
     let Ok(accounts) = state.store.lock().unwrap_or_else(|e| e.into_inner()).accounts() else {
         return;
     };

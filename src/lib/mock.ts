@@ -1,5 +1,7 @@
 // Mock backend for browser-only UI work (`pnpm dev`). Never used in Tauri.
 import type { Account, Activity, AppStatus, Label, Message, RenderedMessage, SyncStatus, ThreadRow } from "./types";
+import { threadKey, type SelectionSource, type ThreadKey } from "./selection";
+import { needsServer } from "./search";
 
 const now = Date.now();
 const min = 60_000;
@@ -105,6 +107,7 @@ function accountOf(id: number, email: string): Account {
     attachMode: "limit",
     attachMaxMb: 10,
     displayName: "",
+    avatarData: null,
     color: "",
     signature: "",
     categoryTabs: true,
@@ -158,16 +161,64 @@ const activity: Activity[] = [
   { at: now - 30_000, account: "me@gmail.com", level: "info", text: "Live: Gmail will push new mail instantly" },
 ];
 
+let selectionId = 0;
+let selectedKeys: ThreadKey[] = [];
+let excludedKeys = new Set<string>();
+
+function mockSearch(query: string) {
+  const tokens = query.match(/(?:[^\s"]+|"[^"]*")+/g) ?? [];
+  return threads.filter((t) => tokens.every((raw) => {
+    const token = raw.toLowerCase();
+    if (token === "is:unread") return t.unread;
+    if (token === "is:read") return !t.unread;
+    if (token === "is:starred") return t.starred;
+    if (token === "has:attachment") return false;
+    if (token.startsWith("from:")) return `${t.fromName} ${t.fromEmail}`.toLowerCase().includes(token.slice(5).replace(/"/g, ""));
+    if (token.startsWith("subject:")) return t.subject.toLowerCase().includes(token.slice(8).replace(/"/g, ""));
+    return `${t.subject} ${t.fromName} ${t.snippet}`.toLowerCase().includes(token.replace(/"/g, ""));
+  }));
+}
+
 export async function handle(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   switch (cmd) {
     case "get_status":
       return structuredClone(status);
+    case "create_selection": {
+      const source = args?.source as SelectionSource;
+      const candidates = source.kind === "threads" ? source.threads : threads.filter((t) =>
+        (source.accountId == null || source.accountId === t.accountId) &&
+        (source.query ? mockSearch(source.query).includes(t) :
+          (source.labelId === "INBOX" || source.labelId === "STARRED" && t.starred) && (!source.category || catOf(t) === source.category)));
+      selectedKeys = candidates.map(({ accountId, threadId }) => ({ accountId, threadId }));
+      return { id: ++selectionId, total: selectedKeys.length };
+    }
+    case "selection_members": {
+      if (args?.selectionId !== selectionId) throw new Error("This selection has changed.");
+      const keys = new Set(selectedKeys.map(threadKey));
+      return (args?.threads as ThreadKey[]).filter((k) => keys.has(threadKey(k)));
+    }
+    case "mark_selection_read": {
+      if (args?.selectionId !== selectionId) throw new Error("This selection has changed.");
+      const offset = Number(args?.offset ?? 0);
+      if (offset === 0) excludedKeys = new Set((args?.excluded as ThreadKey[]).map(threadKey));
+      const keys = selectedKeys.slice(offset, offset + 10);
+      let changed = 0;
+      for (const key of keys) {
+        const t = threads.find((t) => threadKey(t) === threadKey(key));
+        if (t?.unread && !excludedKeys.has(threadKey(key))) { t.unread = false; changed++; }
+      }
+      await new Promise((r) => setTimeout(r, 250));
+      return { nextOffset: offset + keys.length, done: offset + keys.length >= selectedKeys.length, changed, failed: 0, error: null };
+    }
     case "list_labels":
       return labels;
-    case "list_threads":
-      return args?.labelId === "INBOX"
+    case "list_threads": {
+      const matches = args?.labelId === "INBOX"
         ? threads.filter((t) => !args?.category || catOf(t) === args.category)
         : threads.filter((t) => (args?.labelId === "STARRED" ? t.starred : false));
+      const offset = Number(args?.offset ?? 0);
+      return matches.slice(offset, offset + Number(args?.limit ?? 200));
+    }
     case "category_counts":
       return ["CATEGORY_PERSONAL", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_UPDATES", "CATEGORY_FORUMS"].map((id) => {
         const ts = threads.filter((t) => catOf(t) === id);
@@ -177,8 +228,8 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       if (!args?.useful) for (const t of threads) if (t.lastMessageId === args?.messageId) t.otpCode = null;
       return null;
     case "search": {
-      const q = String(args?.query ?? "").toLowerCase();
-      return threads.filter((t) => `${t.subject} ${t.fromName} ${t.snippet}`.toLowerCase().includes(q));
+      const offset = Number(args?.offset ?? 0);
+      return mockSearch(String(args?.query ?? "")).slice(offset, offset + Number(args?.limit ?? 100));
     }
     case "compose_context": {
       const t = threads.find((x) => x.lastMessageId === args?.messageId) ?? threads[0];
@@ -210,6 +261,7 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       return true;
     case "search_server": {
       await new Promise((r) => setTimeout(r, 700));
+      if (!needsServer(String(args?.query ?? ""))) return mockSearch(String(args?.query ?? ""));
       const q = String(args?.query ?? "").toLowerCase().replace(/\b\w+:/g, "");
       const older: ThreadRow = {
         ...threads[threads.length - 1],
@@ -266,6 +318,12 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       window.open(String(args?.url), "_blank", "noopener");
       return;
     case "sign_in": {
+      const reconnectId = args?.accountId;
+      if (reconnectId != null) {
+        const a = status.accounts.find((a) => a.id === reconnectId);
+        if (!a) throw new Error("Account not found.");
+        return { accountId: a.id, email: a.email, messagesTotal: a.messagesTotal, threadsTotal: 31_020, needsSetup: a.backfillState === "setup" };
+      }
       const id = status.accounts.length + 1;
       const email = id === 1 ? "me@gmail.com" : "work@example.com";
       const a = accountOf(id, email);

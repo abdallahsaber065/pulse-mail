@@ -23,7 +23,16 @@ party ever sees your mail or tokens. You only do this once.
 3. **Audience:** **External**.
 4. **Contact information:** your email → agree to the policy → **Create**.
 5. Go to **Data Access** → **Add or remove scopes** → under "Manually add
-   scopes" paste `https://mail.google.com/` → **Add to table** → **Update** → **Save**.
+   scopes" add `https://mail.google.com/` and `openid`, and select the basic
+   `https://www.googleapis.com/auth/userinfo.profile` scope → **Add to table**
+   → **Update** → **Save**. The sign-in request uses its standard `profile`
+   alias. This supplies your Google name and photo; Gmail access supplies
+   your mail. See [Google's scope reference](https://developers.google.com/identity/protocols/oauth2/scopes).
+
+If already signed in with Gmail-only access, use **Settings → Accounts →
+your account → Reconnect Google** once and grant profile access. Your cached
+mail and settings stay in place. A name you entered in Settings takes
+priority over Google's name; clear it to use Google's default again.
 
 ## 4. Publish the app ("In production"): important
 

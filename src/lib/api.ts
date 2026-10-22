@@ -27,6 +27,7 @@ import type {
   WindowEstimate,
 } from "./types";
 import * as mock from "./mock";
+import type { SelectionInfo, SelectionSource, ThreadKey, ReadBatch } from "./selection";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -47,7 +48,7 @@ type Acct = number | null;
 
 export const api = {
   status: () => call<AppStatus>("get_status"),
-  signIn: () => call<SignedIn>("sign_in"),
+  signIn: (accountId: Acct = null) => call<SignedIn>("sign_in", { accountId }),
   signOut: (accountId: Acct = null) => call<void>("sign_out", { accountId }),
   estimates: (accountId: number) => call<WindowEstimate[]>("account_estimates", { accountId }),
   finishOnboarding: (accountId: number, window: SyncWindow, notify: NotificationMode) =>
@@ -78,7 +79,7 @@ export const api = {
   /** "Not a code" (useful=false, clears it on that message) or a copied code. */
   otpFeedback: (accountId: number, sender: string, useful: boolean, messageId: string | null = null) =>
     call<void>("otp_feedback", { accountId, sender, useful, messageId }),
-  search: (query: string, limit = 100, accountId: Acct = null) => call<ThreadRow[]>("search", { query, limit, accountId }),
+  search: (query: string, limit = 100, accountId: Acct = null, offset = 0) => call<ThreadRow[]>("search", { query, limit, accountId, offset }),
   composeContext: (messageId: string, mode: Exclude<ComposeMode, "new">, accountId: Acct = null) =>
     call<ComposeInit>("compose_context", { messageId, mode, accountId }),
   saveDraft: (draft: Draft, accountId: Acct = null) =>
@@ -94,6 +95,10 @@ export const api = {
   loadThread: (threadId: string, accountId: Acct = null) => call<Message[]>("load_thread", { threadId, accountId }),
   modifyThread: (threadId: string, add: string[], remove: string[], accountId: Acct = null) =>
     call<void>("modify_thread", { threadId, add, remove, accountId }),
+  createSelection: (source: SelectionSource) => call<SelectionInfo>("create_selection", { source }),
+  selectionMembers: (selectionId: number, threads: ThreadKey[]) => call<ThreadKey[]>("selection_members", { selectionId, threads }),
+  markSelectionRead: (selectionId: number, offset: number, excluded: ThreadKey[]) =>
+    call<ReadBatch>("mark_selection_read", { selectionId, offset, excluded }),
   activity: () => call<Activity[]>("get_activity"),
   setNotifications: (mode: NotificationMode, accountId: Acct = null) => call<void>("set_notifications", { mode, accountId }),
   /** `manual` = the user asked; automatic wake-ups pass false and stay quiet. */

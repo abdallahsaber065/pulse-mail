@@ -189,4 +189,10 @@ pub const MIGRATIONS: &[&str] = &[
     r#"
     UPDATE accounts SET category_tabs = 0;
     "#,
+    // 10: optional Google profile, separate from the user's chosen name.
+    // Photos are bounded raster data URLs fetched by Rust, never remote URLs.
+    r#"
+    ALTER TABLE accounts ADD COLUMN profile_name TEXT NOT NULL DEFAULT '';
+    ALTER TABLE accounts ADD COLUMN avatar_data TEXT NOT NULL DEFAULT '';
+    "#,
 ];

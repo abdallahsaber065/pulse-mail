@@ -1,4 +1,11 @@
 // Pure formatting helpers (unit-tested in format.test.ts).
+import type { Category } from "./types";
+
+/** Avatars must be cached raster data, never a remote webview request. */
+export function avatarSource(value?: string | null): string | null {
+  if (!value || value.length > 350_000) return null;
+  return /^data:image\/(?:png|jpeg|gif|webp|avif|bmp|x-icon);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) ? value : null;
+}
 
 const SYSTEM_LABELS: Record<string, string> = {
   INBOX: "Inbox",
@@ -19,6 +26,14 @@ const SYSTEM_LABELS: Record<string, string> = {
 
 /** Gmail-ordered system labels shown in the sidebar. */
 export const SIDEBAR_SYSTEM = ["INBOX", "STARRED", "IMPORTANT", "SENT", "DRAFT", "SPAM", "TRASH"];
+
+export const SIDEBAR_CATEGORIES: { id: string; category: Category; name: string; icon: "inbox" | "label" | "person" | "info" | "mail" }[] = [
+  { id: "CATEGORY_PERSONAL", category: "CATEGORY_PERSONAL", name: "Primary", icon: "inbox" },
+  { id: "CATEGORY_PROMOTIONS", category: "CATEGORY_PROMOTIONS", name: "Promotions", icon: "label" },
+  { id: "CATEGORY_SOCIAL", category: "CATEGORY_SOCIAL", name: "Social", icon: "person" },
+  { id: "CATEGORY_UPDATES", category: "CATEGORY_UPDATES", name: "Updates", icon: "info" },
+  { id: "CATEGORY_FORUMS", category: "CATEGORY_FORUMS", name: "Forums", icon: "mail" },
+];
 
 export function labelName(id: string, name: string): string {
   return SYSTEM_LABELS[id] ?? name;
