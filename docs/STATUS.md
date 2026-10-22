@@ -1,54 +1,21 @@
 # Status: what works today
 
-## Current working tree (2026-10-22)
+## Current Release: v0.2.0 (2026-10-23)
 
-- **Base:** `b3fde9f`; the changes below are local and uncommitted.
-- **Opening emails:** the top of Settings now has explicit Side pane,
-  Full view (replaces the list) and Below list choices with descriptions;
-  the saved layout applies immediately. Palette labels match.
-- **Bulk selection:** row checkboxes and Select all; Rust freezes all
-  matching cached folder/category/local-search conversation keys, including
-  unloaded rows. The UI holds a token and exceptions and stays virtualized.
-  Gmail-only searches explicitly select loaded results. Mark as read runs
-  in paced batches of ten, offers Stop, skips already-read conversations and
-  stops on failure; scope changes clear selection. New arrivals stay outside
-  the snapshot. See ADR 0024.
-- **Search/list:** Unread, Starred and Has attachment quick filters preserve
-  quoted phrases; stale Gmail results are cleared on query changes and a
-  failed search offers Retry. Folder and local-search scrolling append
-  200-row pages instead of re-fetching the entire loaded list; local search
-  is no longer limited to the first 100 results, and folder scrolling no
-  longer stalls at 5,000 rows. Gmail-only search still loads at most 100
-  results per account (50 requested by the UI), without remote pagination.
-- **Google profile:** sign-in now requests `openid profile` alongside Gmail
-  (approved by the user). Rust fetches the Google name/photo in the background
-  and caches the photo locally. Settings → Accounts → account → **Reconnect
-  Google** upgrades an existing grant without clearing mail. User-entered
-  names take priority; cached own-address SENT mail supplies a fallback.
-  Migration 10 preserves existing names and mail. See ADR 0023.
-- **OTP:** hyphenated mixed codes such as `K7Q2-9XMP` are normalized. Existing
-  cache re-scoring advances to v5 on next startup. All 90 corpus samples and
-  the former 20-sample holdout pass; the latter is now a regression set,
-  not independent validation. Added negatives cover tracking ids, URLs,
-  product names, longer identifiers and promos.
-- **Startup payload:** rich compose now loads on demand. The inbox entry
-  chunk is 214.93 kB after the new selection/search UI, down from 595.65 kB
-  (gzip 192.14 → 71.83 kB); the
-  editor is a separate 393.64 kB chunk. This measures build output, not app
-  launch latency or RAM.
-- **Verification:** 131 offline Rust unit tests, 43 UI tests, UI typecheck/build
-  and Clippy on all targets with `-D warnings` pass. Repository-wide format
-  checking reports pre-existing formatting drift; new Rust selection modules
-  pass rustfmt. Browser mocks cover pane selection/persistence, bulk read
-  exclusions, scope changes, failure/Stop and Gmail search retry. A synthetic
-  10,000-conversation mailbox selected all 10,000 with 21 rows rendered;
-  scrolling fetched offset 200 only, kept its position and rendered 34 rows
-  including overscan. This is a UI fixture, not a native RAM/latency benchmark.
-- **Still unverified:** real Google consent/profile fetch, installed WebView
-  photo display, Gmail writes and live toasts. No Google credentials were used and
-  the running app was not restarted.
+- **Brand & App Icons**: Custom geometric pulse + envelope logo designed and generated across all target resolutions (`32x32`, `128x128`, `256x256`, `512x512`, `.ico`, `.icns`, Android mipmaps, iOS icons). See commit `6555d4b`.
+- **On-Demand Attachment Preview**: Click-to-preview modal in Reader supporting images (with zoom/pan), embedded Chromium PDF viewer (`#toolbar=1`), code/text/csv/json with UTF-8 decoding and line-wrap toggle, audio/video players, and fallback binary cards with direct system app launch or download. Full memory cleanup with `URL.revokeObjectURL()`. See ADR 0025.
+- **Undo Send (5–10s Grace Window)**: When sending an email, Pulse Mail holds the outgoing message in an in-memory queue with an instant "Undo" button on the UI snackbar before transmitting to Gmail REST. Setting configurable in Settings.
+- **Contact Auto-Complete in Compose**: Instant fuzzy typeahead across To, Cc, and Bcc fields querying local SQLite messages and accounts with frequency scoring, colored avatars, keyboard navigation (<kbd>↑</kbd>, <kbd>↓</kbd>, <kbd>Enter</kbd>, <kbd>Tab</kbd>, <kbd>Esc</kbd>), and elevated z-index stacking.
+- **Thread Context Menu**: Full right-click and "more" menu on conversation rows: Star / Unstar, Mark as read / unread, Mark Important, Archive, Move to trash, Report spam, Move to tab, and Copy OTP code / subject / thread ID. Styled with gold/yellow active indicators (`text-star`) without jarring blue highlights.
+- **Smooth, No-Flash State Updates**: Conversation actions mutate optimistic `overrides` immediately, updating UI state in the background without reloading or flashing the open email reader.
+- **Resizable Split Pane**: Draggable splitter divider between the thread list and reader in 2-pane side-by-side mode, with width preferences saved to `localStorage`.
+- **Inline Quick Reply**: Bottom of reader now features an inline quick reply bar (Reply / Reply All) directly below the last message.
+- **Search Hint & Syntax Autocomplete**: Information icon with syntax documentation tooltip (`from:`, `to:`, `subject:`, `is:`, `has:`, etc.) and real-time operator completion.
+- **Gmail Drafts Synchronization**: Fixed draft updates to support Gmail REST `PUT` requirements (`id` parameter) and seamless editing of existing draft messages from the Drafts folder.
+- **Tauri v2 IPC Allowlist Enforcement**: Verified capability discipline across `build.rs` and `capabilities/default.json` with automated security tests.
+- **Verification**: 132 offline Rust unit tests, 47 UI vitest tests, typecheck, Vite production build, and clippy warning-free.
 
-## Last committed handoff (2026-10-22 05:30 Cairo)
+## Previous handoff (2026-10-22)
 
 - **State:** all work is committed locally (not pushed). Latest commits: 30642cd OTP v2 + category backend · b038852 UI · 406fa6c ADRs 0021/0022 · 51b6e1b + 9704338 OTP tuning (rescan v4) · bbf58da tabs default off (migration 9), send-as name, initials · f3c1da7 docs · 29e11dc send-as name lookup at engine start · this docs commit. Nothing uncommitted.
 - **Gates at 29e11dc:** 116 Rust tests, clippy `-D warnings` clean, 38 vitest; build OK at bbf58da.

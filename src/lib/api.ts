@@ -6,8 +6,10 @@ import type {
   AccountSettings,
   AccountStorage,
   Activity,
+  AttachmentData,
   ComposeInit,
   ComposeMode,
+  ContactSuggestion,
   Draft,
   Sending,
   AppStatus,
@@ -87,6 +89,8 @@ export const api = {
   deleteDraft: (draftId: string, accountId: Acct = null) => call<void>("delete_draft", { draftId, accountId }),
   sendMessage: (draft: Draft, accountId: Acct = null) => call<Sending>("send_message", { draft, accountId }),
   cancelSend: (sendId: number) => call<boolean>("cancel_send", { sendId }),
+  searchContacts: (query: string, accountId: Acct = null) =>
+    call<ContactSuggestion[]>("search_contacts", { query, accountId }),
   /** Gmail server search (all mail, every operator); rows are cached locally. */
   searchServer: (query: string, limit = 50, accountId: Acct = null) =>
     call<ThreadRow[]>("search_server", { query, limit, accountId }),
@@ -113,6 +117,8 @@ export const api = {
   setPref: <K extends PrefKey>(key: K, value: Prefs[K]) => call<void>("set_pref", { key, value }),
   saveAttachment: (messageId: string, part: number, open: boolean, accountId: Acct = null) =>
     call<SavedAttachment>("save_attachment", { messageId, part, open, accountId }),
+  getAttachmentData: (messageId: string, part: number, accountId: Acct = null) =>
+    call<AttachmentData>("get_attachment_data", { messageId, part, accountId }),
   openExternal: (url: string) => call<void>("open_external", { url }),
   setDestroyOnClose: (enabled: boolean) => call<void>("set_destroy_on_close", { enabled }),
   setAutostart: (enabled: boolean) => call<boolean>("set_autostart", { enabled }),

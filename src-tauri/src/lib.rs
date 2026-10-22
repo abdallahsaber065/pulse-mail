@@ -204,12 +204,14 @@ pub fn run() {
             commands::compose::delete_draft,
             commands::compose::send_message,
             commands::compose::cancel_send,
+            commands::compose::search_contacts,
             commands::compose::stage_attachment,
             commands::compose::unstage_attachment,
             commands::mail::render_message,
             commands::mail::set_image_sender,
             commands::mail::set_pref,
             commands::mail::save_attachment,
+            commands::mail::get_attachment_data,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pulse Mail");

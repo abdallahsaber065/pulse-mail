@@ -99,6 +99,25 @@ phase done. Never mark work done on a failing build or test.
     `alert`/`confirm`/`prompt` (ADR 0009).
 11. **Respect the user's install.** Don't sign the user out, delete the DB or
     Credential Manager entries, or stop their running app unless the task needs it.
+12. **Tauri v2 IPC capability completeness.** Adding `#[tauri::command]` to
+    `generate_handler!` is necessary but not sufficient. You MUST also add the
+    command name to `COMMANDS` in `src-tauri/build.rs` and the kebab-case
+    permission `allow-<command>` to `src-tauri/capabilities/default.json`.
+    Always verify with `cargo test security::tests::command_allowlist_in_sync`
+    (omitting this silently causes IPC calls to reject in the webview).
+13. **SolidJS reactive scope in overlays.** In context menus, dropdowns, and
+    modals, action handlers must NEVER call `onClose()` before consuming props.
+    Unmounting invalidates reactive parent scopes and causes `p.thread` access
+    to evaluate to `undefined` or throw. Snapshot `{ ...p.thread }` synchronously,
+    execute the action, and invoke `p.onClose()` in a `finally` block.
+14. **On-demand streaming and URL cleanup.** Never eagerly load full message
+    attachments or write extra temp files to disk. Fetch bytes on demand via
+    `get_attachment_data` base64 streaming, wrap in `Blob`/`URL.createObjectURL`,
+    and always invoke `URL.revokeObjectURL(url)` on component teardown.
+15. **No-flash optimistic UI.** Thread actions (star, read/unread, move category)
+    must update local UI state optimistically via `overrides` immediately,
+    preserving the reader view and updating metadata smoothly in the background
+    without flashing or reloading the thread.
 
 ## Conventions
 

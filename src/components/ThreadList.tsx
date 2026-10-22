@@ -1,14 +1,19 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createSignal, For, Index, on, Show } from "solid-js";
 import Icon, { type IconName } from "./Icon";
+import ThreadContextMenu from "./ThreadContextMenu";
 import { listDate } from "../lib/format";
 import { prefs } from "../lib/prefs";
-import type { ThreadRow } from "../lib/types";
+import type { Category, ThreadRow } from "../lib/types";
 
 export interface RowActions {
   archive?(t: ThreadRow): void;
+  trash(t: ThreadRow): void;
+  markSpam(t: ThreadRow): void;
   toggleRead(t: ThreadRow): void;
   toggleStar(t: ThreadRow): void;
+  toggleImportant(t: ThreadRow): void;
+  moveToCategory?(t: ThreadRow, c: Category): void;
 }
 
 interface Props {
@@ -23,6 +28,7 @@ interface Props {
   onCheck(t: ThreadRow): void;
   selectionDisabled: boolean;
   viewKey: string;
+  inInbox?: boolean;
   onOpen(t: ThreadRow, index: number): void;
   onCopyCode(code: string): void;
   /** The user scrolled near the bottom: load the next page if there is one. */
@@ -50,6 +56,7 @@ function Skeleton() {
 export default function ThreadList(p: Props) {
   let scrollEl!: HTMLDivElement;
   const [copied, setCopied] = createSignal<string | null>(null);
+  const [contextMenu, setContextMenu] = createSignal<{ x: number; y: number; thread: ThreadRow } | null>(null);
   const virtualizer = createVirtualizer({
     get count() {
       return p.threads.length;
@@ -82,13 +89,13 @@ export default function ThreadList(p: Props) {
 
   const comfy = () => prefs.density() === "comfortable";
 
-  const ActionBtn = (a: { icon: IconName; title: string; onClick(): void }) => (
+  const ActionBtn = (a: { icon: IconName; title: string; onClick(e: MouseEvent): void }) => (
     <button
       class="grid size-8 place-items-center rounded-full text-muted hover:bg-black/10 hover:text-text dark:hover:bg-white/10"
       title={a.title}
       onClick={(e) => {
         e.stopPropagation();
-        a.onClick();
+        a.onClick(e);
       }}
     >
       <Icon name={a.icon} size={18} />
@@ -133,6 +140,10 @@ export default function ThreadList(p: Props) {
                     }`}
                     style={{ top: `${item.start}px`, height: `${prefs.rowHeight()}px` }}
                     onClick={() => p.onOpen(t(), item.index)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ x: e.clientX, y: e.clientY, thread: t() });
+                    }}
                   >
                     <label class="grid size-8 shrink-0 cursor-pointer place-items-center rounded-full hover:bg-hover" onClick={(e) => e.stopPropagation()}>
                       <input
@@ -158,9 +169,17 @@ export default function ThreadList(p: Props) {
                     </button>
                     <span class={`flex w-44 shrink-0 items-center gap-1 truncate ${t().unread ? "font-bold text-text" : "text-text"}`}>
                       <Show when={t().important}>
-                        <span class="shrink-0 text-star" title="Important (marked by Gmail)" aria-label="Important">
+                        <button
+                          class="shrink-0 text-star hover:opacity-80"
+                          title="Marked as important (click to toggle)"
+                          aria-label="Important"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            p.actions.toggleImportant(t());
+                          }}
+                        >
                           <Icon name="important" size={14} />
-                        </span>
+                        </button>
                       </Show>
                       <span class="truncate">{t().fromName || t().fromEmail}</span>
                       <Show when={t().messageCount > 1}>
@@ -203,14 +222,23 @@ export default function ThreadList(p: Props) {
                     >
                       {listDate(t().internalDate)}
                     </span>
-                    <span class="hidden shrink-0 items-center group-hover:flex">
+                    <span class="hidden shrink-0 items-center gap-0.5 group-hover:flex">
                       <Show when={p.actions.archive}>
                         <ActionBtn icon="archive" title="Archive (e)" onClick={() => p.actions.archive!(t())} />
                       </Show>
+                      <ActionBtn icon="trash" title="Move to trash (#)" onClick={() => p.actions.trash(t())} />
                       <ActionBtn
                         icon={t().unread ? "markRead" : "markUnread"}
                         title={t().unread ? "Mark as read (Shift+I)" : "Mark as unread (Shift+U)"}
                         onClick={() => p.actions.toggleRead(t())}
+                      />
+                      <ActionBtn
+                        icon="more"
+                        title="More actions"
+                        onClick={(e) => {
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setContextMenu({ x: rect.left - 170, y: rect.bottom + 4, thread: t() });
+                        }}
                       />
                     </span>
                   </div>
@@ -219,6 +247,19 @@ export default function ThreadList(p: Props) {
             }}
           </For>
         </div>
+      </Show>
+      <Show when={contextMenu()}>
+        {(menu) => (
+          <ThreadContextMenu
+            x={menu().x}
+            y={menu().y}
+            thread={menu().thread}
+            inInbox={p.inInbox ?? true}
+            actions={p.actions}
+            onClose={() => setContextMenu(null)}
+            onCopyCode={p.onCopyCode}
+          />
+        )}
       </Show>
     </div>
   );

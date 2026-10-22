@@ -13,6 +13,8 @@ export interface ShortcutHandlers {
   refresh(): void;
   toggleHelp(): void;
   archive(): void;
+  trash?(): void;
+  markSpam?(): void;
   star(): void;
   markRead(): void;
   markUnread(): void;
@@ -28,6 +30,8 @@ export const SHORTCUTS: [string, string][] = [
   ["r / a / f", "Reply / reply all / forward"],
   ["Shift + c", "Copy verification code"],
   ["e", "Archive"],
+  ["#", "Move to trash"],
+  ["!", "Report spam"],
   ["s", "Star / unstar"],
   ["Shift + i", "Mark as read"],
   ["Shift + u", "Mark as unread"],
@@ -79,6 +83,8 @@ export function installShortcuts(h: ShortcutHandlers): () => void {
       case "f": h.reply("forward"); break;
       case "R": h.refresh(); break;
       case "e": h.archive(); break;
+      case "#": h.trash?.(); break;
+      case "!": h.markSpam?.(); break;
       case "s": h.star(); break;
       case "I": h.markRead(); break;
       case "U": h.markUnread(); break;

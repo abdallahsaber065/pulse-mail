@@ -131,6 +131,25 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-23 (v0.2.0 release):** Brand app icon suite, attachment preview modal,
+  undo send grace window, contact auto-complete in compose, thread context menu,
+  quick reply bar, resizable 2-pane splitter, search syntax completion, and draft
+  editing fixes.
+  Acceptance:
+  - Attachment preview: Images (zoom/pan), embedded Chromium PDF viewer, UTF-8 text/code
+    viewer with line wrap, HTML5 audio/video, fallback file cards, zero-temp-file streaming
+    (`get_attachment_data` IPC), and strict `URL.revokeObjectURL()` memory cleanup.
+  - Undo Send: 5-10s grace window holding message in memory with instant undo on snackbar.
+  - Contacts auto-complete: Fuzzy typeahead across To/Cc/Bcc querying local SQLite with
+    frequency ranking, keyboard navigation, colored avatars, and elevated z-index stacking.
+  - Context menu: Full actions (star, read/unread, important, archive, trash, spam, move to tab,
+    copy code/subject/threadId) with snapshot scope protection and gold active indicators.
+  - Smooth updates: Optimistic mutations without reader flashing or full component reload.
+  - Tauri v2 capability enforcement: All IPC commands in sync between `build.rs`, `commands.rs`,
+    and `capabilities/default.json`.
+  - Result: 132 Rust unit tests, 47 UI unit tests, zero Clippy warnings, typecheck/build clean.
+
+
 - **2026-10-22 (bulk selection/search, working tree):** User requested
   selecting conversations, Select all, bulk mark-read, long-list efficiency
   and better search. Implement a frozen key-only Rust snapshot for every

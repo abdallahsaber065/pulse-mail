@@ -271,21 +271,17 @@ be on at that time (warn in the UI).
 
 <a id="c3"></a>
 
-### C3. Contacts autocomplete 💡 · P1
-Start with addresses seen in the cache (ranked by frequency/recency); later
-People API `otherContacts` + `connections` (needs `contacts.other.readonly` /
-`contacts.readonly` scopes, so ask first).
+### C3. Contacts autocomplete 💡 · P1 · ✅ done (v0.2.0)
+Typeahead auto-complete across To/Cc/Bcc backed by SQLite message/account frequency
+ranking (`search_contacts` IPC). Keyboard navigable, colored avatars, and elevated stacking.
 
 <a id="c4"></a>
 
-### C4. Attachments 💡 · P0
-List attachments under each message (name, size, type icon); preview images
-and PDFs (PDF in WebView2's viewer); download to Downloads or "Save as";
-drag out. Inline `cid:` images: resolve parts with `Content-ID` and serve them
-as `data:` URLs to the sandboxed frame (CSP already allows `cid:`/`data:`).
-- **Gmail:** `messages.attachments.get` (5 units). Store `attachments(account_id,
-  message_id, part_id, attachment_id, filename, mime, size, content_id)` at
-  parse time. Files go to a cache folder with a size budget (H1).
+### C4. Attachments & In-App Preview 💡 · P0 · ✅ done (v0.2.0)
+List attachments under each message (name, size, type icon); click-to-preview popup
+for images (with zoom), PDFs (embedded Chromium viewer), code/text/csv/json (UTF-8 monospace
+viewer with line wrap), and audio/video. Streaming `get_attachment_data` IPC without temp files
+and automatic URL revocation. Direct "Open in App" and "Download" buttons.
 
 <a id="c5"></a>
 

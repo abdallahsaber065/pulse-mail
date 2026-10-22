@@ -471,6 +471,27 @@ export default function SettingsPanel(p: Props) {
             </Row>
           </Section>
 
+          <Section title="Sending mail">
+            <Row
+              title="Undo Send cancellation window"
+              desc="Hold outgoing messages before transmitting to Google servers so you can undo mistakes."
+              stack
+            >
+              <Segmented<Prefs["undo_send_secs"]>
+                label="Undo Send cancellation window"
+                value={p.prefs.undo_send_secs ?? "5"}
+                options={[
+                  ["0", "Off"],
+                  ["5", "5 s"],
+                  ["10", "10 s"],
+                  ["20", "20 s"],
+                  ["30", "30 s"],
+                ]}
+                onChange={(v) => p.onPref("undo_send_secs", v)}
+              />
+            </Row>
+          </Section>
+
           <Section title="Verification codes">
             <Row title="Copy new codes automatically" desc="When a code arrives, put it on the clipboard right away.">
               <Toggle label="Copy new codes automatically" checked={p.prefs.otp_autocopy === "1"} onChange={(v) => p.onPref("otp_autocopy", v ? "1" : "0")} />

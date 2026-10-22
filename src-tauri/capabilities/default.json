@@ -48,6 +48,8 @@
     "allow-render-message",
     "allow-set-image-sender",
     "allow-set-pref",
-    "allow-save-attachment"
+    "allow-save-attachment",
+    "allow-search-contacts",
+    "allow-get-attachment-data"
   ]
 }

@@ -36,13 +36,22 @@ flowchart LR
 cargo fmt --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets   # must be warning-free
 cargo test --manifest-path src-tauri/Cargo.toml                   # offline, deterministic
+cargo test --manifest-path src-tauri/Cargo.toml security::tests::command_allowlist_in_sync # Tauri IPC allowlist
 pnpm test                                                         # vitest
 pnpm build                                                        # tsc --noEmit + vite build
 ```
 
 Run targeted tests while iterating (`cargo test … otp::`, `pnpm vitest run
 src/lib/sync-view.test.ts`) and everything before calling a phase done.
-Never merge or mark done on red. There's no CI yet; the gates are local.
+Never merge or mark done on red.
+
+### IPC Command Checklist (Tauri v2)
+Whenever adding or modifying a `#[tauri::command]`:
+1. Define in `src-tauri/src/commands/`
+2. Register in `lib.rs` inside `generate_handler![...]`
+3. Add command name string to `COMMANDS` array in `src-tauri/build.rs`
+4. Add `"allow-<command-kebab-case>"` to `src-tauri/capabilities/default.json`
+5. Verify with `cargo test --manifest-path src-tauri/Cargo.toml security::tests::command_allowlist_in_sync`
 
 ## Running the app in development
 

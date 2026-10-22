@@ -1142,13 +1142,31 @@ impl Engine {
         let _ = self.app.emit("mail-updated", ());
         let result = async {
             let token = self.tokens.access_token().await?;
-            match self.gmail.modify_thread(&token, thread_id, add, remove).await {
-                Err(GmailError::Unauthorized) => {
-                    self.tokens.invalidate().await;
-                    let token = self.tokens.access_token().await?;
-                    self.gmail.modify_thread(&token, thread_id, add, remove).await?;
+
+            if add.iter().any(|l| l == "TRASH") {
+                self.gmail.trash_thread(&token, thread_id).await?;
+            } else if remove.iter().any(|l| l == "TRASH") {
+                self.gmail.untrash_thread(&token, thread_id).await?;
+            }
+
+            if add.iter().any(|l| l == "SPAM") || remove.iter().any(|l| l == "SPAM") {
+                let msg_ids = self.db(|s| s.message_ids_for_thread(self.account_id, thread_id))?;
+                if !msg_ids.is_empty() {
+                    self.gmail.batch_modify_messages(&token, &msg_ids, add, remove).await?;
                 }
-                r => r?,
+            }
+
+            let clean_add: Vec<String> = add.iter().filter(|l| *l != "TRASH" && *l != "SPAM").cloned().collect();
+            let clean_remove: Vec<String> = remove.iter().filter(|l| *l != "TRASH" && *l != "SPAM").cloned().collect();
+            if !clean_add.is_empty() || !clean_remove.is_empty() {
+                match self.gmail.modify_thread(&token, thread_id, &clean_add, &clean_remove).await {
+                    Err(GmailError::Unauthorized) => {
+                        self.tokens.invalidate().await;
+                        let token = self.tokens.access_token().await?;
+                        self.gmail.modify_thread(&token, thread_id, &clean_add, &clean_remove).await?;
+                    }
+                    r => r?,
+                }
             }
             Ok::<_, SyncError>(())
         }

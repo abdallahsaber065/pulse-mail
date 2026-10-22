@@ -54,7 +54,12 @@ export default function EmailFrame(p: Props) {
       const d = e.data as { pm?: number; t?: string; v?: unknown; href?: unknown; text?: unknown } | null;
       if (!d || d.pm !== 1) return;
       if (d.t === "h" && typeof d.v === "number" && Number.isFinite(d.v)) {
-        setHeight(Math.min(Math.max(Math.ceil(d.v) + 4, 40), 200_000));
+        const next = Math.min(Math.max(Math.ceil(d.v), 40), 16_000);
+        setHeight((prev) => {
+          // Break runaway feedback loops: ignore tiny fluctuations <= 3px
+          if (Math.abs(next - prev) <= 3) return prev;
+          return next;
+        });
       } else if (d.t === "link" && typeof d.href === "string") {
         p.onLink(d.href.slice(0, 4096), typeof d.text === "string" ? d.text.slice(0, 300) : "");
       }

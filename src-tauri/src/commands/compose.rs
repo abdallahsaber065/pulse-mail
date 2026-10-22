@@ -294,3 +294,19 @@ pub async fn send_message(
 pub fn cancel_send(send_id: u64) -> bool {
     OUTBOX.lock().unwrap_or_else(|e| e.into_inner()).remove(&send_id).is_some()
 }
+
+/// Typeahead auto-complete suggestions for To/Cc/Bcc.
+#[tauri::command]
+pub fn search_contacts(
+    state: State<'_, AppState>,
+    query: String,
+    account_id: Option<i64>,
+) -> CmdResult<Vec<crate::store::ContactSuggestion>> {
+    let clean = query.trim();
+    let aid = account_id.filter(|&id| id > 0);
+    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+    let contacts = store
+        .search_contacts(aid, clean, 10)
+        .map_err(|e| CmdError::new(e.to_string()))?;
+    Ok(contacts)
+}

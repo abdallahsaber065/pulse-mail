@@ -28,3 +28,6 @@ Consequences (+ Alternatives when useful), under about 40 lines.
 | [0020](0020-compose-editor.md) | Rich compose editor: TipTap 3 core | accepted |
 | [0021](0021-gmail-category-tabs.md) | Gmail's own categories for inbox tabs | accepted |
 | [0022](0022-otp-pipeline.md) | Scored OTP and magic-link pipeline, tuned on a labeled corpus | accepted |
+| [0023](0023-google-account-profile.md) | Google account profile sync and custom display names | accepted |
+| [0024](0024-bulk-selection.md) | Virtualized bulk conversation selection and paced batch operations | accepted |
+| [0025](0025-attachment-preview-and-ipc-contract.md) | On-demand attachment preview, Tauri v2 capability discipline, and reactive overlay scope | accepted |

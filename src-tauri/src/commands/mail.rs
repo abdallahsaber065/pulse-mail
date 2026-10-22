@@ -215,6 +215,65 @@ pub async fn save_attachment(
     })
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentData {
+    pub filename: String,
+    pub mime: String,
+    pub size: usize,
+    pub data_base64: String,
+}
+
+/// Read attachment contents (cached or fetched from Gmail) and return base64 for in-app preview.
+#[tauri::command]
+pub async fn get_attachment_data(
+    state: State<'_, AppState>,
+    message_id: String,
+    part: u32,
+    account_id: Option<i64>,
+) -> CmdResult<AttachmentData> {
+    validate::gmail_id(&message_id)?;
+    let account = self::account_id(&state, account_id)?;
+    let meta = state
+        .store
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .attachments(account, &message_id, true)?
+        .into_iter()
+        .find(|a| a.part == part)
+        .ok_or_else(|| CmdError::new("That attachment isn't available."))?;
+
+    let local = if meta.stored {
+        crate::files::read(&state.files_dir, account, &message_id, part)
+    } else {
+        None
+    };
+    let bytes = match local {
+        Some(b) => b,
+        None => {
+            let engine = super::engine_for(&state, Some(account)).await?;
+            let raw = engine.fetch_raw(&message_id).await?;
+            tauri::async_runtime::spawn_blocking(move || {
+                mail_parser::MessageParser::default()
+                    .parse(&raw)
+                    .and_then(|p| p.attachment(part).map(|a| a.contents().to_vec()))
+            })
+            .await
+            .ok()
+            .flatten()
+            .ok_or_else(|| CmdError::new("Couldn't read that attachment."))?
+        }
+    };
+
+    let data_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(AttachmentData {
+        filename: meta.filename,
+        mime: meta.mime,
+        size: bytes.len(),
+        data_base64,
+    })
+}
+
 fn io_err(e: std::io::Error) -> CmdError {
     tracing::warn!(error = %e, "attachment write failed");
     CmdError::new("Couldn't save the file.")

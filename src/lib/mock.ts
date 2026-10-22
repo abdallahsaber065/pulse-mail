@@ -364,6 +364,16 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       return { id: `s${Math.random().toString(36).slice(2, 8)}`, name: args?.name, mime: args?.mime || "application/octet-stream", size: args?.size };
     case "unstage_attachment":
       return;
+    case "search_contacts": {
+      const q = String(args?.query ?? "").toLowerCase();
+      return people
+        .filter(([name, email]) => name.toLowerCase().includes(q) || email.toLowerCase().includes(q))
+        .map(([name, email], i) => ({ name, email, frequency: 10 - i }));
+    }
+    case "save_attachment":
+      return { path: `C:\\Downloads\\${args?.name || "file"}`, opened: false, blocked: false };
+    case "get_attachment_data":
+      return { filename: "preview.txt", mime: "text/plain", size: 34, dataBase64: btoa("This is a preview of the attachment.") };
     case "account_storage":
       return { messages: 4210, dbBytes: 180e6, filesBytes: 240e6 };
     case "sign_out":

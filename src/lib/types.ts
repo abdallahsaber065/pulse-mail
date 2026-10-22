@@ -150,6 +150,13 @@ export interface Attachment {
   inline: boolean;
 }
 
+export interface AttachmentData {
+  filename: string;
+  mime: string;
+  size: number;
+  dataBase64: string;
+}
+
 export interface RenderedMessage {
   srcdoc: string;
   remoteImages: number;
@@ -303,4 +310,10 @@ export interface SendResult {
   sendId: number;
   status: "sent" | "failed";
   message: string | null;
+}
+
+export interface ContactSuggestion {
+  name: string;
+  email: string;
+  frequency: number;
 }

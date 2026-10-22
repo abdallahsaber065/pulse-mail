@@ -567,6 +567,86 @@ impl Gmail {
         }
     }
 
+    /// Move a whole thread to the trash.
+    pub async fn trash_thread(&self, token: &Secret, thread_id: &str) -> Result<(), GmailError> {
+        let mut delay = std::time::Duration::from_millis(500);
+        let mut attempt = 0;
+        loop {
+            let resp = self
+                .http
+                .post(format!("{BASE}/threads/{thread_id}/trash"))
+                .bearer_auth(token.expose())
+                .send()
+                .await?;
+            match resp.status().as_u16() {
+                200..=299 => return Ok(()),
+                429 if attempt < 3 => {
+                    attempt += 1;
+                    tokio::time::sleep(delay).await;
+                    delay *= 2;
+                }
+                _ => return Err(classify_error(resp).await),
+            }
+        }
+    }
+
+    /// Remove a whole thread from the trash.
+    pub async fn untrash_thread(&self, token: &Secret, thread_id: &str) -> Result<(), GmailError> {
+        let mut delay = std::time::Duration::from_millis(500);
+        let mut attempt = 0;
+        loop {
+            let resp = self
+                .http
+                .post(format!("{BASE}/threads/{thread_id}/untrash"))
+                .bearer_auth(token.expose())
+                .send()
+                .await?;
+            match resp.status().as_u16() {
+                200..=299 => return Ok(()),
+                429 if attempt < 3 => {
+                    attempt += 1;
+                    tokio::time::sleep(delay).await;
+                    delay *= 2;
+                }
+                _ => return Err(classify_error(resp).await),
+            }
+        }
+    }
+
+    /// Add/remove labels on multiple messages in bulk (used for SPAM labeling).
+    pub async fn batch_modify_messages(
+        &self,
+        token: &Secret,
+        ids: &[String],
+        add: &[String],
+        remove: &[String],
+    ) -> Result<(), GmailError> {
+        let mut delay = std::time::Duration::from_millis(500);
+        let mut attempt = 0;
+        loop {
+            let resp = self
+                .http
+                .post(format!("{BASE}/messages/batchModify"))
+                .bearer_auth(token.expose())
+                .json(&serde_json::json!({
+                    "ids": ids,
+                    "addLabelIds": add,
+                    "removeLabelIds": remove,
+                }))
+                .send()
+                .await?;
+            match resp.status().as_u16() {
+                200..=299 => return Ok(()),
+                429 if attempt < 3 => {
+                    attempt += 1;
+                    tokio::time::sleep(delay).await;
+                    delay *= 2;
+                }
+                _ => return Err(classify_error(resp).await),
+            }
+        }
+    }
+
     /// POST/PUT a JSON body (no automatic retry: sends must not repeat).
     async fn write_json<T: serde::de::DeserializeOwned>(
         &self,
@@ -605,10 +685,23 @@ impl Gmail {
         if let Some(t) = thread_id {
             message["threadId"] = t.into();
         }
-        let body = serde_json::json!({ "message": message });
         match draft_id {
-            Some(id) => self.write_json(token, reqwest::Method::PUT, &format!("/drafts/{id}"), &body).await,
-            None => self.write_json(token, reqwest::Method::POST, "/drafts", &body).await,
+            Some(id) => {
+                let body = serde_json::json!({ "id": id, "message": message });
+                match self.write_json(token, reqwest::Method::PUT, &format!("/drafts/{id}"), &body).await {
+                    Ok(r) => Ok(r),
+                    Err(GmailError::Status(404)) => {
+                        // Draft was deleted remotely or ID invalid; recreate as new draft
+                        let body = serde_json::json!({ "message": message });
+                        self.write_json(token, reqwest::Method::POST, "/drafts", &body).await
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+            None => {
+                let body = serde_json::json!({ "message": message });
+                self.write_json(token, reqwest::Method::POST, "/drafts", &body).await
+            }
         }
     }
 

@@ -44,6 +44,8 @@ const COMMANDS: &[&str] = &[
     "set_image_sender",
     "set_pref",
     "save_attachment",
+    "search_contacts",
+    "get_attachment_data",
 ];
 
 fn main() {

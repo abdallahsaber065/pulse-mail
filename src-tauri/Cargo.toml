@@ -1,6 +1,6 @@
 [package]
 name = "pulse-mail"
-version = "0.1.0"
+version = "0.2.0"
 description = "Pulse Mail: a light, always-on Gmail client for Windows"
 authors = ["Abdallah Saber"]
 edition = "2024"

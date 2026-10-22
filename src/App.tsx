@@ -42,7 +42,7 @@ import type {
   ThreadRow,
 } from "./lib/types";
 
-type ThreadRef = Pick<ThreadRow, "threadId" | "unread" | "starred"> & { accountId: number | null };
+type ThreadRef = Pick<ThreadRow, "threadId" | "unread" | "starred" | "important"> & { accountId: number | null };
 
 const VIEW_KEY = "pm.accountView";
 // Keep TipTap/ProseMirror out of the inbox startup path.
@@ -52,6 +52,8 @@ const Compose = lazy(() => import("./components/Compose"));
 interface Override {
   unread?: boolean;
   starred?: boolean;
+  important?: boolean;
+  category?: Category;
   removed?: boolean;
   removedFromCategory?: string;
   removedFromLabel?: string;
@@ -220,15 +222,25 @@ export default function App() {
           if (unreadOnly && !isUnread) return false;
           const isStarred = x.starred ?? t.starred;
           if (starredOnly && !isStarred) return false;
+          const isImportant = x.important ?? t.important;
+          if ((curLabel === "IMPORTANT" || q.includes("is:important")) && !isImportant) return false;
         } else {
           if (unreadOnly && !t.unread) return false;
           if (starredOnly && !t.starred) return false;
+          if ((curLabel === "IMPORTANT" || q.includes("is:important")) && !t.important) return false;
         }
         return true;
       })
       .map((t) => {
         const x = o[t.threadId];
-        return x ? { ...t, unread: x.unread ?? t.unread, starred: x.starred ?? t.starred } : t;
+        return x
+          ? {
+              ...t,
+              unread: x.unread ?? t.unread,
+              starred: x.starred ?? t.starred,
+              important: x.important ?? t.important,
+            }
+          : t;
       });
   });
   const [selection, setSelection] = createSignal(emptySelection());
@@ -351,7 +363,26 @@ export default function App() {
   };
   const messages = createMemo(() => {
     const x = selected() ? overrides()[selected()!] : undefined;
-    return x ? msgs().map((m) => ({ ...m, unread: x.unread ?? m.unread, starred: x.starred ?? m.starred })) : msgs();
+    return x
+      ? msgs().map((m) => {
+          let labelIds = m.labelIds;
+          if (x.category) {
+            const others = new Set(CATEGORY_TABS.map((c) => c.id));
+            labelIds = [...labelIds.filter((l) => !others.has(l as Category)), x.category];
+          }
+          if (x.important !== undefined) {
+            labelIds = x.important
+              ? (labelIds.includes("IMPORTANT") ? labelIds : [...labelIds, "IMPORTANT"])
+              : labelIds.filter((l) => l !== "IMPORTANT");
+          }
+          return {
+            ...m,
+            unread: x.unread ?? m.unread,
+            starred: x.starred ?? m.starred,
+            labelIds,
+          };
+        })
+      : msgs();
   });
 
   // Overrides whose server call finished are dropped on the next reload.
@@ -418,7 +449,31 @@ export default function App() {
     const acct = selectedAccount();
     const cached = await api.thread(id, acct).catch(() => [] as Message[]);
     if (seq !== loadSeq) return;
-    if (cached.length) setMsgs(cached);
+    if (cached.length) {
+      setMsgs((prev) => {
+        if (
+          prev.length === cached.length &&
+          prev.every((p, idx) => p.id === cached[idx].id && p.bodyLoaded === cached[idx].bodyLoaded)
+        ) {
+          let changed = false;
+          const merged = prev.map((p, idx) => {
+            const c = cached[idx];
+            if (
+              p.unread !== c.unread ||
+              p.starred !== c.starred ||
+              p.labelIds.length !== c.labelIds.length ||
+              p.labelIds.some((l, i) => l !== c.labelIds[i])
+            ) {
+              changed = true;
+              return { ...p, unread: c.unread, starred: c.starred, labelIds: c.labelIds };
+            }
+            return p;
+          });
+          return changed ? merged : prev;
+        }
+        return cached;
+      });
+    }
     if (fetchBodies && (cached.length === 0 || cached.some((m) => !m.bodyLoaded))) {
       setBodyError(null);
       try {
@@ -432,11 +487,12 @@ export default function App() {
   };
   createEffect(
     on(selected, (id) => {
-      setMsgs([]);
       setBodyError(null);
       if (id) {
         setMsgLoading(true);
         void loadThread(id, true);
+      } else {
+        setMsgs([]);
       }
     }),
   );
@@ -511,7 +567,7 @@ export default function App() {
       const kept = { draft: { ...d, draftId: s.draftId }, accountId, title: c?.title ?? "New message" };
       sends.set(s.sendId, kept);
       if (s.delaySecs > 0)
-        snack("Sending…", {
+        snack(`Sending in ${s.delaySecs}s…`, {
           duration: s.delaySecs * 1000,
           action: {
             label: "Undo",
@@ -612,7 +668,6 @@ export default function App() {
     try {
       await api.modifyThread(threadId, add, remove, t.accountId);
       settled.add(threadId);
-      setTick((n) => n + 1);
       return true;
     } catch (e) {
       setOverrides((o) => {
@@ -635,20 +690,53 @@ export default function App() {
         });
     });
   };
-  const setRead = (t: ThreadRef, read: boolean) => {
-    if (t.unread === !read) return;
-    if (!read && selected() === t.threadId) setSelected(null); // Gmail closes on "mark unread"
-    void modify(t, { unread: !read }, read ? [] : ["UNREAD"], read ? ["UNREAD"] : []);
+  const trash = (t: ThreadRef) => {
+    if (selected() === t.threadId) setSelected(null);
+    void modify(t, { removedFromLabel: "INBOX", removed: true }, ["TRASH"], ["INBOX"]).then((ok) => {
+      if (ok)
+        snack("Conversation moved to trash", {
+          action: { label: "Undo", run: () => void modify(t, { removed: false }, ["INBOX"], ["TRASH"]) },
+        });
+    });
   };
-  const toggleStar = (t: ThreadRef) =>
-    void modify(t, { starred: !t.starred }, t.starred ? [] : ["STARRED"], t.starred ? ["STARRED"] : []);
+  const markSpam = (t: ThreadRef) => {
+    if (selected() === t.threadId) setSelected(null);
+    void modify(t, { removedFromLabel: "INBOX", removed: true }, ["SPAM"], ["INBOX"]).then((ok) => {
+      if (ok)
+        snack("Marked as spam", {
+          action: { label: "Undo", run: () => void modify(t, { removed: false }, ["INBOX"], ["SPAM"]) },
+        });
+    });
+  };
+  const toggleImportant = (t: ThreadRef) => {
+    const next = !t.important;
+    void modify(t, { important: next }, next ? ["IMPORTANT"] : [], next ? [] : ["IMPORTANT"]).then((ok) => {
+      if (ok) snack(next ? "Marked as important" : "Marked as not important");
+    });
+  };
+  const setRead = (t: ThreadRef, read: boolean) => {
+    if (!read && selected() === t.threadId) setSelected(null); // Gmail closes on "mark unread"
+    void modify(t, { unread: !read }, read ? [] : ["UNREAD"], read ? ["UNREAD"] : []).then((ok) => {
+      if (ok) snack(read ? "Marked as read" : "Marked as unread");
+    });
+  };
+  const toggleStar = (t: ThreadRef) => {
+    const next = !t.starred;
+    void modify(t, { starred: next }, next ? ["STARRED"] : [], next ? [] : ["STARRED"]).then((ok) => {
+      if (ok) snack(next ? "Starred conversation" : "Removed star");
+    });
+  };
 
   const actions: RowActions = {
     get archive() {
       return inInbox() ? archive : undefined;
     },
+    trash,
+    markSpam,
     toggleRead: (t) => setRead(t, t.unread),
     toggleStar,
+    toggleImportant,
+    moveToCategory: (t, c) => void moveToTab(t, c),
   };
   /** The open thread, else the row under the keyboard cursor. */
   const current = (): ThreadRef | undefined => {
@@ -658,7 +746,13 @@ export default function App() {
     if (row) return row;
     const m = messages();
     return m.length
-      ? { threadId: id, accountId: selectedAccount(), unread: m.some((x) => x.unread), starred: m.some((x) => x.starred) }
+      ? {
+          threadId: id,
+          accountId: selectedAccount(),
+          unread: m.some((x) => x.unread),
+          starred: m.some((x) => x.starred),
+          important: m.some((x) => x.labelIds.includes("IMPORTANT")),
+        }
       : undefined;
   };
 
@@ -704,11 +798,16 @@ export default function App() {
     const others = CATEGORY_TABS.map((x) => x.id).filter((x) => x !== c);
     const prev = overrides()[t.threadId];
     const sourceCategory = category();
-    // Real-time optimistic removal from the current category view
-    setOverrides((o) => ({ ...o, [t.threadId]: { ...o[t.threadId], removedFromCategory: sourceCategory } }));
-    if (selected() === t.threadId && layout() === "full") {
-      setSelected(null);
-    }
+    // Real-time optimistic removal from the current category view and update category metadata
+    setOverrides((o) => ({
+      ...o,
+      [t.threadId]: {
+        ...o[t.threadId],
+        removedFromCategory: sourceCategory,
+        category: c,
+      },
+    }));
+    // Note: Do NOT close reader when moving categories; keep reading uninterrupted
     try {
       await api.modifyThread(t.threadId, [c], others, t.accountId);
       settled.add(t.threadId);
@@ -726,7 +825,6 @@ export default function App() {
           },
         },
       });
-      setTick((n) => n + 1);
     } catch (e) {
       setOverrides((o) => {
         const n = { ...o };
@@ -734,6 +832,19 @@ export default function App() {
         else delete n[t.threadId];
         return n;
       });
+      snack((e as Error).message);
+    }
+  };
+
+  const quickSend = async (m: Message, text: string, mode: "reply" | "reply_all") => {
+    const acct = selectedAccount();
+    try {
+      const init = await api.composeContext(m.id, mode, acct);
+      const d = signed(draftFrom(init, mode), acct);
+      d.body = text;
+      d.html = `<p>${text.replace(/\n/g, "<br>")}</p>`;
+      await sendDraft(d, acct);
+    } catch (e) {
       snack((e as Error).message);
     }
   };
@@ -826,6 +937,8 @@ export default function App() {
       refresh: () => void api.syncNow(),
       toggleHelp: () => setHelp((h) => !h),
       archive: withCurrent((t) => (inInbox() ? archive(t) : snack("Archive works from the Inbox"))),
+      trash: withCurrent(trash),
+      markSpam: withCurrent(markSpam),
       star: withCurrent(toggleStar),
       markRead: () => selectionCount() ? void markSelected(true) : withCurrent((t) => setRead(t, true))(),
       markUnread: () => selectionCount() ? void markSelected(false) : withCurrent((t) => setRead(t, false))(),
@@ -1003,16 +1116,71 @@ export default function App() {
     onCleanup(() => window.removeEventListener("resize", onResize));
   }
   const layout = () => effectivePane(uiPrefs.pane(), viewport().w, viewport().h);
+  const [resizing, setResizing] = createSignal(false);
+
+  const startResizeWidth = (e: PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = uiPrefs.splitWidth();
+    setResizing(true);
+
+    const onMove = (ev: PointerEvent) => {
+      const delta = ev.clientX - startX;
+      const maxW = Math.max(300, Math.floor(window.innerWidth * 0.65));
+      const next = Math.min(Math.max(startW + delta, 260), maxW);
+      uiPrefs.setSplitWidth(next);
+    };
+
+    const onUp = () => {
+      setResizing(false);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  const startResizeHeight = (e: PointerEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = uiPrefs.splitHeight();
+    setResizing(true);
+
+    const onMove = (ev: PointerEvent) => {
+      const delta = ev.clientY - startY;
+      const maxH = Math.max(200, Math.floor(window.innerHeight * 0.65));
+      const next = Math.min(Math.max(startH + delta, 160), maxH);
+      uiPrefs.setSplitHeight(next);
+    };
+
+    const onUp = () => {
+      setResizing(false);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
   const listClass = () => {
     if (!selected()) return "min-h-0 flex-1";
     switch (layout()) {
       case "right":
-        return "w-[44%] max-w-[640px] shrink-0 border-r border-divider";
+        return "shrink-0";
       case "bottom":
-        return "h-[40%] min-h-[160px] shrink-0";
+        return "shrink-0";
       default:
         return "hidden";
     }
+  };
+
+  const listStyle = () => {
+    if (!selected()) return {};
+    if (layout() === "right") return { width: `${uiPrefs.splitWidth()}px`, "max-width": "65vw" };
+    if (layout() === "bottom") return { height: `${uiPrefs.splitHeight()}px`, "max-height": "65vh" };
+    return {};
   };
 
   const listLoading = () =>
@@ -1069,9 +1237,9 @@ export default function App() {
             void refetchLabels();
           }}
         />
-        <main class={`mb-4 mr-4 flex min-w-0 flex-1 overflow-hidden rounded-2xl bg-surface ${layout() === "bottom" ? "flex-col" : ""}`}>
+        <main class={`mb-4 mr-4 flex min-w-0 flex-1 overflow-hidden rounded-2xl bg-surface ${layout() === "bottom" ? "flex-col" : ""} ${resizing() ? "select-none" : ""}`}>
           <Show when={status() && signedIn()}>
-            <section class={`thread-list-pane flex min-w-0 flex-col ${listClass()}`}>
+            <section class={`thread-list-pane flex min-w-0 flex-col ${listClass()}`} style={listStyle()}>
               <SelectionToolbar
                 count={selectionCount()} all={!!selection().all && selection().exceptions.size === 0}
                 disabled={!selectionReady()} selecting={selectingAll()} busy={bulkBusy()} progress={bulkProgress()}
@@ -1128,12 +1296,33 @@ export default function App() {
                 onCheck={checkThread}
                 selectionDisabled={bulkBusy() || selectingAll() || !selectionReady()}
                 viewKey={selectionScope()}
+                inInbox={inInbox()}
                 onOpen={openThread}
                 onEndReached={loadMore}
                 onCopyCode={(c) => void copyCode(c)}
               />
               </div>
             </section>
+            <Show when={selected() && layout() === "right"}>
+              <div
+                class="group relative z-20 flex w-2 -mx-1 shrink-0 cursor-col-resize select-none items-center justify-center transition-colors hover:bg-primary/20 active:bg-primary/30"
+                onPointerDown={startResizeWidth}
+                onDblClick={() => uiPrefs.setSplitWidth(420)}
+                title="Drag to resize panels (Double-click to reset)"
+              >
+                <div class="h-8 w-1 rounded-full bg-outline/30 group-hover:bg-primary transition-colors" />
+              </div>
+            </Show>
+            <Show when={selected() && layout() === "bottom"}>
+              <div
+                class="group relative z-20 flex h-2 -my-1 shrink-0 cursor-row-resize select-none items-center justify-center transition-colors hover:bg-primary/20 active:bg-primary/30"
+                onPointerDown={startResizeHeight}
+                onDblClick={() => uiPrefs.setSplitHeight(280)}
+                title="Drag to resize panels (Double-click to reset)"
+              >
+                <div class="h-1 w-8 rounded-full bg-outline/30 group-hover:bg-primary transition-colors" />
+              </div>
+            </Show>
             <Show when={selected()}>
               <section class={`reader-pane min-h-0 min-w-0 flex-1 ${layout() === "bottom" ? "border-t border-divider" : ""}`}>
                 <Reader
@@ -1150,7 +1339,6 @@ export default function App() {
                   onOtpChanged={() => {
                     const id = selected();
                     if (id) void loadThread(id, true);
-                    setTick((n) => n + 1);
                   }}
                   onArchive={
                     inInbox()
@@ -1160,6 +1348,14 @@ export default function App() {
                         }
                       : undefined
                   }
+                  onTrash={() => {
+                    const t = current();
+                    if (t) trash(t);
+                  }}
+                  onSpam={() => {
+                    const t = current();
+                    if (t) markSpam(t);
+                  }}
                   onToggleRead={() => {
                     const t = current();
                     if (t) setRead(t, t.unread);
@@ -1167,6 +1363,10 @@ export default function App() {
                   onToggleStar={() => {
                     const t = current();
                     if (t) toggleStar(t);
+                  }}
+                  onToggleImportant={() => {
+                    const t = current();
+                    if (t) toggleImportant(t);
                   }}
                   onLink={(href, text) => void openLink(href, text)}
                   onAttachment={(m, a, open) => void attachment(m, a, open)}
@@ -1177,6 +1377,7 @@ export default function App() {
                     const t = current();
                     if (t) void moveToTab(t, c);
                   }}
+                  onQuickSend={quickSend}
                   onToggleEmailDark={async () => {
                     const cur = prefs()?.email_dark ?? "smart";
                     const next = cur === "original" ? "smart" : "original";

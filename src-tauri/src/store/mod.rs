@@ -9,10 +9,17 @@ pub mod selection;
 pub mod query;
 
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub type Result<T> = std::result::Result<T, rusqlite::Error>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContactSuggestion {
+    pub name: String,
+    pub email: String,
+    pub frequency: i64,
+}
 
 /// A fully parsed message ready to be cached.
 #[derive(Debug, Clone, Default)]
@@ -952,6 +959,55 @@ impl Store {
             .optional()
     }
 
+    /// All message ids in a thread.
+    pub fn message_ids_for_thread(&self, account_id: i64, thread_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM messages WHERE account_id = ?1 AND thread_id = ?2")?;
+        let rows = stmt.query_map(params![account_id, thread_id], |r| r.get(0))?;
+        rows.collect()
+    }
+
+    /// Search frequent contacts matching a prefix in name or email.
+    /// If prefix is empty, returns the top most frequent contacts.
+    pub fn search_contacts(
+        &self,
+        account_id: Option<i64>,
+        prefix: &str,
+        limit: usize,
+    ) -> Result<Vec<ContactSuggestion>> {
+        let clean = prefix.trim();
+        let pattern = format!("%{clean}%");
+        let mut stmt = self.conn.prepare(
+            "WITH candidates AS (
+                SELECT from_name AS name, from_email AS email, COUNT(*) AS cnt, MAX(internal_date) AS latest,
+                       CASE WHEN ?1 IS NULL OR account_id = ?1 THEN 2 ELSE 1 END AS acct_weight
+                FROM messages
+                WHERE from_email != ''
+                  AND (?2 = '' OR from_email LIKE ?3 OR from_name LIKE ?3)
+                GROUP BY from_email
+                UNION ALL
+                SELECT display_name AS name, email, 100 AS cnt, 9999999999999 AS latest, 3 AS acct_weight
+                FROM accounts
+                WHERE email != ''
+                  AND (?2 = '' OR email LIKE ?3 OR display_name LIKE ?3)
+            )
+            SELECT name, email, MAX(cnt) AS frequency
+            FROM candidates
+            GROUP BY lower(email)
+            ORDER BY MAX(acct_weight) DESC, frequency DESC, MAX(latest) DESC
+            LIMIT ?4",
+        )?;
+        let rows = stmt.query_map(params![account_id, clean, pattern, limit as i64], |r| {
+            Ok(ContactSuggestion {
+                name: r.get(0)?,
+                email: r.get(1)?,
+                frequency: r.get(2)?,
+            })
+        })?;
+        rows.collect()
+    }
+
     pub fn has_message(&self, account_id: i64, message_id: &str) -> Result<bool> {
         self.conn
             .query_row(
@@ -1819,5 +1875,27 @@ mod tests {
         s.set_account_settings(a.id, &AccountSettings { attach_mode: Some("all".into()), signature: Some("-- A".into()), ..Default::default() }).unwrap();
         let acc = s.account(a.id).unwrap().unwrap();
         assert_eq!((acc.attach_mode.as_str(), acc.signature.as_str(), acc.attach_max_mb), ("all", "-- A", 10));
+    }
+
+    #[test]
+    fn search_contacts_and_accounts() {
+        let mut s = Store::open_in_memory().unwrap();
+        let a = s.upsert_account("main@example.com", 1).unwrap();
+        let mut m1 = msg("m1", "t1", 100, &["INBOX"], "hi");
+        m1.from_email = "friend@example.com".into();
+        m1.from_name = "Best Friend".into();
+        s.upsert_message(a.id, &m1).unwrap();
+
+        let res_empty = s.search_contacts(Some(a.id), "", 10).unwrap();
+        assert!(res_empty.iter().any(|c| c.email == "main@example.com"));
+        assert!(res_empty.iter().any(|c| c.email == "friend@example.com"));
+
+        let res_query = s.search_contacts(Some(a.id), "friend", 10).unwrap();
+        assert_eq!(res_query.len(), 1);
+        assert_eq!(res_query[0].name, "Best Friend");
+
+        let res_name = s.search_contacts(Some(a.id), "best", 10).unwrap();
+        assert_eq!(res_name.len(), 1);
+        assert_eq!(res_name[0].email, "friend@example.com");
     }
 }
