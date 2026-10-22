@@ -188,6 +188,10 @@ const SAMPLES: &[Sample] = &[
       "Your Google Cloud project third-pen-350207 has been shut down. To restore it, visit the console. Verification of ownership is not required.", Nothing),
     s("card last 4", "noreply@ses.redotpay.com", "Your card 5195 has been successfully upgraded!",
       "Your card ending 5195 has been upgraded. Use your PIN as usual.", Nothing),
+    s("device model in login alert", "support@elevatepay.co", "A new login was made",
+      "You recently signed in to Elevate\nDevice: Infinix X680C\nPlatform: android, 13\nIP Address: 41.33.120.15\nIf this wasn't you, contact us to protect your account. Never share your verification code.", Nothing),
+    s("product name in newsletter", "news@info.digitalocean.com", "New GPU Droplets powered by AMD",
+      "We're excited to announce that DigitalOcean customers now have access to AMD Instinct MI325X as GPU Droplets. Ship code faster with up to 8 GPUs.", Nothing),
     s("order code words", "orders@shop.example", "Your order", "Order code: 482913. We'll let you know when it ships.", Nothing),
 ];
 
@@ -285,4 +289,15 @@ fn expiry_is_read() {
     assert_eq!(d.expires_min, Some(10));
     let d = detect(&Input { subject: "رمز", text: "رمز التحقق 482913 صالح لمدة ٥ دقائق", ..Default::default() }).unwrap();
     assert_eq!(d.expires_min, Some(5));
+}
+
+#[test]
+fn subject_word_right_before_body_keyword() {
+    // Regression: "device" ending the subject must not veto "Verification code".
+    let d = detect(&Input {
+        subject: "[GitHub] Please verify your device",
+        text: "Verification code: 731590",
+        ..Default::default()
+    });
+    assert_eq!(d.map(|d| d.value).as_deref(), Some("731590"));
 }

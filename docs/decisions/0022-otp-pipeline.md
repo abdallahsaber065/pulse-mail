@@ -55,14 +55,15 @@ clears the code on that message and gives its sender −30, down to −90. Copyi
 a code gives +10, up to +20. The adjustment applies when storing and when deciding on a toast.
 Data stays local (`otp_feedback`).
 
-**Tuning:** `otp/corpus.rs` has 88 labeled samples in realistic formats. 54
+**Tuning:** `otp/corpus.rs` has 90 labeled samples in realistic formats. 54
 are positive (Google, Microsoft, Apple, GitHub, Amazon, PayPal, Steam,
 Facebook, Instagram, X, WhatsApp, Netflix, Uber, Binance, banks, Egyptian
 banks and telecoms in Arabic, Fawry, InstaPay, French, Spanish, German, HTML-only
-mail, and 5 magic links). 34 are negatives (receipts, shipping, newsletters,
+mail, and 5 magic links). 36 are negatives (receipts, shipping, newsletters,
 promos, bookings, meeting PINs, statements, footers, password-reset links,
 and two false positives found on the user's real mailbox: GCP project ids like
-`third-pen-350207` and card last-4 digits).
+`third-pen-350207`, card last-4 digits, a device model in a login alert, and
+a product name in a newsletter).
 After tuning, the corpus scores precision 1.00 and recall 1.00. A **holdout set of 20** was
 written afterwards and never tuned against: precision 1.00, recall 0.93. The
 one miss is a split alphanumeric code (`K7Q2-9XMP`), which isn't supported yet.
@@ -72,7 +73,10 @@ feedback loop covers the rest.
 **First live pass (the user's 2,255 cached messages):** links scoring 55
 were noisy (statements, newsletters, security alerts). Links scoring 65 and up
 were genuine verify/activate mails, so links now need 65. Digits glued into
-identifiers are now rejected.
+identifiers are now rejected. Mixed alphanumeric tokens count only when presented
+as a code: alone on a line, after a colon, emphasized, right after "code is",
+or in the subject. After these fixes, the 2,256 cached messages yield 48 codes
+and 38 links. A spot check of the weakest codes found two false positives, now fixed and in the corpus.
 
 Cached mail is re-scored once per detector version, at startup and in batches
 (`otp_version` setting).

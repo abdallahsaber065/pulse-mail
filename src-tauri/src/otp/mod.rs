@@ -207,6 +207,11 @@ fn best_code(c: &Ctx) -> Option<(i32, String)> {
         let alone = own_line(text, start, end);
         let emph = c.emphasized.contains(&code);
         let direct = strong_end_before(c.strong, start).is_some_and(|kw_end| filler_only(&text[kw_end..start]));
+        // Mixed tokens ("F7K2Q") must be presented as a code, not sit in prose
+        // like product names ("MI325X", "RTX4090").
+        if !digits_only && !(colon || alone || emph || direct || start < c.subject_end) {
+            continue;
+        }
         // A short number loosely near "code" ("code with 4821 examples") is weak evidence.
         if digits_only && code.len() <= 5 && kw == 40 && !(colon || alone || emph || direct) {
             score -= 25;

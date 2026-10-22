@@ -411,7 +411,7 @@ pub async fn resume_history(state: State<'_, AppState>, account_id: i64) -> CmdR
 }
 
 /// Bump when the OTP detector changes enough to re-score cached mail.
-const OTP_VERSION: &str = "3";
+const OTP_VERSION: &str = "4";
 
 /// Re-run OTP detection over the cache once per detector version, in small
 /// batches so the store lock is never held for long.
