@@ -3,7 +3,6 @@ import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import ThreadList, { type RowActions } from "./components/ThreadList";
 import SelectionToolbar from "./components/SelectionToolbar";
-import SearchFilters from "./components/SearchFilters";
 import { loadRows } from "./lib/paging";
 import { emptySelection, selectAll, toggleSelected, isSelected, selectedCount, threadKey, type ThreadKey } from "./lib/selection";
 import Reader from "./components/Reader";
@@ -1073,7 +1072,6 @@ export default function App() {
         <main class={`mb-4 mr-4 flex min-w-0 flex-1 overflow-hidden rounded-2xl bg-surface ${layout() === "bottom" ? "flex-col" : ""}`}>
           <Show when={status() && signedIn()}>
             <section class={`thread-list-pane flex min-w-0 flex-col ${listClass()}`}>
-              <SearchFilters query={query()} disabled={bulkBusy()} onQuery={setQuery} />
               <SelectionToolbar
                 count={selectionCount()} all={!!selection().all && selection().exceptions.size === 0}
                 disabled={!selectionReady()} selecting={selectingAll()} busy={bulkBusy()} progress={bulkProgress()}

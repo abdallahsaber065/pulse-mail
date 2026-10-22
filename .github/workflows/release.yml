@@ -64,3 +64,4 @@ jobs:
             Follow the [Google OAuth Setup Guide](https://github.com/${{ github.repository }}/blob/main/docs/SETUP-GOOGLE-OAUTH.md) to enable your Gmail API client.
           releaseDraft: false
           prerelease: false
+

@@ -52,3 +52,4 @@ jobs:
 
       - name: Cargo clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
