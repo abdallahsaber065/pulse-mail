@@ -33,7 +33,7 @@ pub static NEGATIVE: LazyLock<Regex> = LazyLock::new(|| {
         r"(?i)\b(?:order|orders|dial[- ]?in|dial|meeting|webinar|conference|parkway|pkwy|street|avenue|suite|floor|invoice|receipt|tracking|track|",
         r"shipment|parcel|awb|waybill|reference|ref|total|subtotal|amount|price|paid|balance|phone|mobile|call|tel|fax|",
         r"hotline|zip|postal|post ?code|account (?:number|no)|acct|iban|swift|booking|reservation|pnr|flight|",
-        r"seat|ticket|case|issue|item|sku|model|serial|policy|membership|member|customer (?:id|number|no)|user ?id|",
+        r"seat|ticket|case|issue|card|ending|ends in|last 4|item|sku|model|serial|policy|membership|member|customer (?:id|number|no)|user ?id|",
         r"transaction|txn|employee|room|gate|terminal|version|build|release|chapter|episode|vol|points|miles|",
         r"commande|facture|pedido|factura|bestellung|rechnung|sendungsnummer|kundennummer)\b",
         r"|طلب|فاتورة|شحنة|تتبع|مبلغ|جنيه|ريال|درهم|هاتف|رصيد|نقاط|شارع"
@@ -102,6 +102,11 @@ pub static LINK_TEXT: LazyLock<Regex> = LazyLock::new(|| {
         r"|تسجيل الدخول|تأكيد|تفعيل|connexion|iniciar sesi[oó]n|anmelden|best[aä]tigen"
     ))
     .unwrap()
+});
+
+/// Anchor text that is unambiguously a one-click action.
+pub static LINK_STRONG: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:verify (?:my |your )?(?:email|account|address)|confirm (?:my |your )?(?:email|account|address)|activate (?:my |your )?account|magic link|sign in to|log in to|log in with)\b|تأكيد البريد|تفعيل الحساب").unwrap()
 });
 
 pub static LINK_URL_HINT: LazyLock<Regex> = LazyLock::new(|| {

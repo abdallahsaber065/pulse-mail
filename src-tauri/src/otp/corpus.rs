@@ -184,6 +184,10 @@ const SAMPLES: &[Sample] = &[
     s("egypt phone", "support@service.example", "كود", "لأي استفسار عن الكود اتصل بنا على 01012345678", Nothing),
     s("hex color", "design@studio.example", "Brand code", "Brand color #A1B2C3 for your code snippet.", Nothing),
     s("price with year-like", "sales@store.example", "Pricing", "Plans start at 1999 EGP. Use code at signup.", Nothing),
+    s("gcp project id", "CloudPlatform-noreply@google.com", "Your project third-pen-350207 has been shut down",
+      "Your Google Cloud project third-pen-350207 has been shut down. To restore it, visit the console. Verification of ownership is not required.", Nothing),
+    s("card last 4", "noreply@ses.redotpay.com", "Your card 5195 has been successfully upgraded!",
+      "Your card ending 5195 has been upgraded. Use your PIN as usual.", Nothing),
     s("order code words", "orders@shop.example", "Your order", "Order code: 482913. We'll let you know when it ships.", Nothing),
 ];
 

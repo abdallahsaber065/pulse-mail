@@ -46,7 +46,8 @@ Pipeline (`otp/`):
    scoring the URL hints, a long token, the anchor text and the surrounding wording.
    Reset-password, unsubscribe, social and tracking links are excluded.
 
-Confidence is 0-100. **Store ≥ 50** (code chip) and **toast ≥ 60**. Expiry
+Confidence is 0-100. **Store ≥ 50** (code chip), **toast ≥ 60**, and
+**link ≥ 65**. The reader offers a link only on mail from the last 3 days. Expiry
 ("expires in 10 minutes" in 5 languages) shows on the toast.
 
 **Learning from the user:** "Not a code" / "Not a link" in the reader
@@ -54,17 +55,24 @@ clears the code on that message and gives its sender −30, down to −90. Copyi
 a code gives +10, up to +20. The adjustment applies when storing and when deciding on a toast.
 Data stays local (`otp_feedback`).
 
-**Tuning:** `otp/corpus.rs` has 86 labeled samples in realistic formats. 54
+**Tuning:** `otp/corpus.rs` has 88 labeled samples in realistic formats. 54
 are positive (Google, Microsoft, Apple, GitHub, Amazon, PayPal, Steam,
 Facebook, Instagram, X, WhatsApp, Netflix, Uber, Binance, banks, Egyptian
 banks and telecoms in Arabic, Fawry, InstaPay, French, Spanish, German, HTML-only
-mail, and 5 magic links). 32 are negatives (receipts, shipping, newsletters,
-promos, bookings, meeting PINs, statements, footers, password-reset links).
+mail, and 5 magic links). 34 are negatives (receipts, shipping, newsletters,
+promos, bookings, meeting PINs, statements, footers, password-reset links,
+and two false positives found on the user's real mailbox: GCP project ids like
+`third-pen-350207` and card last-4 digits).
 After tuning, the corpus scores precision 1.00 and recall 1.00. A **holdout set of 20** was
 written afterwards and never tuned against: precision 1.00, recall 0.93. The
 one miss is a split alphanumeric code (`K7Q2-9XMP`), which isn't supported yet.
 These are synthetic samples, so real-world numbers will be lower. The
 feedback loop covers the rest.
+
+**First live pass (the user's 2,255 cached messages):** links scoring 55
+were noisy (statements, newsletters, security alerts). Links scoring 65 and up
+were genuine verify/activate mails, so links now need 65. Digits glued into
+identifiers are now rejected.
 
 Cached mail is re-scored once per detector version, at startup and in batches
 (`otp_version` setting).

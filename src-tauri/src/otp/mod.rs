@@ -34,6 +34,8 @@ const MAX_SCAN_CHARS: usize = 6000;
 const MAX_HTML_SCAN: usize = 300 * 1024;
 /// Lowest confidence worth keeping (a code chip in the list and reader).
 pub const STORE_THRESHOLD: i32 = 50;
+/// Links need more evidence than codes (a wrong "Open" is worse).
+pub const LINK_THRESHOLD: i32 = 65;
 /// Lowest confidence that may show the code in a toast.
 pub const TOAST_THRESHOLD: i32 = 60;
 
@@ -124,8 +126,8 @@ pub fn detect(input: &Input) -> Option<Detection> {
     if input.promotional {
         return None;
     }
-    best_link(html_head, &text, &weak, &strong)
-        .filter(|(s, _)| *s >= STORE_THRESHOLD)
+    best_link(html_head, &subject, &text, &weak, &strong)
+        .filter(|(s, _)| *s >= LINK_THRESHOLD)
         .map(|(confidence, value)| Detection { kind: Kind::Link, value, confidence, expires_min })
 }
 
@@ -154,7 +156,7 @@ fn best_code(c: &Ctx) -> Option<(i32, String)> {
         let digits_only = code.bytes().all(|b| b.is_ascii_digit());
         let has_sep = raw.len() != code.len();
 
-        if c.blocked.iter().any(|&(s, e)| s < end && start < e) || footer_line(text, start, end) {
+        if c.blocked.iter().any(|&(s, e)| s < end && start < e) || footer_line(text, start, end) || in_identifier(text, start, end) {
             continue;
         }
         let mut score = if digits_only {
@@ -277,12 +279,26 @@ fn best_code(c: &Ctx) -> Option<(i32, String)> {
     best
 }
 
-fn best_link(html: Option<&str>, text: &str, weak: &[(usize, usize)], strong: &[(usize, usize)]) -> Option<(i32, String)> {
+fn best_link(
+    html: Option<&str>,
+    subject: &str,
+    text: &str,
+    weak: &[(usize, usize)],
+    strong: &[(usize, usize)],
+) -> Option<(i32, String)> {
     static URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"https?://[^\s<>"')\]]+"#).unwrap());
     let mut links = html.map(html::links).unwrap_or_default();
     if links.is_empty() {
-        links = URL.find_iter(text).map(|m| (m.as_str().to_string(), String::new())).collect();
+        // Plain-text mail: the words before the URL on its line act as anchor text.
+        links = URL
+            .find_iter(text)
+            .map(|m| {
+                let ls = text[..m.start()].rfind('\n').map_or(0, |i| i + 1);
+                (m.as_str().to_string(), text[ls..m.start()].to_string())
+            })
+            .collect();
     }
+    let subject_talks = LINK_TEXT.is_match(subject);
     let mail_talks = LINK_TEXT.is_match(text) || !weak.is_empty();
     let mut best: Option<(i32, String)> = None;
     for (url, anchor) in links {
@@ -299,7 +315,13 @@ fn best_link(html: Option<&str>, text: &str, weak: &[(usize, usize)], strong: &[
         if LINK_TEXT.is_match(&anchor) {
             score += 25;
         }
+        if LINK_STRONG.is_match(&anchor) {
+            score += 10;
+        }
         if mail_talks {
+            score += 10;
+        }
+        if subject_talks {
             score += 10;
         }
         if !strong.is_empty() {
@@ -400,6 +422,16 @@ fn filler_only(between: &str) -> bool {
         .filter(|w| !w.is_empty())
         .collect();
     words.len() <= 6 && words.iter().all(|w| FILLER.contains(&w.to_lowercase().as_str()))
+}
+
+/// Digits glued into a hyphenated or dotted name ("third-pen-350207",
+/// "425711-j5", "v2.48213"): project ids, versions, file names.
+fn in_identifier(text: &str, start: usize, end: usize) -> bool {
+    let mut before = text[..start].chars().rev();
+    let mut after = text[end..].chars();
+    let glue = |c: Option<char>| matches!(c, Some('-' | '_' | '.'));
+    let alnum = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+    (glue(before.next()) && alnum(before.next())) || (glue(after.next()) && alnum(after.next()))
 }
 
 /// Copyright / address / unsubscribe footer lines.

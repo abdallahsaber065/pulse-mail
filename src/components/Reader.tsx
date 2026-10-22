@@ -55,7 +55,9 @@ export default function Reader(p: Props) {
   const starred = () => p.messages.some((m) => m.starred);
   const unread = () => p.messages.some((m) => m.unread);
   const otpMsg = () => [...p.messages].reverse().find((m) => m.otpCode);
-  const linkMsg = () => (otpMsg() ? undefined : [...p.messages].reverse().find((m) => m.otpLink));
+  // Sign-in links expire quickly; only offer them on recent mail.
+  const linkMsg = () =>
+    otpMsg() ? undefined : [...p.messages].reverse().find((m) => m.otpLink && Date.now() - m.internalDate < 3 * 86_400_000);
   const feedback = (useful: boolean) => {
     const m = otpMsg() ?? linkMsg();
     if (!m || p.accountId == null) return;
