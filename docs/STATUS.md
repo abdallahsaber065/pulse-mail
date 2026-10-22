@@ -1,5 +1,20 @@
 # Status: what works today
 
+## Resume here (2026-10-22 05:30 Cairo)
+
+- **State:** all work is committed locally (not pushed). Latest commits: 30642cd OTP v2 + category backend · b038852 UI · 406fa6c ADRs 0021/0022 · 51b6e1b + 9704338 OTP tuning (rescan v4) · bbf58da tabs default off (migration 9), send-as name, initials · f3c1da7 docs · 29e11dc send-as name lookup at engine start · this docs commit. Nothing uncommitted.
+- **Gates at 29e11dc:** 116 Rust tests, clippy `-D warnings` clean, 38 vitest; build OK at bbf58da.
+- **Gmail categories (done):** stored from labelIds and kept fresh by history; all 2,255 cached messages carry labels, so no backfill was needed. Tabs are built but **off by default** (migration 9). See ADR 0021.
+- **OTP pipeline (done):** scored detector, corpus of 90 samples at P 1.00 / R 1.00, holdout of 20 at P 1.00 / R 0.93 (the miss is a split alphanumeric `K7Q2-9XMP`). Live rescan v4 on 2,256 messages found 85 codes and links. See ADR 0022.
+- **"Inbox not up to date" bug, root cause (fixed):** sync was complete and live; 1,827 INBOX threads match Gmail web. The newer mail is in Updates, Social or Promotions, so the Primary tab stopped at Oct 15. The user's Gmail web shows a single inbox, and the API can't read that setting. Fix: tabs off by default. Mail with no category already counts as Primary.
+- **"AG" avatar bug:** the root cause was that the email was passed as the name, and `initials()` split `local@gmail.com` into local + "gmail". Fixed: an address now uses only its local part, and the real `displayName` is preferred. **Still open:** the account's `display_name` is empty. Gmail `settings.sendAs` returns no displayName for this account (log: "Gmail send-as has no display name"), and the only scope is `https://mail.google.com/` (no profile scope). So the avatar shows "A" until a name is set.
+- **Next steps:**
+  1. Fill the name without a new scope, from the `from_name` of the account's own SENT messages (most common value where `from_email` = the account address), and fall back to the user editing it in Account settings.
+  2. Live-check the toast and "Primary + codes" mode on real new mail.
+  3. Check "Move to tab" against the Gmail API.
+  4. Decide on the Wise privacy-notice link (score 65, possible false positive).
+  5. Support split alphanumeric codes.
+
 An honest snapshot of the code at `HEAD` (2026-10-21, v0.1.0, through the 2026-10-22 commits plus later commits listed in [PLAN.md](PLAN.md#progress-log)). It
 describes what the code does, not what is planned. Plans live in
 [ROADMAP.md](ROADMAP.md) and [PLAN.md](PLAN.md).

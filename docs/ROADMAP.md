@@ -296,7 +296,7 @@ catch up on next start.
 
 <a id="t4"></a>
 
-### T4. Categories tabs 💡 · P2 · ✅ built (2026-10-22)
+### T4. Categories tabs 💡 · P2 · ✅ built (2026-10-22), off by default (migration 9); open: live "Move to tab" check
 > As built: tabs with unread counts, a per-account switch, "Move to tab",
 > an Important marker and the "Primary + codes" notification mode. See
 > [ADR 0021](decisions/0021-gmail-category-tabs.md).
@@ -353,7 +353,7 @@ When 5+ mails arrive together, one summary toast instead of five.
 
 <a id="o1"></a>
 
-### O1. OTP extras 💡 · P1 · mostly built
+### O1. OTP extras 💡 · P1 · mostly built (corpus 90 at P/R 1.00; holdout 20 at 1.00/0.93; open: split alphanumeric codes, live toast check)
 > As built (2026-10-22): auto-copy, clipboard clear, lock-screen hiding,
 > per-sender learning ("Not a code" and copy feedback), magic-link detection
 > with "Open" in the reader, expiry on the toast. The scored pipeline is in
