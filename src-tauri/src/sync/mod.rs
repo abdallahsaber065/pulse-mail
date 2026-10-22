@@ -244,6 +244,12 @@ impl Engine {
                 self.spawn_background();
             }
         }
+        let named = self.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = named.ensure_account_name().await {
+                tracing::debug!(error = %e, "account name lookup skipped");
+            }
+        });
         let mut woke_by_push = false;
         loop {
             let mut attempts = 0;
@@ -1222,12 +1228,13 @@ impl Engine {
         Ok(added)
     }
 
-    async fn sync_labels(&self, token: &Secret) -> Result<(), SyncError> {
-        // An account without a name takes the one Gmail sends mail with
-        // (avatar initials, From name, account list). The user can change it.
+    /// An account without a name takes the one Gmail sends mail with
+    /// (avatar initials, From name, account list). The user can change it.
+    async fn ensure_account_name(&self) -> Result<(), SyncError> {
         let unnamed = self.db(|s| s.account(self.account_id))?.is_some_and(|a| a.display_name.is_empty());
         if unnamed {
-            match self.gmail.primary_send_as_name(token).await {
+            let token = self.tokens.access_token().await?;
+            match self.gmail.primary_send_as_name(&token).await {
                 Ok(Some(name)) => {
                     let name: String = name.chars().filter(|c| !c.is_control()).take(80).collect();
                     self.db(|s| {
@@ -1236,12 +1243,17 @@ impl Engine {
                             &crate::store::AccountSettings { display_name: Some(name), ..Default::default() },
                         )
                     })?;
+                    tracing::info!("account name taken from Gmail send-as");
                     let _ = self.app.emit("accounts-changed", ());
                 }
-                Ok(None) => {}
+                Ok(None) => tracing::info!("Gmail send-as has no display name"),
                 Err(e) => tracing::debug!(error = %e, "send-as name lookup failed"),
             }
         }
+        Ok(())
+    }
+
+    async fn sync_labels(&self, token: &Secret) -> Result<(), SyncError> {
         let labels = self.gmail.labels(token).await?;
         let rows: Vec<LabelRow> = labels
             .into_iter()
