@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/pulse-mail-logo.png" width="128" height="128" alt="Pulse Mail Logo" />
+</p>
+
 # Pulse Mail
 
 A light, always-on Gmail client for Windows.

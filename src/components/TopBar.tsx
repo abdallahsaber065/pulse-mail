@@ -101,10 +101,8 @@ export default function TopBar(p: Props) {
         <button class="grid size-12 place-items-center rounded-full text-muted hover:bg-hover" onClick={p.onToggleSidebar} title="Main menu">
           <Icon name="menu" size={24} />
         </button>
-        <div class="flex items-center gap-2 pl-1">
-          <div class="grid size-8 place-items-center rounded-lg bg-primary text-on-primary">
-            <Icon name="mail" size={20} />
-          </div>
+        <div class="flex items-center gap-2 pl-1 select-none">
+          <img src="/icon.png" alt="Pulse Mail logo" class="size-8 rounded-lg shadow-xs select-none object-contain" />
           <span class="font-display text-[22px] text-muted">Pulse</span>
         </div>
       </div>
