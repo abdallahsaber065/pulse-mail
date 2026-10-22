@@ -139,8 +139,13 @@ export default function ThreadList(p: Props) {
                     >
                       <Icon name={t().starred ? "starFilled" : "star"} size={18} class="star-pop" />
                     </button>
-                    <span class={`w-44 shrink-0 truncate ${t().unread ? "font-bold text-text" : "text-text"}`}>
-                      {t().fromName || t().fromEmail}
+                    <span class={`flex w-44 shrink-0 items-center gap-1 truncate ${t().unread ? "font-bold text-text" : "text-text"}`}>
+                      <Show when={t().important}>
+                        <span class="shrink-0 text-star" title="Important (marked by Gmail)" aria-label="Important">
+                          <Icon name="important" size={14} />
+                        </span>
+                      </Show>
+                      <span class="truncate">{t().fromName || t().fromEmail}</span>
                       <Show when={t().messageCount > 1}>
                         <span class="ml-1 text-xs font-normal text-faint">{t().messageCount}</span>
                       </Show>

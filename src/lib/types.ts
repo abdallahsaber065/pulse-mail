@@ -52,6 +52,7 @@ export interface AccountSettings {
   displayName?: string;
   color?: string;
   signature?: string;
+  categoryTabs?: boolean;
   attachMode?: AttachMode;
   attachMaxMb?: number;
 }
@@ -80,6 +81,8 @@ export interface Account {
   displayName: string;
   color: string;
   signature: string;
+  /** Show Gmail's inbox tabs. */
+  categoryTabs: boolean;
   sync: SyncStatus;
   unread: number;
 }
@@ -106,7 +109,7 @@ export interface Activity {
   text: string;
 }
 
-export type NotificationMode = "all" | "otp" | "off";
+export type NotificationMode = "all" | "primary" | "otp" | "off";
 
 export interface AppStatus {
   clientConfigured: boolean;
@@ -182,6 +185,17 @@ export interface ThreadRow {
   unread: boolean;
   starred: boolean;
   otpCode: string | null;
+  /** Gmail marked a message of the thread IMPORTANT. */
+  important: boolean;
+}
+
+/** Gmail inbox tabs (system CATEGORY_* labels). */
+export type Category = "CATEGORY_PERSONAL" | "CATEGORY_PROMOTIONS" | "CATEGORY_SOCIAL" | "CATEGORY_UPDATES" | "CATEGORY_FORUMS";
+
+export interface CategoryCount {
+  id: Category;
+  unread: number;
+  total: number;
 }
 
 export interface Message {
@@ -200,6 +214,8 @@ export interface Message {
   starred: boolean;
   hasAttachments: boolean;
   otpCode: string | null;
+  /** One-click sign-in / verification link (when no code). */
+  otpLink?: string | null;
   /** false = only headers + snippet are cached; the full body loads on open. */
   bodyLoaded: boolean;
   ccList: string;

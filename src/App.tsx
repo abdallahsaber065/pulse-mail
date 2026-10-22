@@ -3,6 +3,7 @@ import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import ThreadList, { type RowActions } from "./components/ThreadList";
 import Reader from "./components/Reader";
+import { InboxTabs, CATEGORY_TABS } from "./components/InboxTabs";
 import Onboarding from "./components/Onboarding";
 import ShortcutsHelp from "./components/ShortcutsHelp";
 import CommandPalette from "./components/CommandPalette";
@@ -28,6 +29,7 @@ import type {
   Account,
   Activity,
   Attachment,
+  Category,
   Message,
   NotificationMode,
   OpenTarget,
@@ -116,6 +118,17 @@ export default function App() {
     else localStorage.setItem(VIEW_KEY, String(v));
   });
   const inInbox = () => label() === "INBOX" && !debounced().trim();
+  // Gmail inbox tabs: on when the viewed account (or any, in All inboxes) wants them.
+  const [category, setCategory] = createSignal<Category>("CATEGORY_PERSONAL");
+  const tabsOn = () => {
+    const v = accountView();
+    return inInbox() && accounts().some((a) => (v == null || a.id === v) && a.categoryTabs !== false);
+  };
+  const [categoryCounts] = createResource(
+    () => (signedIn() && tabsOn() ? { t: tick(), a: accountView() } : false),
+    ({ a }) => api.categoryCounts(a),
+    { initialValue: [] },
+  );
 
   const [labels, { refetch: refetchLabels }] = createResource(
     () => (signedIn() ? { t: tick(), a: accountView() } : false),
@@ -126,8 +139,11 @@ export default function App() {
   const PAGE = 200;
   const [limit, setLimit] = createSignal(PAGE);
   const [threads] = createResource(
-    () => (signedIn() ? { label: label(), q: debounced(), t: tick(), n: limit(), a: accountView() } : false),
-    ({ label, q, n, a }) => (q.trim() ? api.search(q, 100, a) : api.threads(label, n, 0, a)),
+    () =>
+      signedIn()
+        ? { label: label(), q: debounced(), t: tick(), n: limit(), a: accountView(), c: tabsOn() ? category() : null }
+        : false,
+    ({ label, q, n, a, c }) => (q.trim() ? api.search(q, 100, a) : api.threads(label, n, 0, a, c)),
     { initialValue: [] },
   );
   // Gmail server search runs a little after the local one (it costs quota
@@ -493,6 +509,17 @@ export default function App() {
     });
   };
 
+  // Move a thread to another Gmail inbox tab (CATEGORY_* labels).
+  const moveToTab = async (t: ThreadRef, c: Category) => {
+    const others = CATEGORY_TABS.map((x) => x.id).filter((x) => x !== c);
+    try {
+      await api.modifyThread(t.threadId, [c], others, t.accountId);
+      snack(`Moved to ${CATEGORY_TABS.find((x) => x.id === c)?.name ?? "tab"}`);
+      setTick((n) => n + 1);
+    } catch (e) {
+      snack((e as Error).message);
+    }
+  };
   const goto = (id: string) =>
     batch(() => {
       setQuery("");
@@ -696,7 +723,14 @@ export default function App() {
       const code = [...messages()].reverse().find((m) => m.otpCode)?.otpCode;
       if (code) add({ group: "Conversation", title: "Copy verification code", icon: "copy", keys: "Shift+C", words: "otp", run: () => void copyCode(code) });
       if (selected()) add({ group: "Conversation", title: "Back to list", icon: "back", keys: "u", run: () => setSelected(null) });
+      if (tabsOn())
+        for (const c of CATEGORY_TABS)
+          if (c.id !== category())
+            add({ group: "Conversation", title: `Move to ${c.name}`, icon: c.icon, words: "tab category move", run: () => void moveToTab(t, c.id) });
     }
+    if (tabsOn())
+      for (const c of CATEGORY_TABS)
+        add({ group: "Go to", title: `${c.name} tab`, icon: c.icon, words: "tab category inbox", run: () => batch(() => (setCategory(c.id), setSelected(null))) });
     const system: [string, string, IconName][] = [
       ["INBOX", "Inbox", "inbox"],
       ["STARRED", "Starred", "star"],
@@ -821,6 +855,19 @@ export default function App() {
                   </Show>
                 </div>
               </Show>
+              <Show when={tabsOn()}>
+                <InboxTabs
+                  counts={categoryCounts()}
+                  current={category()}
+                  onSelect={(c) =>
+                    batch(() => {
+                      setCategory(c);
+                      setSelected(null);
+                      setLimit(PAGE);
+                    })
+                  }
+                />
+              </Show>
               <div class="min-h-0 flex-1">
               <ThreadList
                 threads={rows()}
@@ -848,6 +895,11 @@ export default function App() {
                   }}
                   onBack={() => setSelected(null)}
                   onCopyCode={(c) => void copyCode(c)}
+                  onOtpChanged={() => {
+                    const id = selected();
+                    if (id) void loadThread(id, true);
+                    setTick((n) => n + 1);
+                  }}
                   onArchive={
                     inInbox()
                       ? () => {

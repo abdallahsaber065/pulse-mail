@@ -38,7 +38,10 @@ const threads: ThreadRow[] = people.map(([fromName, fromEmail, subject, snippet,
   unread: i < 3,
   starred: i === 2,
   otpCode: otp,
+  important: i % 3 === 0,
 }));
+const CATS = ["CATEGORY_PERSONAL", "CATEGORY_UPDATES", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL"];
+const catOf = (t: ThreadRow) => (t.otpCode ? "CATEGORY_PERSONAL" : CATS[Number(t.threadId.slice(1)) % CATS.length]);
 
 function message(t: ThreadRow): Message {
   const html = t.otpCode
@@ -104,6 +107,7 @@ function accountOf(id: number, email: string): Account {
     displayName: "",
     color: "",
     signature: "",
+    categoryTabs: true,
     sync: syncOf(id, email),
     unread: 3,
   };
@@ -161,7 +165,17 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
     case "list_labels":
       return labels;
     case "list_threads":
-      return args?.labelId === "INBOX" ? threads : threads.filter((t) => (args?.labelId === "STARRED" ? t.starred : false));
+      return args?.labelId === "INBOX"
+        ? threads.filter((t) => !args?.category || catOf(t) === args.category)
+        : threads.filter((t) => (args?.labelId === "STARRED" ? t.starred : false));
+    case "category_counts":
+      return ["CATEGORY_PERSONAL", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_UPDATES", "CATEGORY_FORUMS"].map((id) => {
+        const ts = threads.filter((t) => catOf(t) === id);
+        return { id, unread: ts.filter((t) => t.unread).length, total: ts.length };
+      });
+    case "otp_feedback":
+      if (!args?.useful) for (const t of threads) if (t.lastMessageId === args?.messageId) t.otpCode = null;
+      return null;
     case "search": {
       const q = String(args?.query ?? "").toLowerCase();
       return threads.filter((t) => `${t.subject} ${t.fromName} ${t.snippet}`.toLowerCase().includes(q));

@@ -132,10 +132,18 @@ function AccountPage(p: {
             value={p.account.notify}
             options={[
               ["all", "All new mail"],
+              ["primary", "Primary + codes"],
               ["otp", "Codes only"],
               ["off", "Off"],
             ]}
             onChange={p.onNotify}
+          />
+        </Row>
+        <Row title="Inbox tabs" desc="Primary, Promotions, Social, Updates and Forums, as sorted by Gmail.">
+          <Toggle
+            label="Inbox tabs"
+            checked={p.account.categoryTabs !== false}
+            onChange={(v) => p.onSettings({ categoryTabs: v })}
           />
         </Row>
         <Row title="Signature" desc="Added to new messages, replies and forwards from this account." stack>
@@ -442,6 +450,7 @@ export default function SettingsPanel(p: Props) {
                 value={p.status.notifications}
                 options={[
                   ["all", "All new mail"],
+                  ["primary", "Primary + codes"],
                   ["otp", "Codes only"],
                   ["off", "Off"],
                 ]}

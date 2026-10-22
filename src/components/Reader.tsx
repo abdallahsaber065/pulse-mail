@@ -19,6 +19,8 @@ interface Props {
   onRetry(): void;
   onBack(): void;
   onCopyCode(code: string): void;
+  /** "Not a code" was pressed (the code is cleared; reload the thread). */
+  onOtpChanged?(): void;
   onArchive?(): void;
   onToggleRead(): void;
   onToggleStar(): void;
@@ -52,8 +54,19 @@ export default function Reader(p: Props) {
   const [copied, setCopied] = createSignal(false);
   const starred = () => p.messages.some((m) => m.starred);
   const unread = () => p.messages.some((m) => m.unread);
+  const otpMsg = () => [...p.messages].reverse().find((m) => m.otpCode);
+  const linkMsg = () => (otpMsg() ? undefined : [...p.messages].reverse().find((m) => m.otpLink));
+  const feedback = (useful: boolean) => {
+    const m = otpMsg() ?? linkMsg();
+    if (!m || p.accountId == null) return;
+    void api
+      .otpFeedback(p.accountId, m.fromEmail, useful, useful ? null : m.id)
+      .then(() => !useful && p.onOtpChanged?.())
+      .catch((e) => console.warn(e));
+  };
   const copy = (code: string) => {
     p.onCopyCode(code);
+    feedback(true);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   };
@@ -68,7 +81,7 @@ export default function Reader(p: Props) {
     </button>
   );
   const first = () => p.messages[0];
-  const otp = () => [...p.messages].reverse().find((m) => m.otpCode)?.otpCode ?? null;
+  const otp = () => otpMsg()?.otpCode ?? null;
   const showImages = (id: string) => setImagesFor((s) => new Set(s).add(id));
   const alwaysShow = async (m: Message) => {
     try {
@@ -144,7 +157,45 @@ export default function Reader(p: Props) {
               >
                 <Icon name={copied() ? "checkCircle" : "copy"} size={18} /> {copied() ? "Copied" : "Copy"}
               </button>
+              <button
+                class="no-print rounded-full px-3 py-2 text-xs font-medium opacity-80 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10"
+                onClick={() => feedback(false)}
+                title="Not a verification code: hide it and trust this sender's codes less"
+              >
+                Not a code
+              </button>
             </div>
+          </Show>
+          <Show when={linkMsg()}>
+            {(m) => (
+              <div class="mb-5 ml-14 flex max-w-xl items-center gap-4 rounded-2xl bg-otp-container px-5 py-3 text-otp">
+                <div class="min-w-0 flex-1">
+                  <div class="text-xs font-medium uppercase tracking-wide opacity-80">Sign-in link</div>
+                  <div class="truncate text-sm opacity-80" title={m().otpLink!}>
+                    {(() => {
+                      try {
+                        return new URL(m().otpLink!).hostname;
+                      } catch {
+                        return m().otpLink;
+                      }
+                    })()}
+                  </div>
+                </div>
+                <button
+                  class="no-print flex items-center gap-2 rounded-full bg-otp px-4 py-2 text-sm font-medium text-surface hover:brightness-110"
+                  onClick={() => p.onLink(m().otpLink!, "Sign-in link")}
+                >
+                  <Icon name="openExternal" size={18} /> Open
+                </button>
+                <button
+                  class="no-print rounded-full px-3 py-2 text-xs font-medium opacity-80 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10"
+                  onClick={() => feedback(false)}
+                  title="Not a sign-in link: hide it"
+                >
+                  Not a link
+                </button>
+              </div>
+            )}
           </Show>
 
           <For each={p.messages}>

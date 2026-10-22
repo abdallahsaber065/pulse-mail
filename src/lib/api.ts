@@ -1,6 +1,8 @@
 // Thin typed wrapper over Tauri IPC. Outside Tauri (plain `pnpm dev` in a
 // browser) it falls back to mock data so the UI can be designed quickly.
 import type {
+  Category,
+  CategoryCount,
   AccountSettings,
   AccountStorage,
   Activity,
@@ -70,8 +72,12 @@ export const api = {
   },
   unstageAttachment: (id: string) => call<void>("unstage_attachment", { id }),
   labels: (accountId: Acct = null) => call<Label[]>("list_labels", { accountId }),
-  threads: (labelId: string, limit = 200, offset = 0, accountId: Acct = null) =>
-    call<ThreadRow[]>("list_threads", { labelId, limit, offset, accountId }),
+  threads: (labelId: string, limit = 200, offset = 0, accountId: Acct = null, category: Category | null = null) =>
+    call<ThreadRow[]>("list_threads", { labelId, limit, offset, accountId, category }),
+  categoryCounts: (accountId: Acct = null) => call<CategoryCount[]>("category_counts", { accountId }),
+  /** "Not a code" (useful=false, clears it on that message) or a copied code. */
+  otpFeedback: (accountId: number, sender: string, useful: boolean, messageId: string | null = null) =>
+    call<void>("otp_feedback", { accountId, sender, useful, messageId }),
   search: (query: string, limit = 100, accountId: Acct = null) => call<ThreadRow[]>("search", { query, limit, accountId }),
   composeContext: (messageId: string, mode: Exclude<ComposeMode, "new">, accountId: Acct = null) =>
     call<ComposeInit>("compose_context", { messageId, mode, accountId }),
