@@ -296,7 +296,11 @@ catch up on next start.
 
 <a id="t4"></a>
 
-### T4. Categories tabs 💡 · P2
+### T4. Categories tabs 💡 · P2 · ✅ built (2026-10-22)
+> As built: tabs with unread counts, a per-account switch, "Move to tab",
+> an Important marker and the "Primary + codes" notification mode. See
+> [ADR 0021](decisions/0021-gmail-category-tabs.md).
+
 Primary / Promotions / Social / Updates / Forums tabs from
 `CATEGORY_*` labels (already synced); notify only for Primary (setting).
 
@@ -349,7 +353,14 @@ When 5+ mails arrive together, one summary toast instead of five.
 
 <a id="o1"></a>
 
-### O1. OTP extras 💡 · P1
+### O1. OTP extras 💡 · P1 · mostly built
+> As built (2026-10-22): auto-copy, clipboard clear, lock-screen hiding,
+> per-sender learning ("Not a code" and copy feedback), magic-link detection
+> with "Open" in the reader, expiry on the toast. The scored pipeline is in
+> [ADR 0022](decisions/0022-otp-pipeline.md). Still open: SPF/DKIM checks
+> for first-time senders, expiring chips, "Open link" on the toast, and split
+> alphanumeric codes.
+
 - Auto-copy new codes (off by default) with a toast "Code copied".
 - Clear the clipboard after N seconds if it still holds the code (default 60 s).
 - Hide/expire code chips after N minutes (codes are short-lived).

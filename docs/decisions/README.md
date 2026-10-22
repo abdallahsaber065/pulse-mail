@@ -26,3 +26,5 @@ Consequences (+ Alternatives when useful), under about 40 lines.
 | [0018](0018-onboarding.md) | Multi-step onboarding that chooses the download range up front | accepted |
 | [0019](0019-history-download-v2.md) | History download v2, attachment policy, one download range | accepted |
 | [0020](0020-compose-editor.md) | Rich compose editor: TipTap 3 core | accepted |
+| [0021](0021-gmail-category-tabs.md) | Gmail's own categories for inbox tabs | accepted |
+| [0022](0022-otp-pipeline.md) | Scored OTP and magic-link pipeline, tuned on a labeled corpus | accepted |
