@@ -26,6 +26,14 @@ classifier would be worse and would disagree with Gmail on the phone and on the 
   marker. In the palette, "Move to <tab>" uses `modify_thread` to add one
   `CATEGORY_*` label and remove the others. This works within the existing
   `https://mail.google.com/` scope; no new scope.
+- **Default off (migration 9, 2026-10-22).** With tabs on, the user saw
+  Primary's newest item from Oct 15. Gmail web showed newer mail at the top
+  (DigitalOcean, Facebook, Gemini…) and "1–100 of 1,827". The cache was
+  complete and live: 1,827 inbox threads, newest at 3:02 AM, and every message
+  carried Gmail's labels. Those newer mails are filed under Updates, Social or
+  Promotions, so they were correctly not in Primary. The user's Gmail web uses
+  a single inbox (tabs off), and the API can't tell us that. Tabs now default
+  to off for every account and are one switch away in the account settings.
 - **Notifications:** a new per-account mode, "Primary + codes" (`primary`),
   notifies for mail in Primary, and for verification codes from any tab.
 
