@@ -17,3 +17,4 @@ Closes #(issue)
 - [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes (if Rust was touched)
 - [ ] No secrets, keys, or personal credentials included
 - [ ] Conforms to the project architecture in `docs/ARCHITECTURE.md`
+

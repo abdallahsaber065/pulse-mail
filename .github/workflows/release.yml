@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name (e.g. v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+
+jobs:
+  build-release:
+    name: Build Windows Release
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Build Tauri App & Publish Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name || inputs.tag }}
+          releaseName: 'Pulse Mail ${{ github.ref_name || inputs.tag }}'
+          releaseBody: |
+            ## Pulse Mail Windows Release
+            
+            ### Installation
+            Download the installer (`.exe`) below and run it. Pulse Mail installs per-user and lives in your system tray.
+            
+            ### Setup
+            Follow the [Google OAuth Setup Guide](https://github.com/${{ github.repository }}/blob/main/docs/SETUP-GOOGLE-OAUTH.md) to enable your Gmail API client.
+          releaseDraft: false
+          prerelease: false

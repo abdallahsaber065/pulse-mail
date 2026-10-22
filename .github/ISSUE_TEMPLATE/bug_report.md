@@ -24,3 +24,4 @@ If applicable, add screenshots or terminal logs (`PULSE_MAIL_LOG=debug`) to help
 **Environment:**
  - OS: Windows 10 / Windows 11 (Build number)
  - App Version: (e.g. 0.1.0 dev)
+

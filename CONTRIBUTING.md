@@ -73,3 +73,4 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
 4. **Never Commit Credentials**: Never include `.json` OAuth keys, `.env` files, or `.db` databases.
 
 Thank you for making Pulse Mail better!
+
