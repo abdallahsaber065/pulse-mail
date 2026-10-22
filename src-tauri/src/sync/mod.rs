@@ -1161,13 +1161,22 @@ impl Engine {
             }
 
             let is_new_inbox = m.label_ids.iter().any(|l| l == "INBOX") && m.label_ids.iter().any(|l| l == "UNREAD");
+            // Learned per-sender feedback can veto a code (and its toast).
+            let bias = if m.otp_code.is_some() { self.db(|s| s.otp_bias(self.account_id, &m.from_email))? } else { 0 };
+            let code = m.otp_code.clone().filter(|_| m.otp_score + bias >= crate::otp::STORE_THRESHOLD);
+            let toast_code = code.clone().filter(|_| m.otp_score + bias >= crate::otp::TOAST_THRESHOLD);
+            let primary = !m.label_ids.iter().any(|l| {
+                matches!(l.as_str(), "CATEGORY_SOCIAL" | "CATEGORY_PROMOTIONS" | "CATEGORY_UPDATES" | "CATEGORY_FORUMS")
+            });
             let wanted = match notify_pref.as_str() {
                 "off" => false,
-                "otp" => m.otp_code.is_some(),
+                "otp" => toast_code.is_some(),
+                // Codes always notify; other mail only from the Primary tab.
+                "primary" => toast_code.is_some() || primary,
                 _ => true,
             };
             let fresh = !existed && is_new_inbox && now_ms() - m.internal_date < NOTIFY_MAX_AGE_MS;
-            if fresh && autocopy && let Some(code) = &m.otp_code {
+            if fresh && autocopy && let Some(code) = &toast_code {
                 crate::copy_secret(&self.app, code);
                 self.status.log("info", "Copied a new verification code to the clipboard");
             }
@@ -1186,8 +1195,9 @@ impl Engine {
                         },
                         subject: m.subject.clone(),
                         snippet: m.snippet.clone(),
-                        otp: m.otp_code.clone(),
-                        hide_code: hide_locked && m.otp_code.is_some() && notify::session_locked(),
+                        otp: toast_code.clone(),
+                        expires_min: toast_code.as_ref().and(m.otp_expires_min),
+                        hide_code: hide_locked && toast_code.is_some() && notify::session_locked(),
                     },
                 );
             }

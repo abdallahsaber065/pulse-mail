@@ -111,6 +111,7 @@ mod tests {
             display_name: String::new(),
             color: String::new(),
             signature: String::new(),
+            category_tabs: true,
         };
         assert_eq!(limit(&a), Some(10 * 1024 * 1024));
         a.attach_mode = "none".into();

@@ -17,6 +17,7 @@ fn msg() -> MessageRow {
         starred: false,
         has_attachments: false,
         otp_code: None,
+        otp_link: None,
         body_loaded: true,
         cc_list: "carol@z.test, ME@gmail.com".into(),
         reply_to: String::new(),

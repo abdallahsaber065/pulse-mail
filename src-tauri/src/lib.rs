@@ -172,6 +172,8 @@ pub fn run() {
             commands::sign_out,
             commands::list_labels,
             commands::list_threads,
+            commands::category_counts,
+            commands::otp_feedback,
             commands::search,
             commands::search_server,
             commands::set_account_settings,

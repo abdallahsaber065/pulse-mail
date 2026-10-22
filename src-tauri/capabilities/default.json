@@ -13,6 +13,8 @@
     "allow-sign-out",
     "allow-list-labels",
     "allow-list-threads",
+    "allow-category-counts",
+    "allow-otp-feedback",
     "allow-search",
     "allow-search-server",
     "allow-set-account-settings",

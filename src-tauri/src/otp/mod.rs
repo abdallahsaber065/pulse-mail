@@ -1,228 +1,465 @@
-//! One-time-code (OTP / verification code) extraction.
+//! One-time-code (OTP / verification code) and magic-link detection.
 //!
-//! Pure, synchronous and allocation-light so it can run on every incoming
-//! message. The extractor is deliberately conservative: a wrong "Copy code"
-//! button is worse than no button, so a candidate needs both an OTP-ish
-//! message (gating keyword) and a high enough score.
+//! A scored pipeline (see ADR 0022), pure and synchronous so it can run on
+//! every incoming message:
+//! 1. Normalize: Arabic-Indic / full-width digits to ASCII, zero-width
+//!    characters dropped, exotic spaces to plain spaces.
+//! 2. WebOTP origin-bound line (`@example.com #123456`) wins outright.
+//! 3. Gate: the mail must name a code (multilingual), or say "verify/sign in"
+//!    and visibly emphasize a token in its HTML.
+//! 4. Score every 4-8 character candidate (digits, `123 456`, `123-456`,
+//!    `G-123456`, mixed uppercase alphanumerics) on shape, keyword proximity,
+//!    layout (own line, after a colon, subject line, bold/big/monospace HTML),
+//!    sender and expiry wording; subtract for dates, times, phones, money,
+//!    URLs, e-mail addresses, years and order/tracking/promo context. Weights
+//!    are tuned against the labeled corpus in `corpus.rs`.
+//! 5. No code: look for a one-click sign-in / verification link.
+//!
+//! A wrong "Copy code" button is worse than none, so the thresholds are high.
 
+mod html;
+mod lexicon;
+
+#[cfg(test)]
+mod corpus;
+
+use lexicon::*;
 use regex::Regex;
 use serde::Serialize;
 use std::sync::LazyLock;
 
 /// Only the first part of a body is scanned; codes live near the top.
-const MAX_SCAN_CHARS: usize = 4000;
-/// Minimum score for a candidate to be reported.
-const THRESHOLD: i32 = 50;
+const MAX_SCAN_CHARS: usize = 6000;
+/// HTML scanned for emphasis and links.
+const MAX_HTML_SCAN: usize = 300 * 1024;
+/// Lowest confidence worth keeping (a code chip in the list and reader).
+pub const STORE_THRESHOLD: i32 = 50;
+/// Lowest confidence that may show the code in a toast.
+pub const TOAST_THRESHOLD: i32 = 60;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Code,
+    Link,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Detection {
+    pub kind: Kind,
+    /// Normalized code (separators removed) or the link URL.
+    pub value: String,
+    /// 0-100.
+    pub confidence: i32,
+    /// "Expires in N minutes", when the mail says so.
+    pub expires_min: Option<u32>,
+}
+
+/// What the detector looks at. `html` and `from` are optional extras.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Input<'a> {
+    pub subject: &'a str,
+    pub text: &'a str,
+    pub html: Option<&'a str>,
+    pub from: &'a str,
+    /// Gmail put it in Promotions.
+    pub promotional: bool,
+}
+
+/// Result of the code-only API (tests).
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OtpMatch {
-    /// Normalized code (separators removed), ready for the clipboard.
     pub code: String,
     pub score: i32,
 }
 
-/// The message must mention at least one of these to be considered at all.
-static GATE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)\b(?:code|codes|otp|passcode|pin|verification|verify|one[- ]?time|2fa|two[- ]factor|mfa)\b|رمز|كود|التحقق",
-    )
-    .unwrap()
-});
-
-/// Words that make a nearby number likely to be the code.
-static NEAR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)\b(?:code|otp|passcode|pin|verification|verify|one[- ]?time|2fa|mfa|security|login|log[- ]?in|sign[- ]?in|authentication|confirmation|confirm)\b|رمز|كود|التحقق",
-    )
-    .unwrap()
-});
-
-/// Context that means the number is NOT a login code.
-static NEGATIVE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)\b(?:promo|coupon|discount|voucher|off|sale|order|invoice|tracking|reference|ref|total|amount|price|phone|call|tel|fax|zip|postal|account (?:number|no))\b",
-    )
-    .unwrap()
-});
-
-/// Candidate tokens: optional short prefix like `G-`, then
-/// `123 456` / `123-456`, plain 4-8 digits, or 5-8 uppercase alphanumerics.
-static CANDIDATE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\b(?:[A-Z]{1,3}-)?(\d{3,4}[ -]\d{3,4}|\d{4,8}|[A-Z0-9]{5,8})\b").unwrap());
-
-static YEAR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:19|20)\d{2}$").unwrap());
-
-/// Extract the most likely one-time code from a message.
-///
-/// `body` should be plain text; use [`html_to_text`] first for HTML-only mail.
+/// Code-only detection from subject and plain text.
+#[cfg(test)]
 pub fn extract(subject: &str, body: &str) -> Option<OtpMatch> {
-    let subject = normalize_digits(subject);
-    let body: String = normalize_digits(body).chars().take(MAX_SCAN_CHARS).collect();
-    let text = format!("{subject}\n{body}");
+    let d = detect(&Input { subject, text: body, ..Default::default() })?;
+    (d.kind == Kind::Code && d.confidence >= STORE_THRESHOLD).then_some(OtpMatch { code: d.value, score: d.confidence })
+}
 
-    if !GATE.is_match(&text) {
-        return None;
+/// Best code or link at or above [`STORE_THRESHOLD`], if any.
+pub fn detect(input: &Input) -> Option<Detection> {
+    let subject = normalize(input.subject);
+    let body: String = normalize(input.text).chars().take(MAX_SCAN_CHARS).collect();
+    let text = format!("{subject}\n{body}");
+    let expires_min = expiry_minutes(&text);
+
+    if let Some(c) = WEBOTP.captures_iter(&text).last() {
+        return Some(Detection { kind: Kind::Code, value: c[2].to_string(), confidence: 95, expires_min });
     }
 
-    let near: Vec<(usize, usize)> = NEAR.find_iter(&text).map(|m| (m.start(), m.end())).collect();
-    let subject_end = subject.len();
+    let html_head = input.html.map(|h| head(h, MAX_HTML_SCAN));
+    let emphasized = html_head.map(html::emphasized).unwrap_or_default();
+    let strong: Vec<(usize, usize)> = STRONG.find_iter(&text).map(|m| (m.start(), m.end())).collect();
+    let weak: Vec<(usize, usize)> = WEAK.find_iter(&text).map(|m| (m.start(), m.end())).collect();
+    let promo: Vec<(usize, usize)> = PROMO.find_iter(&text).map(|m| (m.start(), m.end())).collect();
+    let negative: Vec<(usize, usize)> = NEGATIVE.find_iter(&text).map(|m| (m.start(), m.end())).collect();
+    let blocked: Vec<(usize, usize)> = NOT_CODE_SPANS.find_iter(&text).map(|m| (m.start(), m.end())).collect();
 
-    let mut best: Option<(i32, usize, String)> = None;
-    for caps in CANDIDATE.captures_iter(&text) {
+    let gated = !strong.is_empty() || (!weak.is_empty() && !emphasized.is_empty());
+    let code = if gated {
+        best_code(&Ctx {
+            text: &text,
+            subject_end: subject.len(),
+            strong: &strong,
+            weak: &weak,
+            negative: &negative,
+            promo: &promo,
+            blocked: &blocked,
+            emphasized: &emphasized,
+            security_sender: SECURITY_SENDER.is_match(input.from),
+            promotional: input.promotional,
+            expiry: expires_min.is_some(),
+        })
+    } else {
+        None
+    };
+    if let Some((confidence, value)) = code.filter(|(s, _)| *s >= STORE_THRESHOLD) {
+        return Some(Detection { kind: Kind::Code, value, confidence, expires_min });
+    }
+    if input.promotional {
+        return None;
+    }
+    best_link(html_head, &text, &weak, &strong)
+        .filter(|(s, _)| *s >= STORE_THRESHOLD)
+        .map(|(confidence, value)| Detection { kind: Kind::Link, value, confidence, expires_min })
+}
+
+struct Ctx<'a> {
+    text: &'a str,
+    subject_end: usize,
+    strong: &'a [(usize, usize)],
+    weak: &'a [(usize, usize)],
+    negative: &'a [(usize, usize)],
+    promo: &'a [(usize, usize)],
+    blocked: &'a [(usize, usize)],
+    emphasized: &'a std::collections::HashSet<String>,
+    security_sender: bool,
+    promotional: bool,
+    expiry: bool,
+}
+
+fn best_code(c: &Ctx) -> Option<(i32, String)> {
+    let text = c.text;
+    let mut best: Option<(i32, String)> = None;
+    for caps in CANDIDATE.captures_iter(text) {
         let whole = caps.get(0).unwrap();
-        let core = caps.get(1).unwrap();
-        let raw = core.as_str();
-        let code: String = raw.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
-
-        let digits_only = code.chars().all(|c| c.is_ascii_digit());
+        let raw = caps.get(1).unwrap().as_str();
+        let (start, end) = (whole.start(), whole.end());
+        let code: String = raw.chars().filter(char::is_ascii_alphanumeric).collect();
+        let digits_only = code.bytes().all(|b| b.is_ascii_digit());
         let has_sep = raw.len() != code.len();
-        let mut score = if digits_only {
-            match (code.len(), has_sep) {
-                (6, true) => 25,
-                (6, false) => 30,
-                (4 | 5, _) => 20,
-                (7 | 8, _) => 20,
-                _ => 0,
-            }
-        } else {
-            // Mixed alphanumerics only; plain uppercase words are never codes.
-            let has_digit = code.chars().any(|c| c.is_ascii_digit());
-            let has_alpha = code.chars().any(|c| c.is_ascii_alphabetic());
-            if !(has_digit && has_alpha) {
-                continue;
-            }
-            15
-        };
-        if score == 0 {
+
+        if c.blocked.iter().any(|&(s, e)| s < end && start < e) || footer_line(text, start, end) {
             continue;
         }
+        let mut score = if digits_only {
+            match (code.len(), has_sep) {
+                (6, false) => 30,
+                (6, true) => 28,
+                (8, true) => 22,
+                (5, _) => 20,
+                (4, _) => 16,
+                (7 | 8, _) => 18,
+                _ => continue,
+            }
+        } else {
+            let has_digit = code.bytes().any(|b| b.is_ascii_digit());
+            let has_alpha = code.bytes().any(|b| b.is_ascii_alphabetic());
+            if !(has_digit && has_alpha) || code.len() < 5 {
+                continue;
+            }
+            if code.len() == 6 { 20 } else { 14 }
+        };
 
-        // Keyword proximity (measured in characters, not bytes).
-        let start = whole.start();
-        let end = whole.end();
-        let before_kw = near
-            .iter()
-            .any(|&(_, kw_end)| kw_end <= start && char_distance(&text, kw_end, start) <= 80);
-        let after_kw = near
-            .iter()
-            .any(|&(kw_start, _)| kw_start >= end && char_distance(&text, end, kw_start) <= 40);
-        if before_kw {
-            score += 40;
-        } else if after_kw {
-            score += 20;
+        // Keyword proximity, in characters.
+        let d_strong_before = nearest_before(text, c.strong, start);
+        let d_strong_after = nearest_after(text, c.strong, end);
+        let d_weak_before = nearest_before(text, c.weak, start);
+        let mut kw = 0;
+        // Short numbers need the keyword closer.
+        let near = if digits_only && code.len() <= 5 { 40 } else { 80 };
+        match d_strong_before {
+            Some(d) if d <= near => kw = 40,
+            Some(d) if d <= 250 => kw = 22,
+            _ => {}
         }
-        if start < subject_end {
+        if d_strong_after.is_some_and(|d| d <= 40) {
+            kw = kw.max(28);
+        }
+        if kw == 0 && d_weak_before.is_some_and(|d| d <= 60) {
+            kw = 15;
+        }
+        if kw == 0 && !digits_only {
+            continue; // mixed tokens need a keyword
+        }
+        score += kw;
+
+        // Layout.
+        let prev_char = text[..start].trim_end_matches([' ', '\t']).chars().last();
+        let colon = matches!(prev_char, Some(':' | '：' | '-' | '–'));
+        let alone = own_line(text, start, end);
+        let emph = c.emphasized.contains(&code);
+        let direct = strong_end_before(c.strong, start).is_some_and(|kw_end| filler_only(&text[kw_end..start]));
+        // A short number loosely near "code" ("code with 4821 examples") is weak evidence.
+        if digits_only && code.len() <= 5 && kw == 40 && !(colon || alone || emph || direct) {
+            score -= 25;
+        }
+        if direct {
+            score += 5;
+        }
+        if colon {
+            score += 10;
+        }
+        if alone {
             score += 15;
+        }
+        if start < c.subject_end {
+            score += 15;
+        }
+        if emph {
+            score += 25;
+        }
+        if c.security_sender {
+            score += 5;
+        }
+        if c.expiry {
+            score += 5;
         }
 
         // Penalties.
         if digits_only && code.len() == 4 && YEAR.is_match(&code) {
-            score -= 30;
+            score -= 35;
         }
-        let before = window_before(&text, start, 40);
-        let after = window_after(&text, end, 20);
-        if NEGATIVE.is_match(before) || NEGATIVE.is_match(after) {
+        // Order/tracking/phone words that label the number, or the keyword
+        // itself ("promo code", "postal code", "booking confirmation code").
+        let d_neg_before = nearest_before(text, c.negative, start).filter(|d| *d <= 25);
+        let line_end = text[end..].find('\n').map_or(text.len(), |i| end + i);
+        let d_neg_after = nearest_after(&text[..line_end], c.negative, end).filter(|d| *d <= 20);
+        let neg_labels = d_neg_before.is_some_and(|n| d_strong_before.is_none_or(|s| n < s));
+        let neg_follows = d_neg_after
+            .is_some_and(|n| d_strong_before.is_none_or(|s| s > 30) && d_strong_after.is_none_or(|s| n < s));
+        let neg_names_keyword = d_strong_before.is_some_and(|d| d <= 80)
+            && strong_start_before(c.strong, start)
+                .and_then(|kw| nearest_before(text, c.negative, kw))
+                .is_some_and(|d| d <= 25);
+        if neg_labels || neg_follows || neg_names_keyword {
             score -= 60;
         }
-        if looks_numeric_context(&text, start, end) {
+        let promo_near = nearest_before(text, c.promo, start).is_some_and(|d| d <= 40)
+            || nearest_after(text, c.promo, end).is_some_and(|d| d <= 40);
+        if promo_near {
+            score -= 60;
+        }
+        if numeric_context(text, start, end) {
             score -= 50;
         }
-        if in_url_token(&text, start, end) {
+        if in_url_or_email(text, start, end) {
             score -= 60;
         }
+        if c.promotional {
+            score -= 35;
+        }
 
-        if score >= THRESHOLD && best.as_ref().is_none_or(|(s, _, _)| score > *s) {
-            best = Some((score, start, code));
+        let score = score.clamp(0, 100);
+        #[cfg(test)]
+        if std::env::var_os("OTP_DEBUG").is_some() {
+            eprintln!("  cand {code:>9} score {score}");
+        }
+        if best.as_ref().is_none_or(|(s, _)| score > *s) {
+            best = Some((score, code));
         }
     }
-
-    best.map(|(score, _, code)| OtpMatch { code, score })
+    best
 }
 
-/// Map Arabic-Indic and Eastern Arabic-Indic digits to ASCII.
-fn normalize_digits(s: &str) -> String {
+fn best_link(html: Option<&str>, text: &str, weak: &[(usize, usize)], strong: &[(usize, usize)]) -> Option<(i32, String)> {
+    static URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"https?://[^\s<>"')\]]+"#).unwrap());
+    let mut links = html.map(html::links).unwrap_or_default();
+    if links.is_empty() {
+        links = URL.find_iter(text).map(|m| (m.as_str().to_string(), String::new())).collect();
+    }
+    let mail_talks = LINK_TEXT.is_match(text) || !weak.is_empty();
+    let mut best: Option<(i32, String)> = None;
+    for (url, anchor) in links {
+        if url.len() > 2000 || LINK_EXCLUDE.is_match(&url) || LINK_EXCLUDE.is_match(&anchor) {
+            continue;
+        }
+        let mut score = 0;
+        if LINK_URL_HINT.is_match(&url) {
+            score += 30;
+        }
+        if has_long_token(&url) {
+            score += 15;
+        }
+        if LINK_TEXT.is_match(&anchor) {
+            score += 25;
+        }
+        if mail_talks {
+            score += 10;
+        }
+        if !strong.is_empty() {
+            score -= 10; // talks about a code we couldn't find: don't guess a link
+        }
+        if best.as_ref().is_none_or(|(s, _)| score > *s) {
+            best = Some((score, url));
+        }
+    }
+    best
+}
+
+/// First `max` bytes of `s`, cut at a char boundary.
+fn head(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut i = max;
+    while !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    &s[..i]
+}
+
+fn has_long_token(url: &str) -> bool {
+    url.split(['/', '?', '&', '=', '#'])
+        .any(|p| p.len() >= 16 && p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.'))
+        && url.matches('.').count() < 12
+}
+
+fn expiry_minutes(text: &str) -> Option<u32> {
+    let c = EXPIRY.captures(text)?;
+    let (n, unit) = match (c.get(1), c.get(2), c.get(3), c.get(4)) {
+        (Some(n), Some(u), _, _) | (_, _, Some(n), Some(u)) => (n.as_str(), u.as_str().to_lowercase()),
+        _ => return None,
+    };
+    let n: u32 = n.parse().ok()?;
+    let mins = if unit.starts_with('h') || unit.starts_with("st") || unit.starts_with("ساع") {
+        n * 60
+    } else if unit.starts_with("sec") || unit.starts_with("ثان") {
+        n.div_ceil(60)
+    } else {
+        n
+    };
+    (1..=48 * 60).contains(&mins).then_some(mins)
+}
+
+/// Map Arabic-Indic, Eastern Arabic-Indic and full-width digits to ASCII,
+/// drop zero-width characters and turn unusual spaces into plain spaces.
+pub(crate) fn normalize(s: &str) -> String {
     s.chars()
-        .map(|c| match c {
-            '\u{0660}'..='\u{0669}' => char::from(b'0' + (c as u32 - 0x0660) as u8),
-            '\u{06F0}'..='\u{06F9}' => char::from(b'0' + (c as u32 - 0x06F0) as u8),
-            _ => c,
+        .filter_map(|c| match c {
+            '\u{0660}'..='\u{0669}' => Some(char::from(b'0' + (c as u32 - 0x0660) as u8)),
+            '\u{06F0}'..='\u{06F9}' => Some(char::from(b'0' + (c as u32 - 0x06F0) as u8)),
+            '\u{FF10}'..='\u{FF19}' => Some(char::from(b'0' + (c as u32 - 0xFF10) as u8)),
+            '\u{200B}'..='\u{200F}' | '\u{2060}' | '\u{FEFF}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' => None,
+            '\u{00A0}' | '\u{2000}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}' => Some(' '),
+            _ => Some(c),
         })
         .collect()
 }
 
-fn char_distance(text: &str, a: usize, b: usize) -> usize {
-    text[a..b].chars().count()
+/// Characters between the nearest keyword ending before `idx` and `idx`.
+fn nearest_before(text: &str, spans: &[(usize, usize)], idx: usize) -> Option<usize> {
+    spans
+        .iter()
+        .filter(|&&(_, e)| e <= idx)
+        .map(|&(_, e)| text[e..idx].chars().count())
+        .min()
 }
 
-fn window_before(text: &str, idx: usize, chars: usize) -> &str {
-    let start = text[..idx]
-        .char_indices()
-        .rev()
-        .nth(chars.saturating_sub(1))
-        .map(|(i, _)| i)
-        .unwrap_or(0);
-    &text[start..idx]
+fn nearest_after(text: &str, spans: &[(usize, usize)], idx: usize) -> Option<usize> {
+    spans
+        .iter()
+        .filter(|&&(s, _)| s >= idx && s <= text.len())
+        .map(|&(s, _)| text[idx..s].chars().count())
+        .min()
 }
 
-fn window_after(text: &str, idx: usize, chars: usize) -> &str {
-    let end = text[idx..]
-        .char_indices()
-        .nth(chars)
-        .map(|(i, _)| idx + i)
-        .unwrap_or(text.len());
-    &text[idx..end]
+/// Start of the closest strong keyword ending before `idx`.
+fn strong_start_before(spans: &[(usize, usize)], idx: usize) -> Option<usize> {
+    spans.iter().filter(|&&(_, e)| e <= idx).max_by_key(|&&(_, e)| e).map(|&(s, _)| s)
 }
 
-/// Decimals, money, percentages, times and phone-number fragments.
-fn looks_numeric_context(text: &str, start: usize, end: usize) -> bool {
-    let prev: Vec<char> = text[..start].chars().rev().take(4).collect();
-    let next: Vec<char> = text[end..].chars().take(2).collect();
+fn strong_end_before(spans: &[(usize, usize)], idx: usize) -> Option<usize> {
+    spans.iter().filter(|&&(_, e)| e <= idx).map(|&(_, e)| e).max()
+}
 
+/// Only linking words between the keyword and the code ("code is", "رمز التحقق الخاص بك هو").
+fn filler_only(between: &str) -> bool {
+    const FILLER: &[&str] = &[
+        "is", "was", "your", "the", "below", "here", "it", "lautet", "ist", "est", "es", "de", "for", "to", "use",
+        "verification", "security", "login", "sign-in", "one-time", "vérification", "verificación",
+        "هو", "هي", "الخاص", "الخاصة", "بك", "التفعيل", "التحقق", "الدخول",
+    ];
+    let words: Vec<&str> = between
+        .split(|c: char| c.is_whitespace() || matches!(c, ':' | '：' | ',' | '،' | '[' | '(' | '"' | '«'))
+        .filter(|w| !w.is_empty())
+        .collect();
+    words.len() <= 6 && words.iter().all(|w| FILLER.contains(&w.to_lowercase().as_str()))
+}
+
+/// Copyright / address / unsubscribe footer lines.
+fn footer_line(text: &str, start: usize, end: usize) -> bool {
+    let ls = text[..start].rfind('\n').map_or(0, |i| i + 1);
+    let le = text[end..].find('\n').map_or(text.len(), |i| end + i);
+    let line = text[ls..le].to_lowercase();
+    line.contains('©') || line.contains("(c)") || line.contains("all rights reserved") || line.contains("unsubscribe")
+}
+
+fn own_line(text: &str, start: usize, end: usize) -> bool {
+    let ls = text[..start].rfind('\n').map_or(0, |i| i + 1);
+    let le = text[end..].find('\n').map_or(text.len(), |i| end + i);
+    let before = text[ls..start].trim();
+    let after = text[end..le].trim().trim_end_matches(['.', '!']);
+    (before.is_empty() || before.ends_with(':')) && after.is_empty()
+}
+
+/// Decimals, money, percentages, times, `#` refs, and digit groups.
+fn numeric_context(text: &str, start: usize, end: usize) -> bool {
+    let prev: Vec<char> = text[..start].chars().rev().take(6).collect();
+    let next: Vec<char> = text[end..].chars().take(3).collect();
     let p0 = prev.first().copied();
     let p1 = prev.get(1).copied();
     let n0 = next.first().copied();
     let n1 = next.get(1).copied();
-
     let digit = |c: Option<char>| c.is_some_and(|c| c.is_ascii_digit());
-    // 12.50 / 1,000 / 10:30
     if matches!(n0, Some('.' | ',' | ':')) && digit(n1) {
         return true;
     }
     if matches!(p0, Some('.' | ',' | ':')) && digit(p1) {
         return true;
     }
-    // 50% / $49 / €10 / +20 123 ...
-    if matches!(n0, Some('%')) {
+    if matches!(n0, Some('%')) || (n0 == Some(' ') && n1 == Some('%')) {
         return true;
     }
-    if prev
-        .iter()
-        .take(2)
-        .any(|c| matches!(c, '$' | '€' | '£' | '¥' | '+' | '#'))
-    {
+    if prev.iter().take(2).any(|c| matches!(c, '$' | '€' | '£' | '¥' | '₹' | '+' | '#' | '№')) {
         return true;
     }
-    // "1 800 555": a digit group right before (phone-like)
-    if p0 == Some(' ') && digit(p1) {
+    if (p0 == Some(' ') && digit(p1)) || (n0 == Some(' ') && digit(n1)) {
         return true;
     }
-    let before = window_before(text, start, 4).to_ascii_uppercase();
-    ["EGP", "USD", "EUR", "SAR", "AED"].iter().any(|c| before.contains(c))
+    const UNITS: &[&str] = &[
+        "egp", "usd", "eur", "sar", "aed", "gbp", "kwd", "le", "ج.م", "جنيه", "ريال", "درهم", "mb", "gb", "kb", "px",
+        "pts", "points", "miles", "km", "kg",
+    ];
+    let clean = |w: &str| w.trim_matches(|c: char| !c.is_alphanumeric() && c != '.').to_lowercase();
+    let prev_word = text[..start].split_whitespace().last().map(clean).unwrap_or_default();
+    let next_word = text[end..].split_whitespace().next().map(clean).unwrap_or_default();
+    UNITS.contains(&prev_word.as_str()) || UNITS.contains(&next_word.as_str())
 }
 
-fn in_url_token(text: &str, start: usize, end: usize) -> bool {
-    // Byte index *after* the whitespace char: whitespace can be multi-byte
-    // (NBSP, U+2003...), so never assume `+ 1`.
+fn in_url_or_email(text: &str, start: usize, end: usize) -> bool {
     let tok_start = text[..start]
         .char_indices()
         .rev()
         .find(|(_, c)| c.is_whitespace())
         .map(|(i, c)| i + c.len_utf8())
         .unwrap_or(0);
-    let tok_end = text[end..]
-        .find(char::is_whitespace)
-        .map(|i| end + i)
-        .unwrap_or(text.len());
+    let tok_end = text[end..].find(char::is_whitespace).map(|i| end + i).unwrap_or(text.len());
     let tok = &text[tok_start..tok_end];
     tok.contains("://") || tok.contains("www.") || tok.contains('=') || tok.contains('/') || tok.contains('@')
 }

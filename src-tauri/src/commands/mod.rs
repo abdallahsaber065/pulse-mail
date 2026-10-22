@@ -17,7 +17,7 @@ use crate::window::OpenTarget;
 use serde::Serialize;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_opener::OpenerExt as _;
 
@@ -86,7 +86,7 @@ pub struct AppStatus {
     accounts: Vec<AccountInfo>,
     destroy_on_close: bool,
     autostart: bool,
-    /// Default notification mode for new accounts: "all" | "otp" | "off"
+    /// Default notification mode for new accounts: "all" | "primary" | "otp" | "off"
     notifications: String,
     data_dir: String,
     version: &'static str,
@@ -355,7 +355,7 @@ fn check_window(window: &str) -> CmdResult<()> {
 }
 
 fn check_notify(mode: &str) -> CmdResult<()> {
-    if matches!(mode, "all" | "otp" | "off") {
+    if matches!(mode, "all" | "primary" | "otp" | "off") {
         Ok(())
     } else {
         Err(CmdError::new("Unknown notification setting."))
@@ -410,6 +410,58 @@ pub async fn resume_history(state: State<'_, AppState>, account_id: i64) -> CmdR
     Ok(())
 }
 
+/// Bump when the OTP detector changes enough to re-score cached mail.
+const OTP_VERSION: &str = "2";
+
+/// Re-run OTP detection over the cache once per detector version, in small
+/// batches so the store lock is never held for long.
+fn rescan_otp_if_needed(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let lock = || state.store.lock().unwrap_or_else(|e| e.into_inner());
+    if lock().get_setting("otp_version").ok().flatten().as_deref() == Some(OTP_VERSION) {
+        return;
+    }
+    let started = std::time::Instant::now();
+    let (mut after, mut scanned, mut found) = (0i64, 0usize, 0usize);
+    loop {
+        let Ok(batch) = lock().otp_rescan_batch(after, 200) else { return };
+        if batch.is_empty() {
+            break;
+        }
+        let results: Vec<_> = batch
+            .iter()
+            .map(|r| {
+                let d = crate::sync::mime::safe_detect(&crate::otp::Input {
+                    subject: &r.subject,
+                    text: &r.text,
+                    html: if r.body_loaded { r.html.as_deref() } else { None },
+                    from: &r.from,
+                    promotional: r.promotional,
+                });
+                (r.rowid, r.account_id, r.id.clone(), r.from.clone(), d)
+            })
+            .collect();
+        let mut store = lock();
+        for (rowid, acct, id, from, d) in results {
+            after = rowid;
+            scanned += 1;
+            let (code, link, score) = match &d {
+                Some(d) if d.kind == crate::otp::Kind::Code => (Some(d.value.as_str()), None, d.confidence),
+                Some(d) => (None, Some(d.value.as_str()), d.confidence),
+                None => (None, None, 0),
+            };
+            found += usize::from(d.is_some());
+            if let Err(e) = store.set_otp(acct, &id, &from, code, link, score) {
+                tracing::warn!(error = %e, "otp rescan write failed");
+                return;
+            }
+        }
+    }
+    let _ = lock().set_setting("otp_version", OTP_VERSION);
+    tracing::info!(scanned, found, ms = started.elapsed().as_millis() as u64, "otp rescan done");
+    let _ = app.emit("mail-updated", ());
+}
+
 /// Labels of one account; with `account_id` None and several accounts, the
 /// unified view: system labels with counts summed across accounts.
 #[tauri::command]
@@ -447,10 +499,62 @@ pub fn list_threads(
     limit: i64,
     offset: i64,
     account_id: Option<i64>,
+    category: Option<String>,
 ) -> CmdResult<Vec<ThreadRow>> {
     validate::label_id(&label_id)?;
+    if let Some(c) = &category
+        && !crate::store::CATEGORIES.contains(&c.as_str())
+    {
+        return Err(CmdError::new("Unknown inbox tab."));
+    }
     let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
-    Ok(store.list_threads(account_id, &label_id, limit.clamp(1, 5000), offset.max(0))?)
+    Ok(store.list_threads_in(account_id, &label_id, category.as_deref(), limit.clamp(1, 5000), offset.max(0))?)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryCount {
+    pub id: String,
+    pub unread: i64,
+    pub total: i64,
+}
+
+/// Gmail inbox tabs (Primary, Promotions, Social, Updates, Forums) with
+/// unread and total thread counts, for one account or all.
+#[tauri::command]
+pub fn category_counts(state: State<'_, AppState>, account_id: Option<i64>) -> CmdResult<Vec<CategoryCount>> {
+    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+    let counts = store.category_counts(account_id)?;
+    Ok(crate::store::CATEGORIES
+        .iter()
+        .map(|id| {
+            let (unread, total) = counts
+                .iter()
+                .find(|(c, _, _)| c == id)
+                .map(|(_, u, t)| (*u, *t))
+                .unwrap_or_default();
+            CategoryCount { id: (*id).to_string(), unread, total }
+        })
+        .collect())
+}
+
+/// "Not a code" (useful = false, also clears that message's code) or a
+/// copied code (useful = true): adjusts future detection for the sender.
+#[tauri::command]
+pub fn otp_feedback(
+    state: State<'_, AppState>,
+    account_id: i64,
+    sender: String,
+    useful: bool,
+    message_id: Option<String>,
+) -> CmdResult<()> {
+    validate::text(&sender, 320)?;
+    if let Some(id) = &message_id {
+        validate::gmail_id(id)?;
+    }
+    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+    store.otp_feedback(account_id, &sender, useful, message_id.as_deref())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -608,7 +712,21 @@ pub async fn modify_thread(
     remove: Vec<String>,
     account_id: Option<i64>,
 ) -> CmdResult<()> {
-    const ALLOWED: &[&str] = &["INBOX", "STARRED", "UNREAD", "IMPORTANT", "SPAM", "TRASH"];
+    // CATEGORY_* moves a thread between Gmail's inbox tabs (allowed by the
+    // existing https://mail.google.com/ scope).
+    const ALLOWED: &[&str] = &[
+        "INBOX",
+        "STARRED",
+        "UNREAD",
+        "IMPORTANT",
+        "SPAM",
+        "TRASH",
+        "CATEGORY_PERSONAL",
+        "CATEGORY_SOCIAL",
+        "CATEGORY_PROMOTIONS",
+        "CATEGORY_UPDATES",
+        "CATEGORY_FORUMS",
+    ];
     validate::gmail_id(&thread_id)?;
     if add.len() + remove.len() > 10 {
         return Err(CmdError::new("That action isn't supported."));
@@ -686,6 +804,8 @@ pub async fn start_sync(app: &AppHandle, state: &AppState, tokens: TokenManager,
 /// Credential Manager. Accounts without one show "Please sign in again".
 pub async fn resume(app: AppHandle) {
     let state = app.state::<AppState>();
+    let rescan_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || rescan_otp_if_needed(&rescan_app));
     let Ok(accounts) = state.store.lock().unwrap_or_else(|e| e.into_inner()).accounts() else {
         return;
     };

@@ -8,6 +8,8 @@ const COMMANDS: &[&str] = &[
     "sign_out",
     "list_labels",
     "list_threads",
+    "category_counts",
+    "otp_feedback",
     "search",
     "search_server",
     "set_account_settings",

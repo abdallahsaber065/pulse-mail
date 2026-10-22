@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-category-counts"
+description = "Enables the category_counts command without any pre-configured scope."
+commands.allow = ["category_counts"]
+
+[[permission]]
+identifier = "deny-category-counts"
+description = "Denies the category_counts command without any pre-configured scope."
+commands.deny = ["category_counts"]

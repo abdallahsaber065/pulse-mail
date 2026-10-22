@@ -29,6 +29,12 @@ pub struct NewMessage {
     pub label_ids: Vec<String>,
     pub has_attachments: bool,
     pub otp_code: Option<String>,
+    /// OTP detector confidence (0-100) for `otp_code` / `otp_link`.
+    pub otp_score: i32,
+    /// One-click sign-in / verification link, when no code was found.
+    pub otp_link: Option<String>,
+    /// "Expires in N minutes" (not stored; used for the toast).
+    pub otp_expires_min: Option<u32>,
     pub cc_list: String,
     pub reply_to: String,
     /// `<id@host>` of this message, for replies.
@@ -72,7 +78,7 @@ pub struct Account {
     pub last_sync_at: Option<i64>,
     /// "30d" | "90d" | "1y" | "all": how much history to download.
     pub sync_window: String,
-    /// "all" | "otp" | "off"
+    /// "all" | "primary" (Primary tab + codes) | "otp" | "off"
     pub notify: String,
     /// "setup" (onboarding not finished) | "pending" | "running" | "paused" | "done"
     pub backfill_state: String,
@@ -95,6 +101,8 @@ pub struct Account {
     pub color: String,
     /// Plain-text signature appended to new messages and replies.
     pub signature: String,
+    /// Show Gmail's inbox tabs (Primary, Promotions, ...).
+    pub category_tabs: bool,
 }
 
 /// Per-account settings the UI can change.
@@ -106,6 +114,7 @@ pub struct AccountSettings {
     pub signature: Option<String>,
     pub attach_mode: Option<String>,
     pub attach_max_mb: Option<i64>,
+    pub category_tabs: Option<bool>,
 }
 
 pub const ATTACH_MODES: &[&str] = &["none", "limit", "all"];
@@ -127,7 +136,7 @@ pub const BACKFILL_STATES: &[&str] = &["setup", "pending", "running", "paused", 
 
 const ACCOUNT_COLS: &str = "id, email, history_id, last_sync_at, sync_window, notify, backfill_state, backfill_page, \
                             backfill_done, backfill_total, messages_total, backfill_phase, backfill_error, \
-                            attach_mode, attach_max_mb, display_name, color, signature";
+                            attach_mode, attach_max_mb, display_name, color, signature, category_tabs";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -155,6 +164,8 @@ pub struct ThreadRow {
     pub unread: bool,
     pub starred: bool,
     pub otp_code: Option<String>,
+    /// Gmail marked a message of the thread IMPORTANT.
+    pub important: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -175,6 +186,7 @@ pub struct MessageRow {
     pub starred: bool,
     pub has_attachments: bool,
     pub otp_code: Option<String>,
+    pub otp_link: Option<String>,
     pub body_loaded: bool,
     pub cc_list: String,
     pub reply_to: String,
@@ -182,6 +194,20 @@ pub struct MessageRow {
     pub rfc_references: String,
     /// Real attachments (inline `cid:` images are not listed).
     pub attachments: Vec<AttachmentRow>,
+}
+
+/// A cached message for the OTP re-scan.
+pub struct OtpRescanRow {
+    pub rowid: i64,
+    pub account_id: i64,
+    pub id: String,
+    pub subject: String,
+    pub from: String,
+    /// Body text, or the snippet when the body isn't cached.
+    pub text: String,
+    pub html: Option<String>,
+    pub body_loaded: bool,
+    pub promotional: bool,
 }
 
 /// (from_email, body_html, body_text, body_loaded)
@@ -325,6 +351,9 @@ impl Store {
         }
         if let Some(mb) = s.attach_max_mb {
             tx.execute("UPDATE accounts SET attach_max_mb = ?2 WHERE id = ?1", params![account_id, mb])?;
+        }
+        if let Some(on) = s.category_tabs {
+            tx.execute("UPDATE accounts SET category_tabs = ?2 WHERE id = ?1", params![account_id, on])?;
         }
         tx.commit()
     }
@@ -505,6 +534,82 @@ impl Store {
         tx.commit()
     }
 
+    /// Inbox tabs for an account (None = all): (category, unread threads, threads).
+    pub fn category_counts(&self, account_id: Option<i64>) -> Result<Vec<(String, i64, i64)>> {
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "WITH inbox AS (
+                SELECT m.account_id, m.thread_id, m.is_unread, {cat} AS cat
+                FROM messages m
+                JOIN message_labels ml ON ml.account_id = m.account_id AND ml.message_id = m.id AND ml.label_id = 'INBOX'
+                WHERE (?1 IS NULL OR m.account_id = ?1)
+             )
+             SELECT cat, COUNT(DISTINCT CASE WHEN is_unread = 1 THEN account_id || ':' || thread_id END),
+                    COUNT(DISTINCT account_id || ':' || thread_id)
+             FROM inbox GROUP BY cat",
+            cat = CATEGORY_EXPR
+        ))?;
+        stmt.query_map([account_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect()
+    }
+
+    /// Learned adjustment for codes from this sender (+ copied, - "not a code").
+    pub fn otp_bias(&self, account_id: i64, sender: &str) -> Result<i32> {
+        otp_bias(&self.conn, account_id, sender)
+    }
+
+    /// Record feedback on a detected code. `useful = false` also clears the
+    /// code / link of `message_id`.
+    pub fn otp_feedback(&self, account_id: i64, sender: &str, useful: bool, message_id: Option<&str>) -> Result<()> {
+        let delta = if useful { 10 } else { -30 };
+        self.conn.execute(
+            "INSERT INTO otp_feedback(account_id, sender, score) VALUES (?1, lower(?2), ?3)
+             ON CONFLICT(account_id, sender) DO UPDATE SET score = MAX(-90, MIN(20, score + ?3))",
+            params![account_id, sender, delta],
+        )?;
+        if !useful && let Some(id) = message_id {
+            self.conn.execute(
+                "UPDATE messages SET otp_code = NULL, otp_link = NULL, otp_score = 0 WHERE account_id = ?1 AND id = ?2",
+                params![account_id, id],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Cached messages to re-run OTP detection on, in rowid order.
+    pub fn otp_rescan_batch(&self, after_rowid: i64, limit: i64) -> Result<Vec<OtpRescanRow>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT m.rowid, m.account_id, m.id, m.subject, m.from_email,
+                    CASE WHEN m.body_loaded = 1 THEN m.body_text ELSE m.snippet END, m.body_html, m.body_loaded,
+                    EXISTS (SELECT 1 FROM message_labels c WHERE c.account_id = m.account_id AND c.message_id = m.id
+                            AND c.label_id = 'CATEGORY_PROMOTIONS')
+             FROM messages m WHERE m.rowid > ?1 ORDER BY m.rowid LIMIT ?2",
+        )?;
+        stmt.query_map(params![after_rowid, limit], |r| {
+            Ok(OtpRescanRow {
+                rowid: r.get(0)?,
+                account_id: r.get(1)?,
+                id: r.get(2)?,
+                subject: r.get(3)?,
+                from: r.get(4)?,
+                text: r.get(5)?,
+                html: r.get(6)?,
+                body_loaded: r.get(7)?,
+                promotional: r.get(8)?,
+            })
+        })?
+        .collect()
+    }
+
+    /// Store a re-run OTP result (feedback still applies).
+    pub fn set_otp(&mut self, account_id: i64, id: &str, from: &str, code: Option<&str>, link: Option<&str>, score: i32) -> Result<()> {
+        let bias = otp_bias(&self.conn, account_id, from)?;
+        let keep = score + bias >= crate::otp::STORE_THRESHOLD;
+        self.conn.execute(
+            "UPDATE messages SET otp_code = ?3, otp_link = ?4, otp_score = ?5 WHERE account_id = ?1 AND id = ?2",
+            params![account_id, id, code.filter(|_| keep), link.filter(|_| keep), score],
+        )?;
+        Ok(())
+    }
+
     /// Labels with unread counts computed from the local cache (always fresh,
     /// unlike Gmail's counters which are only refreshed on a labels fetch).
     pub fn list_labels(&self, account_id: i64) -> Result<Vec<LabelRow>> {
@@ -533,14 +638,15 @@ impl Store {
 
     pub fn upsert_message(&mut self, account_id: i64, m: &NewMessage) -> Result<()> {
         let tx = self.conn.transaction()?;
+        let (otp_code, otp_link) = otp_after_feedback(&tx, account_id, m)?;
         let unread = m.label_ids.iter().any(|l| l == "UNREAD");
         let starred = m.label_ids.iter().any(|l| l == "STARRED");
         tx.execute(
             "INSERT INTO messages(account_id, id, thread_id, internal_date, from_name, from_email, to_list,
                                   subject, snippet, body_text, body_html, is_unread, is_starred,
                                   has_attachments, otp_code, body_loaded,
-                                  cc_list, reply_to, rfc_message_id, rfc_references, size)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19, ?20)
+                                  cc_list, reply_to, rfc_message_id, rfc_references, size, otp_score, otp_link)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
              ON CONFLICT(account_id, id) DO UPDATE SET
                 thread_id = excluded.thread_id, internal_date = excluded.internal_date,
                 from_name = excluded.from_name, from_email = excluded.from_email, to_list = excluded.to_list,
@@ -549,7 +655,8 @@ impl Store {
                 has_attachments = excluded.has_attachments, otp_code = excluded.otp_code,
                 body_loaded = 1, cc_list = excluded.cc_list, reply_to = excluded.reply_to,
                 rfc_message_id = excluded.rfc_message_id, rfc_references = excluded.rfc_references,
-                size = CASE WHEN excluded.size > 0 THEN excluded.size ELSE messages.size END",
+                size = CASE WHEN excluded.size > 0 THEN excluded.size ELSE messages.size END,
+                otp_score = excluded.otp_score, otp_link = excluded.otp_link",
             params![
                 account_id,
                 m.id,
@@ -565,12 +672,14 @@ impl Store {
                 unread,
                 starred,
                 m.has_attachments,
-                m.otp_code,
+                otp_code,
                 m.cc_list,
                 m.reply_to,
                 m.rfc_message_id,
                 m.rfc_references,
-                m.size
+                m.size,
+                m.otp_score,
+                otp_link
             ],
         )?;
         write_labels(&tx, account_id, &m.id, &m.label_ids)?;
@@ -602,18 +711,20 @@ impl Store {
     /// labels). Never overwrites a body that is already cached.
     pub fn upsert_metadata(&mut self, account_id: i64, m: &NewMessage) -> Result<()> {
         let tx = self.conn.transaction()?;
+        let (otp_code, _) = otp_after_feedback(&tx, account_id, m)?;
         let unread = m.label_ids.iter().any(|l| l == "UNREAD");
         let starred = m.label_ids.iter().any(|l| l == "STARRED");
         tx.execute(
             "INSERT INTO messages(account_id, id, thread_id, internal_date, from_name, from_email, to_list,
                                   subject, snippet, body_text, is_unread, is_starred, otp_code, body_loaded,
-                                  size, has_attachments)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10, ?11, ?12, 0, ?13, ?14)
+                                  size, has_attachments, otp_score)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10, ?11, ?12, 0, ?13, ?14, ?15)
              ON CONFLICT(account_id, id) DO UPDATE SET
                 thread_id = excluded.thread_id, internal_date = excluded.internal_date,
                 from_name = excluded.from_name, from_email = excluded.from_email, to_list = excluded.to_list,
                 subject = excluded.subject, snippet = excluded.snippet,
                 is_unread = excluded.is_unread, is_starred = excluded.is_starred,
+                otp_score = CASE WHEN messages.otp_code IS NULL THEN excluded.otp_score ELSE messages.otp_score END,
                 otp_code = COALESCE(messages.otp_code, excluded.otp_code),
                 size = CASE WHEN excluded.size > 0 THEN excluded.size ELSE messages.size END,
                 has_attachments = CASE WHEN messages.body_loaded = 1 THEN messages.has_attachments
@@ -630,9 +741,10 @@ impl Store {
                 m.snippet,
                 unread,
                 starred,
-                m.otp_code,
+                otp_code,
                 m.size,
-                m.has_attachments
+                m.has_attachments,
+                m.otp_score
             ],
         )?;
         write_labels(&tx, account_id, &m.id, &m.label_ids)?;
@@ -760,6 +872,19 @@ impl Store {
     /// Threads carrying `label_id`, newest first. `account_id` None = every
     /// account (the unified inbox).
     pub fn list_threads(&self, account_id: Option<i64>, label_id: &str, limit: i64, offset: i64) -> Result<Vec<ThreadRow>> {
+        self.list_threads_in(account_id, label_id, None, limit, offset)
+    }
+
+    /// Like [`Store::list_threads`], limited to one Gmail inbox tab
+    /// (`CATEGORY_PERSONAL` also takes mail without any category label).
+    pub fn list_threads_in(
+        &self,
+        account_id: Option<i64>,
+        label_id: &str,
+        category: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ThreadRow>> {
         let mut stmt = self.conn.prepare_cached(
             "WITH lm AS (
                 SELECT m.*,
@@ -770,14 +895,20 @@ impl Store {
                 FROM messages m
                 JOIN message_labels ml ON ml.account_id = m.account_id AND ml.message_id = m.id
                 WHERE (?1 IS NULL OR m.account_id = ?1) AND ml.label_id = ?2
+                  AND (?5 IS NULL OR COALESCE((SELECT c.label_id FROM message_labels c
+                                WHERE c.account_id = m.account_id AND c.message_id = m.id
+                                  AND c.label_id IN ('CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS')
+                                LIMIT 1), 'CATEGORY_PERSONAL') = ?5)
              )
              SELECT thread_id, id, subject, from_name, from_email, snippet, internal_date,
-                    cnt, any_unread, any_starred, otp_code, account_id
+                    cnt, any_unread, any_starred, otp_code, account_id,
+                    EXISTS (SELECT 1 FROM message_labels mi WHERE mi.account_id = lm.account_id AND mi.label_id = 'IMPORTANT'
+                       AND mi.message_id IN (SELECT id FROM messages t WHERE t.account_id = lm.account_id AND t.thread_id = lm.thread_id))
              FROM lm WHERE rn = 1
              ORDER BY internal_date DESC
              LIMIT ?3 OFFSET ?4",
         )?;
-        stmt.query_map(params![account_id, label_id, limit, offset], map_thread)?
+        stmt.query_map(params![account_id, label_id, limit, offset, category], map_thread)?
             .collect()
     }
 
@@ -807,7 +938,9 @@ impl Store {
                                     AND ml.label_id IN ('SPAM', 'TRASH'))
              )
              SELECT thread_id, id, subject, from_name, from_email, snippet, internal_date,
-                    cnt, is_unread, is_starred, otp_code, account_id
+                    cnt, is_unread, is_starred, otp_code, account_id,
+                    EXISTS (SELECT 1 FROM message_labels mi WHERE mi.account_id = hits.account_id AND mi.label_id = 'IMPORTANT'
+                       AND mi.message_id IN (SELECT id FROM messages t WHERE t.account_id = hits.account_id AND t.thread_id = hits.thread_id))
              FROM hits WHERE rn = 1
              ORDER BY internal_date DESC
              LIMIT ?3",
@@ -842,7 +975,9 @@ impl Store {
                     SELECT thread_id FROM messages WHERE account_id = ?1 AND id IN (SELECT value FROM json_each(?2)))
              )
              SELECT thread_id, id, subject, from_name, from_email, snippet, internal_date,
-                    cnt, any_unread, any_starred, otp_code, account_id
+                    cnt, any_unread, any_starred, otp_code, account_id,
+                    EXISTS (SELECT 1 FROM message_labels mi WHERE mi.account_id = lm.account_id AND mi.label_id = 'IMPORTANT'
+                       AND mi.message_id IN (SELECT id FROM messages t WHERE t.account_id = lm.account_id AND t.thread_id = lm.thread_id))
              FROM lm WHERE rn = 1
              ORDER BY internal_date DESC",
         )?;
@@ -885,7 +1020,7 @@ impl Store {
                     body_text, body_html, is_unread, is_starred, has_attachments, otp_code, body_loaded,
                     (SELECT group_concat(label_id, ' ') FROM message_labels ml
                       WHERE ml.account_id = m.account_id AND ml.message_id = m.id),
-                    cc_list, reply_to, rfc_message_id, rfc_references
+                    cc_list, reply_to, rfc_message_id, rfc_references, otp_link
              FROM messages m WHERE account_id = ?1 AND thread_id = ?2
              ORDER BY internal_date ASC",
         )?;
@@ -907,6 +1042,7 @@ impl Store {
                 starred: r.get(11)?,
                 has_attachments: r.get(12)?,
                 otp_code: r.get(13)?,
+                otp_link: r.get(20)?,
                 body_loaded: r.get(14)?,
                 label_ids: labels
                     .map(|s| s.split(' ').map(str::to_owned).collect())
@@ -1054,6 +1190,44 @@ fn map_account(r: &rusqlite::Row<'_>) -> Result<Account> {
         display_name: r.get(15)?,
         color: r.get(16)?,
         signature: r.get(17)?,
+        category_tabs: r.get(18)?,
+    })
+}
+
+/// Gmail inbox tab of message `m`: Social / Promotions / Updates / Forums,
+/// else Primary (Gmail files uncategorized mail under Primary too).
+const CATEGORY_EXPR: &str = "COALESCE((SELECT c.label_id FROM message_labels c
+     WHERE c.account_id = m.account_id AND c.message_id = m.id
+       AND c.label_id IN ('CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS')
+     LIMIT 1), 'CATEGORY_PERSONAL')";
+
+pub const CATEGORIES: &[&str] =
+    &["CATEGORY_PERSONAL", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_UPDATES", "CATEGORY_FORUMS"];
+
+fn otp_bias(conn: &Connection, account_id: i64, sender: &str) -> Result<i32> {
+    if sender.is_empty() {
+        return Ok(0);
+    }
+    conn.query_row(
+        "SELECT score FROM otp_feedback WHERE account_id = ?1 AND sender = lower(?2)",
+        params![account_id, sender],
+        |r| r.get(0),
+    )
+    .optional()
+    .map(Option::unwrap_or_default)
+}
+
+/// The message's code/link unless "not a code" feedback for its sender pulls
+/// the confidence under the threshold.
+fn otp_after_feedback(conn: &Connection, account_id: i64, m: &NewMessage) -> Result<(Option<String>, Option<String>)> {
+    if m.otp_code.is_none() && m.otp_link.is_none() {
+        return Ok((None, None));
+    }
+    let bias = otp_bias(conn, account_id, &m.from_email)?;
+    Ok(if m.otp_score + bias >= crate::otp::STORE_THRESHOLD {
+        (m.otp_code.clone(), m.otp_link.clone())
+    } else {
+        (None, None)
     })
 }
 
@@ -1071,6 +1245,7 @@ fn map_thread(r: &rusqlite::Row<'_>) -> Result<ThreadRow> {
         starred: r.get(9)?,
         otp_code: r.get(10)?,
         account_id: r.get(11)?,
+        important: r.get(12)?,
     })
 }
 
@@ -1333,6 +1508,50 @@ mod tests {
         assert_eq!(s.list_threads(Some(a.id), "INBOX", 10, 0).unwrap().len(), 1);
         assert_eq!(s.inbox_unread().unwrap(), vec![(a.id, 1)]);
         assert!(s.db_size().unwrap() > 0);
+    }
+
+    #[test]
+    fn inbox_tabs_important_and_otp_feedback() {
+        let mut s = Store::open_in_memory().unwrap();
+        let a = s.upsert_account("a@example.com", 1).unwrap();
+        s.upsert_message(a.id, &msg("p1", "t1", 10, &["INBOX", "UNREAD", "CATEGORY_PERSONAL", "IMPORTANT"], "hi")).unwrap();
+        s.upsert_message(a.id, &msg("n1", "t2", 20, &["INBOX", "UNREAD"], "no category = primary")).unwrap();
+        s.upsert_message(a.id, &msg("x1", "t3", 30, &["INBOX", "CATEGORY_PROMOTIONS"], "sale")).unwrap();
+        s.upsert_message(a.id, &msg("u1", "t4", 40, &["INBOX", "UNREAD", "CATEGORY_UPDATES"], "receipt")).unwrap();
+        let ids = |cat: &str| -> Vec<String> {
+            s.list_threads_in(Some(a.id), "INBOX", Some(cat), 50, 0).unwrap().into_iter().map(|t| t.thread_id).collect()
+        };
+        assert_eq!(ids("CATEGORY_PERSONAL"), vec!["t2".to_string(), "t1".to_string()]);
+        assert_eq!(ids("CATEGORY_PROMOTIONS"), vec!["t3".to_string()]);
+        assert!(ids("CATEGORY_FORUMS").is_empty());
+        let all = s.list_threads(Some(a.id), "INBOX", 50, 0).unwrap();
+        assert_eq!(all.len(), 4);
+        assert!(all.iter().find(|t| t.thread_id == "t1").unwrap().important);
+        assert!(!all.iter().find(|t| t.thread_id == "t2").unwrap().important);
+        let counts = s.category_counts(Some(a.id)).unwrap();
+        let get = |c: &str| counts.iter().find(|(x, _, _)| x == c).map(|(_, u, t)| (*u, *t));
+        assert_eq!(get("CATEGORY_PERSONAL"), Some((2, 2)));
+        assert_eq!(get("CATEGORY_PROMOTIONS"), Some((0, 1)));
+        assert_eq!(get("CATEGORY_UPDATES"), Some((1, 1)));
+
+        // "Not a code" twice for a sender vetoes its codes from then on.
+        let mut otp = msg("o1", "t5", 50, &["INBOX"], "code");
+        otp.from_email = "Alerts@Shop.example".into();
+        otp.otp_code = Some("482913".into());
+        otp.otp_score = 70;
+        s.upsert_message(a.id, &otp).unwrap();
+        assert_eq!(s.get_thread(a.id, "t5").unwrap()[0].otp_code.as_deref(), Some("482913"));
+        s.otp_feedback(a.id, "alerts@shop.example", false, Some("o1")).unwrap();
+        assert_eq!(s.get_thread(a.id, "t5").unwrap()[0].otp_code, None, "cleared on feedback");
+        s.otp_feedback(a.id, "alerts@shop.example", false, None).unwrap();
+        assert_eq!(s.otp_bias(a.id, "ALERTS@shop.example").unwrap(), -60);
+        s.upsert_message(a.id, &otp).unwrap();
+        assert_eq!(s.get_thread(a.id, "t5").unwrap()[0].otp_code, None, "vetoed for this sender");
+        // A copy nudges it back up, capped.
+        for _ in 0..10 {
+            s.otp_feedback(a.id, "alerts@shop.example", true, None).unwrap();
+        }
+        assert_eq!(s.otp_bias(a.id, "alerts@shop.example").unwrap(), 20);
     }
 
     #[test]

@@ -169,4 +169,18 @@ pub const MIGRATIONS: &[&str] = &[
     DELETE FROM settings WHERE key = 'offline_days';
     UPDATE accounts SET backfill_state = 'pending', backfill_phase = 'bodies' WHERE backfill_state = 'done';
     "#,
+    // 8: OTP pipeline v2 (confidence, magic links, per-sender feedback) and
+    // Gmail category tabs. Categories themselves already live in
+    // message_labels (CATEGORY_* system labels), kept fresh by history.list.
+    r#"
+    ALTER TABLE messages ADD COLUMN otp_score INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE messages ADD COLUMN otp_link TEXT;
+    ALTER TABLE accounts ADD COLUMN category_tabs INTEGER NOT NULL DEFAULT 1;
+    CREATE TABLE otp_feedback (
+        account_id  INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        sender      TEXT NOT NULL,
+        score       INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (account_id, sender)
+    ) WITHOUT ROWID;
+    "#,
 ];

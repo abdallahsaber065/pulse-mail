@@ -14,6 +14,8 @@ pub struct NewMailToast {
     pub subject: String,
     pub snippet: String,
     pub otp: Option<String>,
+    /// The mail says the code expires in N minutes.
+    pub expires_min: Option<u32>,
     /// PC is locked and the user wants codes kept off the lock screen.
     pub hide_code: bool,
 }
@@ -41,7 +43,10 @@ pub fn toast_text(t: &NewMailToast) -> ToastText {
         Some(code) => ToastText {
             title: format!("{code}  ·  {}", t.from),
             line1: subject,
-            line2: "Verification code. Use \"Copy code\" to copy it.".into(),
+            line2: match t.expires_min {
+                Some(m) => format!("Verification code, expires in {m} min. Use \"Copy code\" to copy it."),
+                None => "Verification code. Use \"Copy code\" to copy it.".into(),
+            },
         },
         None => ToastText {
             title: t.from.clone(),
@@ -159,6 +164,7 @@ mod tests {
             subject: "Please verify your device".into(),
             snippet: "x".repeat(300),
             otp: otp.map(Into::into),
+            expires_min: None,
             hide_code: false,
         }
     }

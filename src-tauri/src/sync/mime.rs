@@ -58,7 +58,17 @@ pub fn to_new_message(raw: &RawMessage, bytes: &[u8]) -> NewMessage {
         .unwrap_or_default();
     m.attachments = attachments(&p);
     m.has_attachments = m.attachments.iter().any(|a| !a.inline);
-    m.otp_code = safe_otp(&m.subject, &text);
+    let (subject, from) = (m.subject.clone(), m.from_email.clone());
+    apply_otp(
+        &mut m,
+        &otp::Input {
+            subject: &subject,
+            text: &text,
+            html: html.as_deref(),
+            from: &from,
+            promotional: raw.label_ids.iter().any(|l| l == "CATEGORY_PROMOTIONS"),
+        },
+    );
     m.body_text = truncate(text, MAX_TEXT_BYTES);
     m.body_html = html.filter(|h| h.len() <= MAX_HTML_BYTES);
     m
@@ -179,14 +189,41 @@ pub fn from_metadata(meta: &MetaMessage) -> NewMessage {
         }
     }
     // Most OTP mails put the code in the first line, which is in the snippet.
-    m.otp_code = safe_otp(&m.subject, &m.snippet);
+    let (subject, snippet, from) = (m.subject.clone(), m.snippet.clone(), m.from_email.clone());
+    apply_otp(
+        &mut m,
+        &otp::Input {
+            subject: &subject,
+            text: &snippet,
+            html: None,
+            from: &from,
+            promotional: meta.label_ids.iter().any(|l| l == "CATEGORY_PROMOTIONS"),
+        },
+    );
     m
 }
 
+/// Run OTP detection and copy the result onto the message.
+pub fn apply_otp(m: &mut NewMessage, input: &otp::Input) {
+    let d = safe_detect(input);
+    m.otp_code = None;
+    m.otp_link = None;
+    m.otp_score = 0;
+    m.otp_expires_min = None;
+    if let Some(d) = d {
+        m.otp_score = d.confidence;
+        m.otp_expires_min = d.expires_min;
+        match d.kind {
+            otp::Kind::Code => m.otp_code = Some(d.value),
+            otp::Kind::Link => m.otp_link = Some(d.value),
+        }
+    }
+}
+
 /// OTP detection must never take sync down, whatever the input.
-fn safe_otp(subject: &str, text: &str) -> Option<String> {
-    std::panic::catch_unwind(|| otp::extract(subject, text).map(|o| o.code)).unwrap_or_else(|_| {
-        tracing::error!("otp extractor panicked; skipping code detection for one message");
+pub fn safe_detect(input: &otp::Input) -> Option<otp::Detection> {
+    std::panic::catch_unwind(|| otp::detect(input)).unwrap_or_else(|_| {
+        tracing::error!("otp detector panicked; skipping code detection for one message");
         None
     })
 }
