@@ -183,4 +183,10 @@ pub const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (account_id, sender)
     ) WITHOUT ROWID;
     "#,
+    // 9: inbox tabs default to off. Gmail's API doesn't say whether the
+    // user uses tabs on the web, and a single inbox (all of INBOX, newest
+    // first) matches Gmail with tabs off; tabs are one switch away.
+    r#"
+    UPDATE accounts SET category_tabs = 0;
+    "#,
 ];

@@ -26,6 +26,9 @@ describe("format", () => {
     expect(initials("Sara Ahmed")).toBe("SA");
     expect(initials("", "noreply@github.com")).toBe("N");
     expect(initials("GitHub")).toBe("G");
+    expect(initials("abdallahsaber00002@gmail.com", "abdallahsaber00002@gmail.com")).toBe("A");
+    expect(initials("Abdallah Saber", "abdallahsaber00002@gmail.com")).toBe("AS");
+    expect(initials("Abdallah Mohamed Saber")).toBe("AS");
     expect(initials("")).toBe("?");
   });
 

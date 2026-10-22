@@ -533,6 +533,7 @@ export default function App() {
     let unlisteners: (() => void)[] = [];
     void Promise.all([
       onEvent<null>("mail-updated", () => setTick((n) => n + 1)),
+      onEvent<null>("accounts-changed", () => void refetchStatus()),
       onEvent<SyncStatus>("sync-status", (s) => {
         setSyncs((m) => ({ ...m, [s.accountId]: s }));
         // A status for an account we don't know yet (just added): reload.

@@ -263,7 +263,7 @@ impl Store {
 
     pub fn upsert_account(&self, email: &str, now_ms: i64) -> Result<Account> {
         self.conn.execute(
-            "INSERT INTO accounts(email, created_at, backfill_state) VALUES (?1, ?2, 'setup')
+            "INSERT INTO accounts(email, created_at, backfill_state, category_tabs) VALUES (?1, ?2, 'setup', 0)
              ON CONFLICT(email) DO NOTHING",
             params![email, now_ms],
         )?;

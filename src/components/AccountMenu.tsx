@@ -52,7 +52,7 @@ export default function AccountMenu(p: {
         aria-haspopup="menu"
         aria-expanded={open()}
       >
-        <Show when={p.current == null && multi()} fallback={<Avatar name={shown()?.email ?? "?"} email={shown()?.email ?? ""} size={32} />}>
+        <Show when={p.current == null && multi()} fallback={<Avatar name={shown()?.displayName || shown()?.email || "?"} email={shown()?.email ?? ""} color={shown()?.color} size={32} />}>
           <span class="grid size-8 place-items-center rounded-full bg-secondary-container text-on-secondary-container">
             <Icon name="allInbox" size={18} />
           </span>
@@ -64,7 +64,7 @@ export default function AccountMenu(p: {
             {(a) => (
               <div class="flex flex-col items-center gap-2 px-4 pb-4 pt-5 text-center">
                 <div class="relative">
-                  <Avatar name={a().email} email={a().email} size={64} />
+                  <Avatar name={a().displayName || a().email} email={a().email} color={a().color} size={64} />
                   <span
                     class={`absolute bottom-0.5 right-0.5 size-4 rounded-full border-2 border-surface-high ${p.live ? "bg-otp" : "bg-outline"}`}
                     title={p.live ? "Live" : "Not live"}
@@ -99,7 +99,7 @@ export default function AccountMenu(p: {
                     role="menuitemradio"
                     aria-checked={p.current === a.id}
                   >
-                    <Avatar name={a.email} email={a.email} size={32} />
+                    <Avatar name={a.displayName || a.email} email={a.email} color={a.color} size={32} />
                     <span class="min-w-0 flex-1">
                       <span class="block truncate">{a.email}</span>
                       <Show when={a.sync.error || (a.backfillState !== "done" && a.backfillState !== "setup")}>

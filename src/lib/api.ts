@@ -115,7 +115,7 @@ export const api = {
 
 type Unlisten = () => void;
 
-export async function onEvent<T>(name: "mail-updated" | "sync-status" | "sync-activity" | "open-thread" | "send-result", cb: (payload: T) => void): Promise<Unlisten> {
+export async function onEvent<T>(name: "mail-updated" | "sync-status" | "sync-activity" | "open-thread" | "send-result" | "accounts-changed", cb: (payload: T) => void): Promise<Unlisten> {
   if (!inTauri) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen<T>(name, (e) => cb(e.payload));

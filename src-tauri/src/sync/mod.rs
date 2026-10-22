@@ -1223,6 +1223,25 @@ impl Engine {
     }
 
     async fn sync_labels(&self, token: &Secret) -> Result<(), SyncError> {
+        // An account without a name takes the one Gmail sends mail with
+        // (avatar initials, From name, account list). The user can change it.
+        let unnamed = self.db(|s| s.account(self.account_id))?.is_some_and(|a| a.display_name.is_empty());
+        if unnamed {
+            match self.gmail.primary_send_as_name(token).await {
+                Ok(Some(name)) => {
+                    let name: String = name.chars().filter(|c| !c.is_control()).take(80).collect();
+                    self.db(|s| {
+                        s.set_account_settings(
+                            self.account_id,
+                            &crate::store::AccountSettings { display_name: Some(name), ..Default::default() },
+                        )
+                    })?;
+                    let _ = self.app.emit("accounts-changed", ());
+                }
+                Ok(None) => {}
+                Err(e) => tracing::debug!(error = %e, "send-as name lookup failed"),
+            }
+        }
         let labels = self.gmail.labels(token).await?;
         let rows: Vec<LabelRow> = labels
             .into_iter()

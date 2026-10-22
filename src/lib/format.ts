@@ -56,11 +56,19 @@ export function relative(ms: number, now = Date.now()): string {
 }
 
 export function initials(name: string, email = ""): string {
-  const src = (name || email).trim();
+  // A bare address never yields initials from its domain ("abdallah@gmail.com"
+  // is "A", not "AG"): only a real name gives two letters.
+  const isAddress = (s: string) => s.includes("@");
+  const real = name.trim() && !isAddress(name) ? name.trim() : "";
+  const src = real || (name || email).trim().split("@")[0];
   if (!src) return "?";
-  const parts = src.replace(/[<>"]/g, "").split(/[\s._@-]+/).filter(Boolean);
+  const parts = src
+    .replace(/[<>"()]/g, "")
+    .split(/[\s._-]+/)
+    .map((p) => p.replace(/^[^\p{L}\p{N}]+/u, ""))
+    .filter(Boolean);
   const first = parts[0]?.[0] ?? "?";
-  const second = parts.length > 1 && name ? parts[1][0] : "";
+  const second = parts.length > 1 ? parts[parts.length - 1][0] : "";
   return (first + second).toUpperCase();
 }
 

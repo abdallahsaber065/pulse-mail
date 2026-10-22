@@ -387,6 +387,32 @@ impl Gmail {
         self.get(token, "/profile", &[]).await
     }
 
+    /// Display name of the primary "Send mail as" address (the name Gmail
+    /// puts on sent mail), if set. Needs no extra scope.
+    pub async fn primary_send_as_name(&self, token: &Secret) -> Result<Option<String>, GmailError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct SendAs {
+            #[serde(default)]
+            display_name: String,
+            #[serde(default)]
+            is_primary: bool,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct List {
+            #[serde(default)]
+            send_as: Vec<SendAs>,
+        }
+        let list: List = self.get(token, "/settings/sendAs", &[]).await?;
+        Ok(list
+            .send_as
+            .into_iter()
+            .find(|s| s.is_primary)
+            .map(|s| s.display_name.trim().to_string())
+            .filter(|n| !n.is_empty()))
+    }
+
     pub async fn labels(&self, token: &Secret) -> Result<Vec<Label>, GmailError> {
         Ok(self.get::<LabelList>(token, "/labels", &[]).await?.labels)
     }
