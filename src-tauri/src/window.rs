@@ -50,6 +50,7 @@ fn create_main(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 
 /// Open a specific thread (from a toast click). The UI either receives the
 /// event (window alive) or pulls it with `take_pending_open` on mount.
+#[allow(dead_code)]
 pub fn open_thread(app: &AppHandle, account_id: i64, thread_id: &str, message_id: Option<&str>) {
     let target = OpenTarget {
         account_id,
