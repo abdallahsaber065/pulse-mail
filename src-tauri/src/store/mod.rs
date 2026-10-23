@@ -630,6 +630,17 @@ impl Store {
         Ok(())
     }
 
+    /// Cheap maintenance after a write-heavy sync pass: refresh SQLite's
+    /// query-plan statistics and merge pending FTS5 segments (ROADMAP H3).
+    /// Both are no-ops (or near) when there is nothing to consolidate.
+    pub fn optimize(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "PRAGMA optimize;
+             INSERT INTO messages_fts(messages_fts) VALUES ('merge');",
+        )?;
+        Ok(())
+    }
+
     // ---- labels ---------------------------------------------------------
 
     pub fn replace_labels(&mut self, account_id: i64, labels: &[LabelRow]) -> Result<()> {
@@ -1763,6 +1774,20 @@ mod tests {
             .unwrap();
         s.upsert_message(id, &msg("m2", "t2", 100, &["INBOX"], "b")).unwrap();
         assert_eq!(s.list_labels(id).unwrap()[0].unread, 1);
+    }
+
+    #[test]
+    fn optimize_keeps_search_working() {
+        let (mut s, id) = setup();
+        s.upsert_message(id, &msg("m1", "t1", 100, &["INBOX"], "invoice tomorrow"))
+            .unwrap();
+        s.optimize().unwrap();
+        // The maintenance pass must not break FTS or further writes.
+        s.upsert_message(id, &msg("m2", "t2", 200, &["INBOX"], "second invoice"))
+            .unwrap();
+        s.optimize().unwrap();
+        let hits = s.search(Some(id), "invoice", 10).unwrap();
+        assert_eq!(hits.len(), 2);
     }
 
     #[test]

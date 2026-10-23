@@ -1348,6 +1348,9 @@ impl Engine {
         }
         self.db(|s| s.set_history_id(self.account_id, &latest, now_ms()))?;
         if changed {
+            if let Err(e) = self.db(|s| s.optimize()) {
+                tracing::debug!(error = %e, "post-sync optimize failed");
+            }
             let _ = self.app.emit("mail-updated", ());
         }
         Ok(added)
