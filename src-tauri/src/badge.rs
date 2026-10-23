@@ -1,5 +1,6 @@
 //! Unread badge: taskbar overlay (count in a red circle), tray icon dot and
 //! tray tooltip. Pure pixel code so it's testable without a window.
+#![allow(dead_code)]
 
 /// 3×5 bitmap digits, one row per u8 (bits 2..0 = left..right).
 const DIGITS: [[u8; 5]; 10] = [

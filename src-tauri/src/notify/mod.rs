@@ -1,5 +1,6 @@
 //! Native Windows toasts. OTP mail gets a "Copy code" button that works
 //! without opening the window; clicking the toast opens that exact thread.
+#![allow(dead_code)]
 
 use tauri::AppHandle;
 #[cfg(windows)]
