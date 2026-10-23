@@ -1,4 +1,4 @@
-import { createSignal, For, Index, Show } from "solid-js";
+import { createEffect, createSignal, For, Index, Show } from "solid-js";
 import { api } from "../lib/api";
 import { formatSize } from "../lib/format";
 import Icon, { type IconName } from "./Icon";
@@ -79,6 +79,17 @@ export default function Reader(p: Props) {
   const [quickReplyMode, setQuickReplyMode] = createSignal<"reply" | "reply_all">("reply");
   const [quickSending, setQuickSending] = createSignal(false);
   const [preview, setPreview] = createSignal<{ message: Message; attachment: Attachment } | null>(null);
+
+  createEffect(() => {
+    const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+    if (params?.has("preview") && !preview()) {
+      const ms = p.messages;
+      const target = ms.find((m) => m.attachments.length > 0);
+      if (target && target.attachments[0]) {
+        setPreview({ message: target, attachment: target.attachments[0] });
+      }
+    }
+  });
   let replyTextarea: HTMLTextAreaElement | undefined;
   const lastMsg = () => p.messages[p.messages.length - 1];
 
@@ -377,28 +388,40 @@ export default function Reader(p: Props) {
                       </div>
                     </div>
                   </div>
-                  <div class="no-print ml-14 flex flex-wrap gap-2">
-                    <Show when={hidden()}>
-                      <div class="mb-2 flex flex-1 items-center gap-3 rounded-lg bg-surface-container px-3 py-2 text-xs text-muted">
-                        <Icon name="image" size={16} />
-                        <span class="flex-1">Images are hidden to protect your privacy.</span>
-                        <button class="font-medium text-primary hover:underline" onClick={() => showImages(m().id)}>
-                          Show images
-                        </button>
-                        <Show when={m().fromEmail}>
-                          <button class="font-medium text-primary hover:underline" onClick={() => void alwaysShow(m())}>
-                            Always show from {m().fromEmail}
-                          </button>
-                        </Show>
-                      </div>
-                    </Show>
-                    <Show when={(r()?.trackers ?? 0) > 0}>
-                      <div
-                        class="mb-2 flex items-center gap-1.5 self-start rounded-full bg-secondary-container px-2.5 py-1 text-xs text-on-secondary-container"
-                        title="Tracking pixels tell the sender when you open a message. Pulse Mail never loads them."
-                      >
-                        <Icon name="shield" size={14} />
-                        {r()!.trackers === 1 ? "Blocked a tracker" : `Blocked ${r()!.trackers} trackers`}
+                  <div class="no-print ml-14 mb-3">
+                    <Show when={hidden() || (r()?.trackers ?? 0) > 0}>
+                      <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-surface-container/80 border border-divider/40 px-3.5 py-2 text-xs text-muted">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                          <Show when={hidden()} fallback={<Icon name="shield" size={15} class="text-secondary shrink-0" />}>
+                            <Icon name="image" size={15} class="text-muted shrink-0" />
+                          </Show>
+                          <span class="truncate">
+                            {hidden()
+                              ? "Remote images hidden to protect privacy"
+                              : `${r()!.trackers === 1 ? "1 tracking pixel" : `${r()!.trackers} tracking pixels`} blocked`}
+                          </span>
+                        </div>
+                        <div class="flex items-center gap-3 shrink-0">
+                          <Show when={hidden()}>
+                            <button class="font-medium text-primary hover:underline" onClick={() => showImages(m().id)}>
+                              Show images
+                            </button>
+                            <Show when={m().fromEmail}>
+                              <button class="hidden sm:inline font-medium text-primary/80 hover:text-primary hover:underline" onClick={() => void alwaysShow(m())}>
+                                Always show
+                              </button>
+                            </Show>
+                          </Show>
+                          <Show when={(r()?.trackers ?? 0) > 0 && hidden()}>
+                            <span
+                              class="inline-flex items-center gap-1.5 rounded-full bg-secondary-container/80 px-2.5 py-0.5 text-[11px] font-medium text-on-secondary-container"
+                              title="Tracking pixels tell the sender when you open a message. Pulse Mail never loads them."
+                            >
+                              <Icon name="shield" size={12} />
+                              {r()!.trackers === 1 ? "Blocked a tracker" : `Blocked ${r()!.trackers} trackers`}
+                            </span>
+                          </Show>
+                        </div>
                       </div>
                     </Show>
                   </div>
@@ -578,37 +601,17 @@ export default function Reader(p: Props) {
               </Show>
             </div>
           </Show>
-          <Show when={p.messages.length > 0}>
-            <div class="no-print ml-14 mt-2 flex flex-wrap gap-2">
-              <Show when={p.messages.find((m) => m.labelIds.includes("DRAFT") || m.id.startsWith("draft_"))}>
-                {(draft) => (
-                  <button
-                    class="flex h-10 items-center gap-2 rounded-full bg-primary px-5 text-sm font-medium text-on-primary hover:shadow"
-                    onClick={() => p.onEditDraft?.(draft())}
-                  >
-                    <Icon name="pencil" size={18} /> Edit draft
-                  </button>
-                )}
-              </Show>
-              <For
-                each={
-                  [
-                    ["reply", "Reply", "reply"],
-                    ["reply_all", "Reply all", "replyAll"],
-                    ["forward", "Forward", "forward"],
-                  ] as const
-                }
-              >
-                {([mode, label, icon]) => (
-                  <button
-                    class="flex h-10 items-center gap-2 rounded-full border border-outline px-5 text-sm font-medium text-text hover:bg-hover"
-                    onClick={() => p.onCompose(p.messages[p.messages.length - 1], mode)}
-                  >
-                    <Icon name={icon} size={18} /> {label}
-                  </button>
-                )}
-              </For>
-            </div>
+          <Show when={p.messages.find((m) => m.labelIds.includes("DRAFT") || m.id.startsWith("draft_"))}>
+            {(draft) => (
+              <div class="no-print ml-14 mt-4">
+                <button
+                  class="flex h-10 items-center gap-2 rounded-full bg-primary px-5 text-sm font-medium text-on-primary hover:shadow"
+                  onClick={() => p.onEditDraft?.(draft())}
+                >
+                  <Icon name="pencil" size={18} /> Edit draft
+                </button>
+              </div>
+            )}
           </Show>
         </div>
       </div>

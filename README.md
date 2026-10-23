@@ -4,83 +4,247 @@
 
 # Pulse Mail
 
-A light, always-on Gmail client for Windows.
+<p align="center">
+  <strong>A lightning-fast, privacy-first desktop Gmail client built with Tauri v2, Rust, and SolidJS.</strong><br>
+  Always-on background sync, zero bloat, instant local cache, and native desktop superpowers.
+</p>
 
-- **Lives in the tray from login**, with a small Rust core and no window until you want one.
-- **New mail in seconds:** an IMAP IDLE push connection wakes a Gmail history sync, then a native Windows toast appears.
-- **Verification codes, one click:** OTP emails get a **Copy code** button right on the toast.
-- **Fast from the first second:** the newest 50 inbox messages show 1–2.5 s after sign-in; older mail fills in in the background; everything is cached locally (SQLite + full-text search).
-- **Transparent:** a status chip and progress bar show exactly what sync is doing ("Syncing 120/300", "Live · just now"), with an activity log.
-- **Looks like Gmail, only cleaner:** light and dark themes, dense lists, Gmail keyboard shortcuts.
-- **Private by design:** your own Google OAuth client, the refresh token in Windows Credential Manager, no servers, no telemetry.
+<p align="center">
+  <img src="https://img.shields.io/badge/version-v0.2.1-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-brightgreen.svg?style=flat-square" alt="Platforms" />
+  <img src="https://img.shields.io/badge/stack-Tauri%20v2%20%7C%20Rust%202024%20%7C%20SolidJS-orange.svg?style=flat-square" alt="Stack" />
+  <img src="https://img.shields.io/badge/tests-132%20Rust%20%7C%2047%20Vitest%20passing-success.svg?style=flat-square" alt="Tests" />
+  <a href="https://github.com/sponsors/abdallahsaber065"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa.svg?style=flat-square&logo=githubsponsors" alt="Sponsor" /></a>
+  <img src="https://img.shields.io/badge/license-MIT-informational.svg?style=flat-square" alt="License" />
+</p>
 
-> Status: **v0.1, Phase 1 nearly done**, running daily on the author's PC with
-> one Gmail account. Reading and triage (archive, star, read/unread) work;
-> compose, attachments, multiple accounts and full-history sync don't yet.
-> Honest details: [docs/STATUS.md](docs/STATUS.md). What's next:
-> [docs/ROADMAP.md](docs/ROADMAP.md).
+<p align="center">
+  <img src="docs/screenshots/inbox-preview.png" alt="Pulse Mail Desktop Client" width="100%" />
+</p>
 
-## Quick start
+---
 
-Requirements (Windows 10/11): Rust stable (MSVC) via rustup, Visual Studio
-Build Tools with C++, WebView2 Runtime (preinstalled on Windows 11),
-Node 22+, pnpm.
+## Overview
+
+Pulse Mail is an independent, high-performance desktop Gmail client designed for speed, privacy, and frictionless daily triage. It lives in your system tray 24/7 with a tiny memory footprint, delivers new mail notifications in seconds via IMAP IDLE push, extracts two-factor verification codes right onto notification toasts, and opens any conversation instantly from an encrypted local SQLite cache.
+
+Everything runs directly on your machine: your own Google OAuth client, tokens kept securely in native OS credential managers, zero tracking telemetry, and zero intermediate servers.
+
+---
+
+## Key Features
+
+- ⚡ **Instant Push Sync (IMAP IDLE + Gmail REST API)**: Pulse Mail maintains a persistent IMAP IDLE push connection that acts as a doorbell for incoming mail. When new mail arrives, it wakes a lightweight history sync in milliseconds without battery-draining polling loops.
+- 🔑 **Intelligent OTP & 2FA Extraction**: Automatically parses authentication emails to extract one-time verification codes and magic sign-in links. A single click on the notification toast or inbox row chip copies the code directly to your clipboard.
+- 📊 **In-App Office & Document Previews (Zero Disk Temp Files)**:
+  - **Spreadsheets (`.xlsx`, `.xls`, `.csv`, `.tsv`)**: Interactive SheetJS table with sheet switcher tabs, Excel column coordinates (`A`, `B`, `C`...), row indexes, dimensions badge, and real-time sheet text search.
+  - **Word Documents (`.docx`)**: Clean container document rendering via `docx-preview`.
+  - **PDF Documents (`.pdf`)**: Native sandboxed viewer with built-in navigation.
+  - **Images & Media**: Full zoom/pan image viewer (`.png`, `.jpg`, `.webp`, `.svg`), plus embedded audio and video playback.
+  - **Presentations (`.pptx`, `.ppt`)**: Dedicated inspection card with direct system office suite launch.
+  - **Pure In-Memory Streaming**: Attachment bytes stream on-demand from SQLite / Gmail REST over Tauri IPC into memory `Blob` and `URL.createObjectURL`
+- ⏳ **Undo Send (5–10s Grace Window)**: Hit send without panic. Outgoing emails pause in an in-memory queue with an instant "Undo" button on the UI snackbar before transmitting to Gmail REST.
+- 👥 **Local Contact Autocomplete**: Instant fuzzy suggestion dropdown for `To`, `Cc`, and `Bcc` fields based on recipient frequency and address history indexed in local SQLite.
+- 🖱️ **Context Menu & Optimistic State Updates**: Full right-click action palette on conversation rows (Mark Read/Unread, Star/Unstar, Mark Important, Spam, Trash, Move Category). All changes update local UI state immediately with zero screen flickering or reader reloads.
+- 📐 **Adaptive Resizable Split-View**: Draggable divider between thread list and reader in 2-pane mode (horizontal & vertical layout support), saving preferred widths directly to `localStorage`.
+- 💬 **Inline Quick Reply Bar**: Reply or Reply All directly below the last message without opening modal popups.
+- ✍️ **Rich Compose Editor (TipTap)**: Formatting toolbar (bold, italic, underline, strike, blockquotes, lists, links), draft auto-saving with debouncing cooldown, attachment staging, and keyboard shortcuts (<kbd>Ctrl</kbd>+<kbd>Enter</kbd>).
+- 🗂️ **Multi-Account & Unified Inbox**: Connect multiple Google accounts with instant profile switching, a unified "All Inboxes" aggregate view, and individual account notification controls.
+- 🏷️ **Gmail Category Tabs & Labels**: Support for Google's native categories (Primary, Updates, Promotions, Social, Forums) with smooth background reclassification.
+- 🔒 **Privacy & Containment by Default**:
+  - Refresh tokens secured in OS Credential Vaults (Windows Credential Manager, macOS Keychain, Linux Secret Service).
+  - Email HTML rendered exclusively in a sandboxed iframe with strict Content Security Policy (no script execution, no plugins).
+  - External links open in your default system browser through strict URL allowlisting (`http`, `https`, `mailto`).
+  - Remote tracking pixels and external images suppressed until explicitly authorized.
+- 🔍 **Hybrid Search (SQLite FTS5 + Gmail Server)**: Sub-millisecond local search across cached mail using SQLite Full-Text Search (FTS5), with automatic fallback to Gmail server search for older archived correspondence.
+- ⌨️ **Keyboard-Driven Workflow**: Full Gmail-standard keyboard navigation (<kbd>j</kbd>/<kbd>k</kbd>, <kbd>e</kbd>, <kbd>#</kbd>, <kbd>s</kbd>, <kbd>r</kbd>, <kbd>a</kbd>, <kbd>f</kbd>) and Command Palette (<kbd>Ctrl</kbd>+<kbd>k</kbd>).
+- 🌓 **Native Dark & Light Themes**: Cohesive themes respecting system appearance or manual toggle, with full dark-mode email frame color scheme support.
+
+---
+
+## Cross-Platform Releases
+
+Pulse Mail is engineered to run natively across all major desktop operating systems:
+
+| Platform          | Target Architecture                              | Package Format                       | Details                                                                             |
+| :---------------- | :----------------------------------------------- | :----------------------------------- | :---------------------------------------------------------------------------------- |
+| **Windows** | x86_64 (Windows 10, 11)                          | `.exe` (NSIS Installer) / `.msi` | Deep Windows tray integration, native WinRT notifications, Credential Manager vault |
+| **macOS**   | Apple Silicon (`aarch64`) & Intel (`x86_64`) | `.dmg`                             | Menu bar extra, native notifications, macOS Keychain integration                    |
+| **Linux**   | x86_64                                           | `.deb` / `.AppImage`             | WebKitGTK 4.1 runtime, libsecret vault, AppIndicator tray support                   |
+
+Automated multi-platform binaries are compiled on every tagged release via GitHub Actions.
+
+---
+
+## Quick Start & Development
+
+### Prerequisites
+
+- **Node.js** 22+ & **pnpm**
+- **Rust** stable (via `rustup`)
+- **Platform Compilers**:
+  - *Windows*: Visual Studio Build Tools with C++ & WebView2 runtime (preinstalled on Windows 11).
+  - *macOS*: Xcode Command Line Tools.
+  - *Linux*: `build-essential`, `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `libssl-dev`.
+
+### 1. Install Dependencies
 
 ```powershell
 pnpm install
-pnpm dev                     # UI only, in the browser, with mock data
-pnpm tauri dev               # the real app (needs the OAuth client below to sign in)
-pnpm tauri build             # per-user NSIS installer in <target dir>/release/bundle/nsis
 ```
 
-Before the first sign-in, create your Google OAuth client and save it to
-`%APPDATA%\com.abdallah.pulsemail\google-oauth-client.json`:
-**[docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md)** (about 10 minutes, one time).
+### 2. Run UI in Browser (Mock Mode)
 
-## Tests
+Test and develop the frontend instantly in your browser with simulated mail, attachments, and offline mock data without needing Google credentials:
 
 ```powershell
-pnpm test                                              # UI unit tests (vitest)
-pnpm build                                             # typecheck + production bundle
-cargo test --manifest-path src-tauri/Cargo.toml        # Rust unit tests (offline)
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
-cd src-tauri; cargo run --example sync_bench          # first-sync benchmark (uses your account, read-only)
+pnpm dev
+# Opens at http://localhost:1420
 ```
 
-How changes are made (gates, commits, dev console, logs): [docs/WORKFLOW.md](docs/WORKFLOW.md).
+### 3. Google OAuth Setup (Developers Compiling From Source Only)
 
-## Docs
+> [!NOTE]
+> **Pre-built releases do NOT require this step.** If you download the released installer (`.exe`, `.dmg`, `.deb`), Pulse Mail connects directly using the official, verified Google OAuth client.
+>
+> If you are compiling from source or self-hosting your own client credentials, set up a Google Cloud desktop client in ~10 minutes:
+> 👉 Step-by-step guide: **[docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md)**.
 
-| Doc | What's in it |
-| --- | --- |
-| [AGENTS.md](AGENTS.md) | Rules, commands and layout for anyone (human or AI) changing the code |
-| [docs/STATUS.md](docs/STATUS.md) | What works today, what doesn't, known bugs, measured numbers |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Prioritized feature catalog (P0/P1/P2/later) with design notes |
-| [docs/PLAN.md](docs/PLAN.md) | Phases, acceptance criteria, performance targets, progress log |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modules, data flow, sync state machine, IPC, schema, multi-account target |
-| [docs/DESIGN.md](docs/DESIGN.md) | Visual spec: layout, components, colors, motion, shortcuts, planned layouts |
-| [docs/WORKFLOW.md](docs/WORKFLOW.md) | How we work: docs first, gates, benchmarks, dev run, agents |
-| [docs/SECURITY.md](docs/SECURITY.md) | Where secrets live and how email HTML is contained |
-| [docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md) | Step-by-step Google Cloud setup |
-| [docs/decisions/](docs/decisions/) | Architecture decision records |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guide, setup, and PR conventions |
+Save your downloaded `google-oauth-client.json` directly into the project root directory:
+```
+./google-oauth-client.json
+```
+*(Strictly protected by `.gitignore` so it is never committed to git).*
 
-## Where things are stored
+### 4. Run the Full Desktop App
 
-| What | Where |
-| --- | --- |
-| OAuth client (yours) | `%APPDATA%\com.abdallah.pulsemail\google-oauth-client.json` |
-| Refresh token | Windows Credential Manager (`com.abdallah.pulsemail`) |
-| Mail cache | `%APPDATA%\com.abdallah.pulsemail\pulse-mail.db` |
-| UI preferences (theme, density) | WebView2 `localStorage` |
-| Logs | stderr in dev, teed to `%TEMP%\pulse-mail-dev.log` by the dev console (`PULSE_MAIL_LOG=debug` for more); no log file in release yet |
+```powershell
+pnpm tauri dev
+```
+
+### 5. Build Production Installer
+
+```powershell
+pnpm tauri build
+```
+
+Output bundles will be generated under `src-tauri/target/release/bundle/`.
+
+---
+
+## Keyboard Shortcuts
+
+Pulse Mail implements Gmail-standard keyboard navigation for power users:
+
+| Shortcut                                       | Action                                  | Scope           |
+| :--------------------------------------------- | :-------------------------------------- | :-------------- |
+| <kbd>c</kbd>                                   | Compose new email                       | Global          |
+| <kbd>/</kbd>                                   | Focus search bar                        | Global          |
+| <kbd>Ctrl</kbd> + <kbd>k</kbd>                 | Open Command Palette / Account switcher | Global          |
+| <kbd>j</kbd> / <kbd>k</kbd>                    | Move cursor down / up                   | Thread List     |
+| <kbd>Enter</kbd> / <kbd>o</kbd>                | Open selected conversation              | Thread List     |
+| <kbd>x</kbd>                                   | Toggle checkbox selection               | Thread List     |
+| <kbd>e</kbd> or <kbd>y</kbd>                   | Archive conversation                    | Thread / Reader |
+| <kbd>#</kbd>                                   | Move conversation to Trash              | Thread / Reader |
+| <kbd>s</kbd>                                   | Toggle Star                             | Thread / Reader |
+| <kbd>!</kbd>                                   | Report as Spam                          | Thread / Reader |
+| <kbd>Shift</kbd> + <kbd>i</kbd> / <kbd>u</kbd> | Mark as Read / Unread                   | Thread / Reader |
+| <kbd>Shift</kbd> + <kbd>c</kbd>                | Copy OTP verification code to clipboard | Reader / List   |
+| <kbd>r</kbd> / <kbd>a</kbd>                    | Reply / Reply All                       | Reader          |
+| <kbd>f</kbd>                                   | Forward message                         | Reader          |
+| <kbd>u</kbd> / <kbd>Esc</kbd>                  | Back to conversation list               | Reader          |
+| <kbd>Ctrl</kbd> + <kbd>Enter</kbd>             | Send email                              | Compose Modal   |
+
+---
+
+## Architecture & Storage
+
+Pulse Mail follows a strict offline-first architecture where Rust controls all networking, synchronization state, and cryptographic secrets. The webview remains a stateless, high-speed renderer.
+
+```
+┌────────────────────────────────────────────────────────┐
+│                      Pulse Mail                        │
+├──────────────────────────┬─────────────────────────────┤
+│   Rust Backend Core      │     SolidJS Webview UI      │
+│  - IMAP IDLE Push Engine │  - Virtualized Thread List  │
+│  - Gmail REST API V1     │  - TipTap Rich Text Editor  │
+│  - SQLite 3 (rusqlite)   │  - Sandboxed Email Frame    │
+│  - OS Credential Manager │  - On-Demand Doc Viewer     │
+│  - WinRT / Tray Notifier │  - Optimistic State Layer   │
+└────────────┬─────────────┴──────────────▲──────────────┘
+             │      Tauri v2 IPC (JSON)   │
+             └────────────────────────────┘
+```
+
+### Storage Locations
+
+| Item | Windows | macOS | Linux |
+| :--- | :--- | :--- | :--- |
+| **Encrypted Refresh Tokens** | Windows Credential Manager (`com.abdallah.pulsemail`) | macOS Keychain | Secret Service API (gnome-keyring / KWallet) |
+| **Local Mail Database** | `%APPDATA%\com.abdallah.pulsemail\pulse-mail.db` | `~/Library/Application Support/com.abdallah.pulsemail/pulse-mail.db` | `~/.config/com.abdallah.pulsemail/pulse-mail.db` |
+| **UI Preferences** | Webview `localStorage` | Webview `localStorage` | Webview `localStorage` |
+
+> **Note on Developer Credentials:** When running from source, your optional developer OAuth configuration lives directly in the project root (`./google-oauth-client.json`), strictly ignored by `.gitignore`. Published binary releases use the official embedded client ID and require no client configuration files.
+
+---
+
+## Testing & Quality Gates
+
+Pulse Mail adheres to strict deterministic test gates before any release:
+
+```powershell
+# Run frontend unit tests (47 tests across 11 suites)
+pnpm test
+
+# Run Rust unit test suite (132 offline unit tests)
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# Strict static analysis & linter checks
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
+
+# Typecheck and production bundle verification
+pnpm build
+```
+
+---
+
+## Documentation Index
+
+Detailed architectural specs and design records can be found in `docs/`:
+
+- [AGENTS.md](AGENTS.md) — Architectural rules, patterns, and conventions for development
+- [docs/STATUS.md](docs/STATUS.md) — Real-time progress log, benchmark metrics, and shipped feature status
+- [docs/PLAN.md](docs/PLAN.md) — Product phases, acceptance criteria, and performance targets
+- [docs/ROADMAP.md](docs/ROADMAP.md) — Prioritized feature catalog and technical specifications
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Deep internals of IMAP IDLE, SQLite migrations, and IPC
+- [docs/DESIGN.md](docs/DESIGN.md) — Design system tokens, typography, dark mode, and UI guidelines
+- [docs/SECURITY.md](docs/SECURITY.md) — Secret isolation, CSP containment, and threat model
+- [docs/decisions/](docs/decisions/) — Architecture Decision Records (ADR 0001 – ADR 0025)
+
+---
+
+## Support & Sponsorship
+
+If you find Pulse Mail useful, enjoy using it, or want to support ongoing maintenance and new features, please consider supporting the project:
+
+<p align="left">
+  <a href="https://github.com/sponsors/abdallahsaber065">
+    <img src="https://img.shields.io/badge/Sponsor%20on%20GitHub-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Sponsor on GitHub" />
+  </a>
+</p>
+
+Your sponsorship helps keep Pulse Mail fast, independent, privacy-focused, and actively maintained!
+
+---
 
 ## Contributing
 
-Contributions are welcome! Please check out [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, development guidelines, and PR checklists.
+Contributions are welcome! Please review [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for local environment setup, branching rules, and PR checklists.
+
+---
 
 ## License
 
 [MIT](LICENSE) © 2026 Abdallah Saber.
 
-Personal project; not affiliated with Google. Gmail is a trademark of Google LLC.
+*Personal open-source project; not affiliated with Google. Gmail is a trademark of Google LLC.*

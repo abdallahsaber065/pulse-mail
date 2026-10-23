@@ -132,8 +132,10 @@ phase done. Never mark work done on a failing build or test.
 - When you finish something: update `docs/STATUS.md` (honestly), the
   progress log in `docs/PLAN.md`, and `docs/ROADMAP.md` if scope changed.
 
-## Git
+## Git & Branching Workflow
 
-Local repo only (no remote, never push). Small, focused commits with
-imperative subjects. Don't commit unless asked; never rewrite history,
-stash, reset, or delete branches.
+- **Branch Protection**: The `main` branch is protected on GitHub. All additions and changes merge via Pull Requests with code reviews.
+- **Branches**: Create focused feature or fix branches (`feat/<topic>`, `fix/<issue>`, `chore/<task>`).
+- **Commits**: Small, focused commits with imperative subjects following [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `refactor:`, `docs:`, `chore:`).
+- **PR Gates**: Run all quality gates (`pnpm test`, `cargo test`, `pnpm build`) and ensure 0 type errors before submitting PRs.
+- **Secrets**: Never commit tokens, OAuth JSON keys, or `.env` files. Head branches are automatically deleted after merge.

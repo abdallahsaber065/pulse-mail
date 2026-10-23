@@ -78,7 +78,16 @@ export default function App() {
   const [label, setLabel] = createSignal("INBOX");
   const [query, setQuery] = createSignal("");
   const [debounced, setDebounced] = createSignal("");
-  const [selected, setSelected] = createSignal<string | null>(null);
+  const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const [selected, setSelected] = createSignal<string | null>(urlParams?.get("thread") ?? null);
+  createEffect(() => {
+    const t = urlParams?.get("thread");
+    if (t && selected() !== t) {
+      setSelected(t);
+      setSelectedAccount(1);
+      void loadThread(t, true);
+    }
+  });
   const [cursor, setCursor] = createSignal(0);
   const [collapsed, setCollapsed] = createSignal(false);
   const [help, setHelp] = createSignal(false);
@@ -128,7 +137,7 @@ export default function App() {
   });
   const inInbox = () => label() === "INBOX" && !debounced().trim();
   // Gmail inbox tabs: on when the viewed account (or any, in All inboxes) wants them.
-  const [category, setCategory] = createSignal<Category>("CATEGORY_PERSONAL");
+  const [category, setCategory] = createSignal<Category | null>(null);
   const tabsOn = createMemo(() => {
     if (!inInbox()) return false;
     const v = accountView();
@@ -153,14 +162,14 @@ export default function App() {
   const [threads] = createResource(
     () =>
       signedIn()
-        ? `${label()}|${debounced().trim()}|${tick()}|${limit()}|${accountView() ?? ""}|${tabsOn() ? category() : ""}`
+        ? `${label()}|${debounced().trim()}|${tick()}|${limit()}|${accountView() ?? ""}|${tabsOn() && category() ? category()! : ""}`
         : false,
     async (sourceKey, info) => {
       if (!sourceKey) return [];
       const [lbl, q, tStr, nStr, aStr, cStr] = sourceKey.split("|");
       const n = Number(nStr);
       const a = aStr ? Number(aStr) : null;
-      const c = (cStr || null) as Category | null;
+      const c = (cStr && cStr !== "null" ? cStr : null) as Category | null;
       const context = `${lbl}|${q}|${tStr}|${aStr}|${cStr}`;
       const previous = info.value && pageContexts.get(info.value) === context && info.value.length < n ? info.value : [];
       const result = await loadRows((offset, count) => q ? api.search(q, count, a, offset) : api.threads(lbl, count, offset, a, c), n, previous);
@@ -260,7 +269,7 @@ export default function App() {
     setMembers(new Set<string>());
     setSelectingAll(false);
     setSelected(null);
-  }));
+  }, { defer: true }));
   const selectionKey = (key: string): ThreadKey => {
     const at = key.indexOf(":");
     return { accountId: Number(key.slice(0, at)), threadId: key.slice(at + 1) };
@@ -803,7 +812,7 @@ export default function App() {
       ...o,
       [t.threadId]: {
         ...o[t.threadId],
-        removedFromCategory: sourceCategory,
+        removedFromCategory: sourceCategory ?? undefined,
         category: c,
       },
     }));
@@ -821,7 +830,7 @@ export default function App() {
               else delete n[t.threadId];
               return n;
             });
-            void api.modifyThread(t.threadId, [sourceCategory], [c], t.accountId);
+            void api.modifyThread(t.threadId, sourceCategory ? [sourceCategory] : [], [c], t.accountId);
           },
         },
       });
@@ -853,9 +862,32 @@ export default function App() {
       setQuery("");
       setSelected(null);
       setLabel(id);
+      if (id === "INBOX") setCategory(null);
     });
 
   onMount(() => {
+    const initThread = urlParams?.get("thread");
+    if (initThread) {
+      setSelected(initThread);
+      void loadThread(initThread, true);
+    }
+    if (urlParams?.has("compose")) {
+      openCompose(
+        {
+          ...emptyDraft(),
+          to: "alex.chen@innovate.io, maya@acme.com",
+          cc: "team@company.com",
+          subject: "Pulse Mail v0.2 Release Architecture & Performance",
+          body: "Hi team,\n\nI've finalized the performance benchmarks and multi-platform packaging for Pulse Mail v0.2.0.\n\n- Zero temp files on disk\n- Client-side Excel & Docx preview\n- 5-10s Undo send grace period\n\nLooking forward to your feedback!\n\nBest,\nAbdallah",
+          attachments: [
+            { name: "v0.2-Benchmarks.xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: 32000, staged: "s1" }
+          ]
+        },
+        "New message",
+        1,
+        true
+      );
+    }
     // Register cleanups synchronously (inside the owner), then do async work.
     let disposed = false;
     let unlisteners: (() => void)[] = [];
@@ -1066,9 +1098,11 @@ export default function App() {
           if (c.id !== category())
             add({ group: "Conversation", title: `Move to ${c.name}`, icon: c.icon, words: "tab category move", run: () => void moveToTab(t, c.id) });
     }
-    if (tabsOn())
+    if (tabsOn()) {
+      add({ group: "Go to", title: "All tab", icon: "allInbox", words: "tab category all inbox", run: () => batch(() => (setCategory(null), setSelected(null))) });
       for (const c of CATEGORY_TABS)
         add({ group: "Go to", title: `${c.name} tab`, icon: c.icon, words: "tab category inbox", run: () => batch(() => (setCategory(c.id), setSelected(null))) });
+    }
     const system: [string, string, IconName][] = [
       ["INBOX", "Inbox", "inbox"],
       ["STARRED", "Starred", "star"],

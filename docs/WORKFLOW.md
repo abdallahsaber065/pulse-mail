@@ -94,12 +94,13 @@ PLAN.md's progress log.
 - Don't run anything that calls Google with the user's credentials unless
   the task asks for it. Tests use fixtures and in-memory SQLite.
 
-## Commits
+## Git & Pull Request Workflow
 
-- Local repo only: no remote, never push. Don't rewrite history, stash,
-  reset or delete branches.
-- Small, focused commits with imperative subjects and a short body listing
-  what changed (see `git log`). Docs updates can be their own commit.
+- **Protected Main**: `main` is protected on GitHub. Direct pushes to `main` are disabled; all changes merge via reviewed Pull Requests.
+- **Branches**: Use descriptive branch names (`feat/<feature>`, `fix/<bug>`, `docs/<topic>`).
+- **Commits**: Small, focused commits with imperative subjects following Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`).
+- **Quality Gates**: All tests (`pnpm test`, `cargo test`) and typechecks (`pnpm build`) must pass before a PR is merged.
+- **Cleanup**: Head branches are automatically deleted after merge.
 
 ## Decisions
 

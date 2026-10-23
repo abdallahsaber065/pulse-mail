@@ -54,26 +54,29 @@ submit for verification.
 
 ## 6. Put the file where Pulse Mail looks for it
 
-Save the downloaded JSON **unchanged** as:
+You can save the downloaded JSON as `google-oauth-client.json` in either location:
 
+### Option A: Directly in the Project Root (Easiest for Development)
+Save it directly to the root of the `pulse-mail` repository as:
+```
+./google-oauth-client.json
+```
+*(Note: `.gitignore` strictly protects `google-oauth-client*.json` so git will never track or commit it).*
+
+### Option B: System User AppData / Config Directory
+Save the file as:
 ```
 %APPDATA%\com.abdallah.pulsemail\google-oauth-client.json
 ```
-
-(that's `C:\Users\Abdal\AppData\Roaming\com.abdallah.pulsemail\google-oauth-client.json`).
-PowerShell, assuming the download landed in Downloads:
-
+(PowerShell snippet if downloaded to Downloads):
 ```powershell
 $dir = "$env:APPDATA\com.abdallah.pulsemail"
 New-Item -ItemType Directory -Force $dir | Out-Null
 Move-Item "$env:USERPROFILE\Downloads\client_secret_*.json" "$dir\google-oauth-client.json"
-# Only your Windows user (and SYSTEM) can read it:
 icacls "$dir\google-oauth-client.json" /inheritance:r /grant:r "${env:USERNAME}:(R,W)" "SYSTEM:(F)" | Out-Null
 ```
 
-Alternative: point the environment variable `PULSE_MAIL_OAUTH_CLIENT` at
-the file wherever you keep it. Never put it inside the project folder
-(`.gitignore` blocks it anyway).
+Alternative: set the `PULSE_MAIL_OAUTH_CLIENT` environment variable to the path of your JSON file.
 
 ## 7. Sign in
 

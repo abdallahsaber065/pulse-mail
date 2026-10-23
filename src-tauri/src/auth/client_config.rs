@@ -34,18 +34,48 @@ pub enum ConfigError {
     Invalid(String),
 }
 
-/// Where the client file is expected: `$PULSE_MAIL_OAUTH_CLIENT` or
-/// `<app config dir>\google-oauth-client.json`.
+/// Where the client file is looked for:
+/// 1. Environment variable override `$PULSE_MAIL_OAUTH_CLIENT`
+/// 2. Current working directory / project root (`./google-oauth-client.json`)
+/// 3. Source directory (`./src-tauri/google-oauth-client.json`)
+/// 4. User app config directory (`<app config dir>/google-oauth-client.json`)
 pub fn resolve_path(app_config_dir: &Path) -> PathBuf {
-    match std::env::var_os(ENV_OVERRIDE) {
-        Some(p) if !p.is_empty() => PathBuf::from(p),
-        _ => app_config_dir.join(FILE_NAME),
+    if let Some(p) = std::env::var_os(ENV_OVERRIDE) {
+        if !p.is_empty() {
+            return PathBuf::from(p);
+        }
     }
+    // 1. Check local project root
+    let local = PathBuf::from(FILE_NAME);
+    if local.is_file() {
+        return local;
+    }
+    // 2. Check src-tauri subfolder if running cargo from repo root
+    let sub = Path::new("src-tauri").join(FILE_NAME);
+    if sub.is_file() {
+        return sub;
+    }
+    // 3. Fall back to app config directory
+    app_config_dir.join(FILE_NAME)
 }
 
 pub fn load(path: &Path) -> Result<OAuthClient, ConfigError> {
-    let raw = std::fs::read_to_string(path).map_err(|_| ConfigError::Missing(path.to_path_buf()))?;
-    parse(&raw)
+    if let Ok(raw) = std::fs::read_to_string(path) {
+        return parse(&raw);
+    }
+    // Optional compile-time production client fallback for published release binaries
+    if let (Some(id), Some(secret)) = (
+        option_env!("PULSE_GOOGLE_CLIENT_ID"),
+        option_env!("PULSE_GOOGLE_CLIENT_SECRET"),
+    ) {
+        if !id.is_empty() && !secret.is_empty() {
+            return Ok(OAuthClient {
+                client_id: id.to_string(),
+                client_secret: Secret::new(secret.to_string()),
+            });
+        }
+    }
+    Err(ConfigError::Missing(path.to_path_buf()))
 }
 
 pub fn parse(raw: &str) -> Result<OAuthClient, ConfigError> {

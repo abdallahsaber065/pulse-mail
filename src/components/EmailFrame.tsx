@@ -76,8 +76,8 @@ export default function EmailFrame(p: Props) {
           title="Email content"
           sandbox="allow-scripts"
           referrerpolicy="no-referrer"
-          class={`email-frame block w-full border-0 ${p.dark ? "rounded-xl" : ""}`}
-          style={{ height: `${height()}px` }}
+          class={`email-frame block w-full border-0 bg-transparent ${p.dark ? "rounded-xl" : ""}`}
+          style={{ height: `${height()}px`, "color-scheme": p.dark ? "dark" : "light" }}
           srcdoc={doc()!}
         />
       </Show>

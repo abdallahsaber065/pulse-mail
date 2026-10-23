@@ -18,7 +18,7 @@ const labels: Label[] = [
 const people = [
   ["GitHub", "noreply@github.com", "[GitHub] Please verify your device", "Verification code: 731590 If you did not attempt to sign in…", "731590"],
   ["Google", "no-reply@accounts.google.com", "Security alert", "A new sign-in on Windows. If this was you, you don't need to do anything.", null],
-  ["Sara Ahmed", "sara@example.com", "Q4 report: final numbers", "Hi Abdallah, attached are the final numbers for the Q4 report. Can you take a look before…", null],
+  ["Elena Vance", "elena@acme-systems.io", "Sprint roadmap & deliverables", "Hi Abdallah, attached is the updated sprint allocation and release roadmap for Q4…", null],
   ["Vercel", "notifications@vercel.com", "Deployment ready", "Your deployment for animeslayer is ready. Visit the preview at…", null],
   ["Instagram", "security@mail.instagram.com", "550912 is your Instagram code", "550912 is your Instagram code. Don't share it.", "550912"],
   ["Linear", "notifications@linear.app", "3 issues assigned to you", "SMR-112 Fix export, SMR-118 Gate 3 review, SMR-121 Docs cleanup", null],
@@ -43,11 +43,26 @@ const threads: ThreadRow[] = people.map(([fromName, fromEmail, subject, snippet,
   important: i % 3 === 0,
 }));
 const CATS = ["CATEGORY_PERSONAL", "CATEGORY_UPDATES", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL"];
-const catOf = (t: ThreadRow) => (t.otpCode ? "CATEGORY_PERSONAL" : CATS[Number(t.threadId.slice(1)) % CATS.length]);
+const catOf = (t: ThreadRow) => (t.otpCode || t.threadId === "t2" ? "CATEGORY_PERSONAL" : CATS[Number(t.threadId.slice(1)) % CATS.length]);
 
 function message(t: ThreadRow): Message {
   const html = t.otpCode
-    ? `<div style="font-family:Segoe UI,Arial;max-width:520px;margin:24px auto;padding:24px;border:1px solid #ddd;border-radius:12px"><h2 style="margin:0 0 12px">Verify it's you</h2><p>Use this code to finish signing in:</p><p style="font-size:32px;letter-spacing:6px;font-weight:700">${t.otpCode}</p><p style="color:#666">If you didn't request this, you can ignore this email. <a href="https://example.com/help">Get help</a></p><img src="https://tracker.example.com/pixel.gif" width="1" height="1"></div>`
+    ? `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:24px auto;padding:24px;border:1px solid #333;border-radius:12px;background:#18181b;color:#f4f4f5"><h2 style="margin:0 0 12px;color:#fff">Verify your sign-in</h2><p style="color:#a1a1aa">Use this verification code to securely access your account:</p><p style="font-size:36px;letter-spacing:8px;font-weight:700;color:#38bdf8;margin:20px 0;font-family:monospace">${t.otpCode}</p><p style="color:#71717a;font-size:12px">If you didn't request this code, you can safely disregard this email. <a href="https://example.com/help" style="color:#38bdf8">Help Center</a></p><img src="https://tracker.example.com/pixel.gif" width="1" height="1"></div>`
+    : t.threadId === "t2"
+    ? `<div style="font-family:Segoe UI,-apple-system,BlinkMacSystemFont,Roboto,sans-serif;max-width:680px;line-height:1.6;color:#e4e4e7">
+        <p style="margin-top:0">Hi Abdallah,</p>
+        <p>Attached is the updated sprint planning allocation and release roadmap for Q4. We've mapped out the key milestones, performance budgets, and core team deliverables.</p>
+        <div style="background:#18181b;border:1px solid #27272a;border-radius:12px;padding:18px;margin:20px 0">
+          <h4 style="margin:0 0 10px;color:#fafafa;font-size:14px;display:flex;align-items:center;gap:8px">📋 Deliverables & Attachments Overview</h4>
+          <ul style="margin:0;padding-left:20px;color:#a1a1aa;font-size:13px;line-height:1.7">
+            <li><strong style="color:#f4f4f5">Sprint-Roadmap-Q4.xlsx:</strong> Task milestones, sprint story points, and latency benchmarks.</li>
+            <li><strong style="color:#f4f4f5">Architecture-Spec.pdf:</strong> IPC pipeline, SQLite indexing, and zero-disk streaming specs.</li>
+            <li><strong style="color:#f4f4f5">System-Diagram.png:</strong> Core architecture flow: SQLite cache, IMAP push, and Tauri v2.</li>
+          </ul>
+        </div>
+        <p>Please review the attached spreadsheet using the in-app previewer and let me know if you need any adjustments before the planning sync.</p>
+        <p style="margin-top:28px">Best regards,<br><strong style="color:#fff">Elena Vance</strong><br><span style="color:#71717a;font-size:12px">Staff Engineer & Tech Lead · Acme Systems</span></p>
+      </div>`
     : null;
   return {
     id: t.lastMessageId,
@@ -70,7 +85,11 @@ function message(t: ThreadRow): Message {
     replyTo: "",
     rfcMessageId: `<${t.lastMessageId}@mock>`,
     rfcReferences: "",
-    attachments: t.threadId === "t2" ? [{ part: 0, filename: "Q4-report.pdf", mime: "application/pdf", size: 482_133, inline: false }] : [],
+    attachments: t.threadId === "t2" ? [
+      { part: 0, filename: "Sprint-Roadmap-Q4.xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: 24_576, inline: false },
+      { part: 1, filename: "Architecture-Spec.pdf", mime: "application/pdf", size: 482_133, inline: false },
+      { part: 2, filename: "System-Diagram.png", mime: "image/png", size: 108_420, inline: false },
+    ] : [],
   };
 }
 
@@ -143,10 +162,11 @@ const status: AppStatus = {
 
 function mockRender(m: Message, dark: boolean): RenderedMessage {
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-  const color = dark ? "#e3e3e3" : "#1f1f1f";
+  const color = dark ? "#e4e4e7" : "#18181b";
+  const bg = dark ? "transparent" : "#ffffff";
   const body = m.bodyHtml ?? `<div style="white-space:pre-wrap">${esc(m.bodyText)}</div>`;
   return {
-    srcdoc: `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><body dir="auto" style="margin:0;font:14px/1.5 Segoe UI,sans-serif;color:${color}">${body}</body>`,
+    srcdoc: `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><style>html,body{background:${bg}!important;color:${color}!important;margin:0;padding:2px 0;font:14px/1.6 system-ui,-apple-system,sans-serif;color-scheme:${dark ? "dark" : "light"};overflow-wrap:anywhere}a{color:${dark ? "#38bdf8" : "#0284c7"}}</style></head><body dir="auto">${body}</body></html>`,
     remoteImages: m.bodyHtml ? 1 : 0,
     imagesShown: 0,
     trackers: m.bodyHtml ? 1 : 0,
@@ -372,8 +392,43 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
     }
     case "save_attachment":
       return { path: `C:\\Downloads\\${args?.name || "file"}`, opened: false, blocked: false };
-    case "get_attachment_data":
-      return { filename: "preview.txt", mime: "text/plain", size: 34, dataBase64: btoa("This is a preview of the attachment.") };
+    case "get_attachment_data": {
+      const part = Number(args?.part ?? 0);
+      const filename = part === 0 ? "Sprint-Roadmap-Q4.xlsx" : part === 1 ? "Architecture-Spec.pdf" : "System-Diagram.png";
+      const mime = part === 0 ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : part === 1 ? "application/pdf" : "image/png";
+      
+      if (filename.endsWith(".xlsx")) {
+        const XLSX = await import("xlsx");
+        const wb = XLSX.utils.book_new();
+        const ws1 = XLSX.utils.aoa_to_sheet([
+          ["Task ID", "Feature / Deliverable", "Owner", "Story Points", "Priority", "Status"],
+          ["PULSE-101", "IMAP IDLE Push Engine", "Alex Chen", 8, "P0", "Shipped"],
+          ["PULSE-102", "In-App Spreadsheet & Doc Preview", "Elena Vance", 5, "P0", "Shipped"],
+          ["PULSE-103", "Undo Send Grace Queue (5-10s)", "Marcus Brody", 3, "P1", "Shipped"],
+          ["PULSE-104", "Contact Frequency Autocomplete", "Sarah Jenkins", 5, "P1", "Shipped"],
+          ["PULSE-105", "Resizable Split Pane Divider", "Elena Vance", 3, "P2", "Shipped"],
+          ["PULSE-106", "Cross-Platform Packaging (Win/Mac/Linux)", "DevOps Team", 5, "P1", "Verified"]
+        ]);
+        const ws2 = XLSX.utils.aoa_to_sheet([
+          ["Benchmark Metric", "Target Budget", "Measured (v0.2.0)", "Variance", "Outcome"],
+          ["Cold Start Time", "< 1500 ms", "820 ms", "-45%", "Passed"],
+          ["New Mail Notification", "< 2.0 s", "1.1 s", "-45%", "Passed"],
+          ["SQLite FTS5 Query (10k msgs)", "< 15 ms", "4.2 ms", "-72%", "Passed"],
+          ["Memory Footprint (Idle)", "< 60 MB", "42.5 MB", "-29%", "Passed"],
+          ["Attachment Decryption & Stream", "< 100 ms", "28 ms", "-72%", "Passed"]
+        ]);
+        XLSX.utils.book_append_sheet(wb, ws1, "Sprint Deliverables");
+        XLSX.utils.book_append_sheet(wb, ws2, "Latency Benchmarks");
+        const b64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
+        return { filename, mime, size: 24576, dataBase64: b64 };
+      }
+      if (filename.endsWith(".png")) {
+        // Simple 1x1 png
+        const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        return { filename, mime, size: 108420, dataBase64: png };
+      }
+      return { filename, mime, size: 482133, dataBase64: btoa("%PDF-1.4 Mock PDF Document") };
+    }
     case "account_storage":
       return { messages: 4210, dbBytes: 180e6, filesBytes: 240e6 };
     case "sign_out":
