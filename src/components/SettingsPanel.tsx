@@ -35,6 +35,36 @@ export function accountName(a: Account) {
   return a.displayName || a.email;
 }
 
+/** "off" plus every half hour of the day, as minutes since midnight. */
+const QUIET_OPTIONS = ["off", ...Array.from({ length: 48 }, (_, i) => String(i * 30))];
+
+function quietLabel(v: string): string {
+  if (v === "off") return "Off";
+  const m = Number(v);
+  const h24 = Math.floor(m / 60);
+  const h = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h}:${String(m % 60).padStart(2, "0")} ${h24 >= 12 ? "PM" : "AM"}`;
+}
+
+function QuietSelect(p: { label: string; value: string; onChange(v: string): void }) {
+  return (
+    <select
+      class="h-9 rounded-lg border border-outline bg-surface px-2 text-sm text-text"
+      aria-label={p.label}
+      value={p.value}
+      onChange={(e) => p.onChange(e.currentTarget.value)}
+    >
+      <For each={QUIET_OPTIONS}>
+        {(v) => (
+          <option value={v} selected={v === p.value}>
+            {quietLabel(v)}
+          </option>
+        )}
+      </For>
+    </select>
+  );
+}
+
 function AccountRow(p: { account: Account; onOpen(): void }) {
   const h = () => p.account.sync.history;
   return (
@@ -528,6 +558,20 @@ export default function SettingsPanel(p: Props) {
                 onChange={p.onNotifications}
               />
             </Row>
+            <Row title="Quiet hours" desc="Pause notification toasts between two times (they can cross midnight). Mail keeps syncing; only the toasts wait." stack>
+              <div class="flex flex-wrap items-center gap-2">
+                <QuietSelect label="Quiet from" value={p.prefs.quiet_start} onChange={(v) => p.onPref("quiet_start", v)} />
+                <span class="text-xs text-muted">to</span>
+                <QuietSelect label="Quiet until" value={p.prefs.quiet_end} onChange={(v) => p.onPref("quiet_end", v)} />
+              </div>
+            </Row>
+            <Row title="Codes during quiet hours" desc="Verification codes are time-sensitive and can still toast during quiet hours.">
+              <Toggle
+                label="Codes during quiet hours"
+                checked={p.prefs.quiet_allow_otp === "1"}
+                onChange={(v) => p.onPref("quiet_allow_otp", v ? "1" : "0")}
+              />
+            </Row>
           </Section>
 
           <Section title="About">
@@ -536,6 +580,14 @@ export default function SettingsPanel(p: Props) {
               <div class="selectable break-all">Local data: {p.status.dataDir}</div>
               <div>Your mail stays on this PC. Sign-in tokens live in Windows Credential Manager.</div>
             </div>
+            <Row title="Logs" desc="Rolling local log files, kept for 7 days. Never message contents or tokens." stack>
+              <button
+                class="h-9 self-start rounded-full px-4 text-sm font-medium text-primary hover:bg-primary/10"
+                onClick={() => void api.openLogsDir().catch((e: Error) => snack(e.message))}
+              >
+                Open logs folder
+              </button>
+            </Row>
           </Section>
           </Show>
         </div>

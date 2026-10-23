@@ -1239,7 +1239,12 @@ impl Engine {
         if total > 0 && visible {
             self.status.progress(false, &label, 0, total);
         }
-        let (notify_pref, autocopy, hide_locked, multi) = self.db(|s| {
+        let (notify_pref, autocopy, hide_locked, multi, quiet, quiet_otp_ok) = self.db(|s| {
+            let quiet = crate::prefs::quiet_active(
+                &crate::prefs::get(s, "quiet_start"),
+                &crate::prefs::get(s, "quiet_end"),
+                crate::prefs::local_minutes_now(),
+            );
             Ok((
                 s.account(self.account_id)?
                     .map(|a| a.notify)
@@ -1247,6 +1252,9 @@ impl Engine {
                 crate::prefs::get(s, "otp_autocopy") == "1",
                 crate::prefs::get(s, "otp_lockscreen") == "hide",
                 s.accounts()?.len() > 1,
+                quiet,
+                // Codes are time-critical; they stay allowed unless opted out.
+                crate::prefs::get(s, "quiet_allow_otp") == "1",
             ))
         })?;
         let mut added = 0;
@@ -1297,7 +1305,7 @@ impl Engine {
                 // Codes always notify; other mail only from the Primary tab.
                 "primary" => toast_code.is_some() || primary,
                 _ => true,
-            };
+            } && !(quiet && !(quiet_otp_ok && toast_code.is_some()));
             let fresh = !existed && is_new_inbox && now_ms() - m.internal_date < NOTIFY_MAX_AGE_MS;
             if fresh
                 && autocopy

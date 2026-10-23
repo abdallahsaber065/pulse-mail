@@ -2,6 +2,19 @@
 
 ## Current Release: v0.2.1 (2026-10-24)
 
+- **Always-on reliability (2026-10-24, ADR 0026):**
+  **Quiet hours (N2)** — Settings → Notifications, a local-time window
+  (30-minute steps, may cross midnight) that pauses non-code toasts while
+  mail keeps syncing; codes stay allowed by default (setting). Local time
+  via `GetDynamicTimeZoneInformation`, boundary logic unit-tested.
+  **Sleep/resume catch-up (X2, partial)** — a clock-jump detector
+  (wall vs monotonic ≥ 90 s) triggers a quiet `sync_now(false)` on every
+  account right after the PC wakes, instead of waiting out the IMAP
+  backoff; IMAP re-handshaking itself still rides the existing backoff.
+  **Crash logs (V4)** — rolling daily log files in
+  `%LOCALAPPDATA%\com.abdallah.pulsemail\logs` (7-day retention, no
+  message contents or tokens), a panic hook that records every panic, and
+  Settings → About → "Open logs folder" (`open_logs_dir`, allowlisted).
 - **Rendering fixes (2026-10-24, `f58be1c`):** eliminated the stale-content
   flashes when switching threads and views — the reader can no longer show
   the previous thread's messages under a new selection (thread-owned `msgs`
@@ -134,7 +147,7 @@ yet exercised against the real account.
 | Feature | State | Notes | Code |
 | --- | --- | --- | --- |
 | Windows toasts | Partial | New unread INBOX mail < 15 min old, per account; with several accounts the toast says "To <account>". Dev builds show PowerShell as the sender (no AUMID) | `notify/mod.rs` |
-| Notification mode per account | Done | All / codes only / off, chosen in onboarding and in Settings → Accounts | `accounts.notify` |
+| Notification mode per account | Done | All / codes only / off, chosen in onboarding and in Settings → Accounts; global quiet hours in Settings → Notifications | `accounts.notify`, `prefs.quiet_*` |
 | OTP extraction (v2) | Done (corpus-tested; untested on live new mail) | Scored pipeline: WebOTP line, multilingual keywords (EN/AR/FR/ES/DE + CJK), split and prefixed codes, Arabic-Indic and full-width digits, HTML emphasis, filters for dates, times, phones, money, URLs, footers and promos, expiry, confidence (store ≥ 50, toast ≥ 60). Magic sign-in links get an "Open" card. "Not a code" and copy feedback per sender. Corpus 90 samples: P/R 1.00/1.00; former holdout 20 now passes as a regression set ([ADR 0022](decisions/0022-otp-pipeline.md)). Cached mail re-scored once at startup | `otp/`, `Reader.tsx` |
 | Inbox tabs (Gmail categories) | Done (untested live in the UI) | Primary / Promotions / Social / Updates / Forums from Gmail's `CATEGORY_*` labels, with unread counts. Off by default (Gmail's API can't tell if the user uses tabs; the single inbox matches Gmail with tabs off); per-account switch, "Move to <tab>" in the palette, Important marker, "Primary + codes" notifications ([ADR 0021](decisions/0021-gmail-category-tabs.md)) | `InboxTabs.tsx`, `store::list_threads_in`, `category_counts` |
 | Copy code (toast, chip, banner, Shift+C) | Done | Written with the Windows formats that keep it out of Clipboard History, cloud clipboard and clipboard monitors; cleared after 60 s if unchanged (setting); auto-copy off by default (setting) | `secure_clipboard.rs`, `lib.rs::copy_secret` |

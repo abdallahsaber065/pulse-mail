@@ -157,6 +157,9 @@ const status: AppStatus = {
     otp_lockscreen: "hide",
     undo_send_secs: "5",
     storage_budget_mb: "1024",
+    quiet_start: "off",
+    quiet_end: "off",
+    quiet_allow_otp: "1",
   },
 };
 
@@ -336,6 +339,9 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       return;
     case "open_external":
       window.open(String(args?.url), "_blank", "noopener");
+      return;
+    case "open_logs_dir":
+      console.info("[mock] would open the logs folder");
       return;
     case "sign_in": {
       const reconnectId = args?.accountId;

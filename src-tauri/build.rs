@@ -19,6 +19,7 @@ const COMMANDS: &[&str] = &[
     "take_pending_open",
     "copy_text",
     "open_external",
+    "open_logs_dir",
     "set_destroy_on_close",
     "set_autostart",
     "load_thread",

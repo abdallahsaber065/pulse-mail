@@ -24,6 +24,7 @@
     "allow-take-pending-open",
     "allow-copy-text",
     "allow-open-external",
+    "allow-open-logs-dir",
     "allow-set-destroy-on-close",
     "allow-set-autostart",
     "allow-load-thread",

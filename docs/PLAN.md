@@ -138,6 +138,18 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-24 (always-on reliability, ADR 0026):** Quiet hours (N2):
+  prefs + crossing-midnight window logic + local time from
+  `GetDynamicTimeZoneInformation`, wired into the toast decision with an
+  OTP exception, Settings UI with two time selects (verified in the browser
+  mock: 10:00 PM–6:30 AM round-trips). Sleep/resume catch-up (X2, partial):
+  clock-jump detector (wall vs monotonic, 90 s grace, unit-tested) runs a
+  quiet sync on every account after wake. Crash logs (V4):
+  tracing-appender rolling daily files with 7-day pruning, panic hook,
+  `open_logs_dir` command (full rule-12 wiring: build.rs, capability,
+  security tests) and a Settings → About button. Gates: 136 Rust tests
+  (3 new), 47 vitest, tsc, fmt, cargo check, browser-mock settings check.
+
 - **2026-10-24 (rendering, `f58be1c`):** Fix the glitches seen when switching
   threads and views. Root causes: the reader rendered the previous thread's
   messages until the new fetch landed (`msgs` was never scoped to a thread);

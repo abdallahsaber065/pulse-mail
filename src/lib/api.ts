@@ -120,6 +120,8 @@ export const api = {
   getAttachmentData: (messageId: string, part: number, accountId: Acct = null) =>
     call<AttachmentData>("get_attachment_data", { messageId, part, accountId }),
   openExternal: (url: string) => call<void>("open_external", { url }),
+  /** Reveal the local logs folder in Explorer (Settings → About). */
+  openLogsDir: () => call<void>("open_logs_dir"),
   setDestroyOnClose: (enabled: boolean) => call<void>("set_destroy_on_close", { enabled }),
   setAutostart: (enabled: boolean) => call<boolean>("set_autostart", { enabled }),
 };

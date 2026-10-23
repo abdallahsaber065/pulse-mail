@@ -44,10 +44,10 @@ second account, toasts and the performance table.
 | Order | Feature | Acceptance and boundary |
 | --- | --- | --- |
 | 0 | **Live verification + measurement session** | Work through [VERIFY-LIVE.md](VERIFY-LIVE.md) on the real PC (one or two sessions). Fills the PLAN.md Measured column, decides ADR 0004, and unblocks everything below. No code. |
-| 1 | **Sleep/resume + network-change reconnect (X2)** | On power-resume and network-up events: reconnect IMAP IDLE and run one delta immediately. Biggest single win for the "never miss a code" promise; the log markers added 2026-10-24 make the before/after measurable. |
-| 2 | **Crash logs (V4)** | Panic hook + size-capped rolling log in `%LOCALAPPDATA%`, no message content, "Open logs folder" in Settings. Prerequisite for trusting any long-running behavior. |
+| 1 | ~~**Sleep/resume + network-change reconnect (X2)**~~ ✅ built 2026-10-24 (ADR 0026): clock-jump detector triggers a quiet catch-up on all accounts after wake. Open: nudge the IMAP re-handshake itself (still on backoff) and network-change events beyond the webview's online/offline. |
+| 2 | ~~**Crash logs (V4)**~~ ✅ built 2026-10-24 (ADR 0026): rolling daily logs, 7-day retention, panic hook, "Open logs folder" in Settings. |
 | 3 | **Reopen existing Gmail drafts** | Open from Drafts into compose with recipients, rich text and attachments intact; save back to the same draft. v0.2.0 built the PUT path; VERIFY-LIVE §1 exercises it. |
-| 4 | **Quiet hours (N2)** | Local schedule crossing midnight, OTP exception, no new timer loop (reuse existing tick points); test boundary times. |
+| 4 | ~~**Quiet hours (N2)**~~ ✅ built 2026-10-24 (ADR 0026): local window crossing midnight, OTP exception, Settings UI. Live check in VERIFY-LIVE §3. |
 | 5 | **Trash / spam / archive-everywhere + label picker (T1/T2)** | `#`, `!`, `l` via `threads.modify`/`labels.*`, undo snackbar for each. Completes Phase 2 triage. |
 | 6 | **Offline outbox (X1)** | Durable retry/idempotency design first (ADR); queue label changes and sends while offline, replay in order. |
 

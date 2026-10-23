@@ -737,6 +737,18 @@ pub fn open_external(app: AppHandle, url: String) -> CmdResult<()> {
     Ok(())
 }
 
+/// Reveal the local logs folder in Explorer (Settings → About). Local only;
+/// the rolling files never contain message bodies or tokens.
+#[tauri::command]
+pub fn open_logs_dir(app: AppHandle) -> CmdResult<()> {
+    let dir = crate::logs_dir().ok_or_else(|| CmdError::new("Logs are only kept on Windows."))?;
+    std::fs::create_dir_all(&dir).map_err(|_| CmdError::new("Couldn't create the logs folder."))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|_| CmdError::new("Couldn't open the logs folder."))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn set_destroy_on_close(state: State<'_, AppState>, enabled: bool) -> CmdResult<()> {
     state

@@ -46,6 +46,9 @@ toast sender, so toast appearance/actions should be verified installed.
 - [ ] Clicking the toast opens that exact message, even when the window was
       closed/hidden.
 - [ ] With tabs on: "Primary + codes" mode toasts only Primary + codes.
+- [ ] Quiet hours: set 10:00 PM – 6:30 AM in Settings → Notifications, send
+      a regular mail (no toast; it still syncs and counts) and a code mail
+      (still toasts); then set both times to Off.
 
 ## 4. Server search and tabs against the API
 
