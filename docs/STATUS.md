@@ -2,6 +2,17 @@
 
 ## Current Release: v0.2.1 (2026-10-24)
 
+- **Rendering fixes (2026-10-24, `f58be1c`):** eliminated the stale-content
+  flashes when switching threads and views — the reader can no longer show
+  the previous thread's messages under a new selection (thread-owned `msgs`
+  + an 8-thread instant-revisit cache), the list no longer shows the previous
+  label's rows while the new view loads (view-context gate, tick-excluded so
+  background mail updates don't flash), a reused message row drops the old
+  body as soon as the message id changes, and the reader scroll resets on
+  thread change while same-thread refreshes keep the reading position.
+  Search typing no longer clears the selection or resets scroll per
+  keystroke. Verified in the browser mock (thread→thread, Inbox→Sent,
+  cache revisit); tsc + 47 vitest green.
 - **Hardening pass (2026-10-24, branch `chore/hardening-ci-docs`):**
   `xlsx` upgraded 0.18.5 → 0.20.3 from the SheetJS CDN (two high advisories,
   GHSA-5pgg-2g8v-p4x9 / CVE-2023-30533 — it parses untrusted attachments);

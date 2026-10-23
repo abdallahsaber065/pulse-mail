@@ -138,6 +138,22 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-24 (rendering, `f58be1c`):** Fix the glitches seen when switching
+  threads and views. Root causes: the reader rendered the previous thread's
+  messages until the new fetch landed (`msgs` was never scoped to a thread);
+  the list resource kept the previous label's rows visible during a view
+  switch; a reused message row kept the old sanitized body; the reader kept
+  its scroll position across threads; and the selection scope keyed on the
+  raw query, clearing selection and scroll on every keystroke. Fixes: thread-
+  owned `msgs` with an 8-thread LRU cache, a view-context gate on `rows()`
+  (tick-excluded so background sync doesn't flash skeletons), doc/height drop
+  on `messageId` change in EmailFrame, reader scroll reset keyed on the
+  message-id list, and selection scope on the debounced query. Verified in
+  the browser mock (same-tick subject check, Inbox→Sent, cache revisit,
+  empty state); tsc + 47 vitest. Checked and deliberately NOT changed:
+  `<For>` over virtual items (tanstack reuses measurement objects, so no DOM
+  churn on scroll).
+
 - **2026-10-24 (hardening, branch `chore/hardening-ci-docs`):** Security and
   engineering-health pass, no feature changes. `xlsx` 0.18.5 → 0.20.3
   (SheetJS CDN) clearing two high advisories on the untrusted-attachment
