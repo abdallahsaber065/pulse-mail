@@ -138,6 +138,18 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-24 (unsubscribe helper, T7 link variant):** `List-Unsubscribe`
+  added to the metadata batch query and parsed on both fetch paths
+  (mail-parser types the header as an address list — `<https://…>` looks
+  like an angle-addr — so the angle-bracket URL list is rebuilt; CR/LF
+  sanitized). Migration 11 stores it; metadata refreshes never clear a
+  stored value. The reader shows an Unsubscribe button on messages that
+  have one; the web link opens in the system browser and mailto opens a
+  pre-filled compose, both via the existing phishing-checked link path.
+  The RFC 8058 one-click POST is out of scope by rule 8 (sends to
+  arbitrary endpoints) unless the user asks. Gates: 138 Rust tests (2
+  new), 47 vitest, tsc, fmt; button verified in the browser mock.
+
 - **2026-10-24 (always-on reliability, ADR 0026):** Quiet hours (N2):
   prefs + crossing-midnight window logic + local time from
   `GetDynamicTimeZoneInformation`, wired into the toast decision with an

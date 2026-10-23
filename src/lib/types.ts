@@ -236,6 +236,8 @@ export interface Message {
   replyTo: string;
   rfcMessageId: string;
   rfcReferences: string;
+  /** Raw List-Unsubscribe header (angle-bracket URL list) when the sender offers one. */
+  listUnsubscribe?: string | null;
   attachments: Attachment[];
 }
 

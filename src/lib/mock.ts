@@ -85,6 +85,10 @@ function message(t: ThreadRow): Message {
     replyTo: "",
     rfcMessageId: `<${t.lastMessageId}@mock>`,
     rfcReferences: "",
+    listUnsubscribe:
+      t.fromEmail === "notifications@vercel.com"
+        ? "<https://vercel.com/account/notifications/unsubscribe?token=mock>, <mailto:unsubscribe@vercel.com>"
+        : null,
     attachments: t.threadId === "t2" ? [
       { part: 0, filename: "Sprint-Roadmap-Q4.xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: 24_576, inline: false },
       { part: 1, filename: "Architecture-Spec.pdf", mime: "application/pdf", size: 482_133, inline: false },

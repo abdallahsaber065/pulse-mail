@@ -49,6 +49,8 @@ pub struct NewMessage {
     pub rfc_message_id: String,
     /// Space-separated `<id>` list from the References header.
     pub rfc_references: String,
+    /// Raw `List-Unsubscribe` header value (angle-bracket URL list), if any.
+    pub list_unsubscribe: Option<String>,
     pub attachments: Vec<NewAttachment>,
     /// Gmail sizeEstimate / raw size in bytes (0 = unknown).
     pub size: i64,
@@ -203,6 +205,8 @@ pub struct MessageRow {
     pub reply_to: String,
     pub rfc_message_id: String,
     pub rfc_references: String,
+    /// Raw `List-Unsubscribe` header (angle-bracket URL list), if any.
+    pub list_unsubscribe: Option<String>,
     /// Real attachments (inline `cid:` images are not listed).
     pub attachments: Vec<AttachmentRow>,
 }
@@ -807,8 +811,9 @@ impl Store {
             "INSERT INTO messages(account_id, id, thread_id, internal_date, from_name, from_email, to_list,
                                   subject, snippet, body_text, body_html, is_unread, is_starred,
                                   has_attachments, otp_code, body_loaded,
-                                  cc_list, reply_to, rfc_message_id, rfc_references, size, otp_score, otp_link)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+                                  cc_list, reply_to, rfc_message_id, rfc_references, size, otp_score, otp_link,
+                                  list_unsubscribe)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
              ON CONFLICT(account_id, id) DO UPDATE SET
                 thread_id = excluded.thread_id, internal_date = excluded.internal_date,
                 from_name = excluded.from_name, from_email = excluded.from_email, to_list = excluded.to_list,
@@ -818,7 +823,8 @@ impl Store {
                 body_loaded = 1, cc_list = excluded.cc_list, reply_to = excluded.reply_to,
                 rfc_message_id = excluded.rfc_message_id, rfc_references = excluded.rfc_references,
                 size = CASE WHEN excluded.size > 0 THEN excluded.size ELSE messages.size END,
-                otp_score = excluded.otp_score, otp_link = excluded.otp_link",
+                otp_score = excluded.otp_score, otp_link = excluded.otp_link,
+                list_unsubscribe = excluded.list_unsubscribe",
             params![
                 account_id,
                 m.id,
@@ -841,7 +847,8 @@ impl Store {
                 m.rfc_references,
                 m.size,
                 m.otp_score,
-                otp_link
+                otp_link,
+                m.list_unsubscribe
             ],
         )?;
         write_labels(&tx, account_id, &m.id, &m.label_ids)?;
@@ -891,8 +898,8 @@ impl Store {
         tx.execute(
             "INSERT INTO messages(account_id, id, thread_id, internal_date, from_name, from_email, to_list,
                                   subject, snippet, body_text, is_unread, is_starred, otp_code, body_loaded,
-                                  size, has_attachments, otp_score)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10, ?11, ?12, 0, ?13, ?14, ?15)
+                                  size, has_attachments, otp_score, list_unsubscribe)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10, ?11, ?12, 0, ?13, ?14, ?15, ?16)
              ON CONFLICT(account_id, id) DO UPDATE SET
                 thread_id = excluded.thread_id, internal_date = excluded.internal_date,
                 from_name = excluded.from_name, from_email = excluded.from_email, to_list = excluded.to_list,
@@ -902,7 +909,8 @@ impl Store {
                 otp_code = COALESCE(messages.otp_code, excluded.otp_code),
                 size = CASE WHEN excluded.size > 0 THEN excluded.size ELSE messages.size END,
                 has_attachments = CASE WHEN messages.body_loaded = 1 THEN messages.has_attachments
-                                       ELSE excluded.has_attachments END",
+                                       ELSE excluded.has_attachments END,
+                list_unsubscribe = COALESCE(excluded.list_unsubscribe, messages.list_unsubscribe)",
             params![
                 account_id,
                 m.id,
@@ -918,7 +926,8 @@ impl Store {
                 otp_code,
                 m.size,
                 m.has_attachments,
-                m.otp_score
+                m.otp_score,
+                m.list_unsubscribe
             ],
         )?;
         write_labels(&tx, account_id, &m.id, &m.label_ids)?;
@@ -1257,7 +1266,7 @@ impl Store {
                     body_text, body_html, is_unread, is_starred, has_attachments, otp_code, body_loaded,
                     (SELECT group_concat(label_id, ' ') FROM message_labels ml
                       WHERE ml.account_id = m.account_id AND ml.message_id = m.id),
-                    cc_list, reply_to, rfc_message_id, rfc_references, otp_link
+                    cc_list, reply_to, rfc_message_id, rfc_references, otp_link, list_unsubscribe
              FROM messages m WHERE account_id = ?1 AND thread_id = ?2
              ORDER BY internal_date ASC",
         )?;
@@ -1288,6 +1297,7 @@ impl Store {
                     reply_to: r.get(17)?,
                     rfc_message_id: r.get(18)?,
                     rfc_references: r.get(19)?,
+                    list_unsubscribe: r.get(21)?,
                     attachments: Vec::new(),
                 })
             })?
@@ -1788,6 +1798,24 @@ mod tests {
         s.optimize().unwrap();
         let hits = s.search(Some(id), "invoice", 10).unwrap();
         assert_eq!(hits.len(), 2);
+    }
+
+    #[test]
+    fn list_unsubscribe_roundtrip() {
+        let (mut s, id) = setup();
+        let mut full = msg("m1", "t1", 100, &["INBOX"], "deal");
+        full.list_unsubscribe = Some("<https://shop.test/leave>, <mailto:leave@shop.test>".into());
+        s.upsert_message(id, &full).unwrap();
+        // A metadata refresh without the header must not clear a stored value.
+        let meta = msg("m1", "t1", 100, &["INBOX"], "deal");
+        s.upsert_metadata(id, &meta).unwrap();
+        assert_eq!(
+            s.get_thread(id, "t1").unwrap()[0].list_unsubscribe.as_deref(),
+            Some("<https://shop.test/leave>, <mailto:leave@shop.test>")
+        );
+        // No header anywhere -> None.
+        s.upsert_message(id, &msg("m2", "t2", 100, &["INBOX"], "x")).unwrap();
+        assert_eq!(s.get_thread(id, "t2").unwrap()[0].list_unsubscribe, None);
     }
 
     #[test]

@@ -255,9 +255,9 @@ impl HistoryDelta {
 const BATCH_URL: &str = "https://gmail.googleapis.com/batch/gmail/v1";
 /// Google recommends at most 50 calls per batch; more trips rate limits.
 pub const BATCH_MAX: usize = 50;
-/// Query for metadata-only gets: the three headers the list needs + snippet.
+/// Query for metadata-only gets: the headers the list needs + snippet.
 const META_QUERY: &str = "format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject\
-                          &metadataHeaders=Content-Type\
+                          &metadataHeaders=Content-Type&metadataHeaders=List-Unsubscribe\
                           &fields=id,threadId,labelIds,snippet,internalDate,sizeEstimate,payload/headers";
 
 /// Split a `multipart/mixed` batch response into per-request results, ordered

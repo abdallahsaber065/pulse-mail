@@ -195,4 +195,9 @@ pub const MIGRATIONS: &[&str] = &[
     ALTER TABLE accounts ADD COLUMN profile_name TEXT NOT NULL DEFAULT '';
     ALTER TABLE accounts ADD COLUMN avatar_data TEXT NOT NULL DEFAULT '';
     "#,
+    // 11: one-click unsubscribe — the raw List-Unsubscribe header value
+    // (an angle-bracket URL list) for the reader's Unsubscribe button.
+    r#"
+    ALTER TABLE messages ADD COLUMN list_unsubscribe TEXT;
+    "#,
 ];

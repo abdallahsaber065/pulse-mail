@@ -57,6 +57,13 @@ const CATEGORY_NAMES: Record<string, string> = Object.fromEntries(
   Object.entries(CATEGORY_CONFIG).map(([k, v]) => [k, v.name]),
 );
 
+/** First usable unsubscribe target: prefer the web link, fall back to mail. */
+function unsubLink(v?: string | null): string | null {
+  if (!v) return null;
+  const links = [...v.matchAll(/<((?:https|mailto):[^>]+)>/gi)].map((m) => m[1]);
+  return links.find((l) => l.toLowerCase().startsWith("https:")) ?? links[0] ?? null;
+}
+
 function BodySkeleton() {
   return (
     <div class="space-y-2 py-2" aria-label="Loading message">
@@ -390,6 +397,17 @@ export default function Reader(p: Props) {
                         <span class="selectable truncate text-xs text-muted">&lt;{m().fromEmail}&gt;</span>
                         <span class="ml-auto shrink-0 text-xs text-muted">{fullDate(m().internalDate)}</span>
                         <span class="no-print -my-2 flex shrink-0 items-center">
+                          <Show when={unsubLink(m().listUnsubscribe)}>
+                            {(href) => (
+                              <button
+                                class="mr-1 rounded-full border border-outline px-2.5 py-1 text-[11px] font-medium text-muted hover:bg-hover hover:text-text"
+                                title="Open this sender's unsubscribe link (in your browser, or as a pre-filled email)"
+                                onClick={() => p.onLink(href(), "Unsubscribe")}
+                              >
+                                Unsubscribe
+                              </button>
+                            )}
+                          </Show>
                           <Btn icon="reply" title="Reply (r)" onClick={() => p.onCompose(m(), "reply")} />
                           <Btn icon="forward" title="Forward (f)" onClick={() => p.onCompose(m(), "forward")} />
                         </span>

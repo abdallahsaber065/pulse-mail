@@ -23,6 +23,7 @@ fn msg() -> MessageRow {
         reply_to: String::new(),
         rfc_message_id: "<abc@x.test>".into(),
         rfc_references: "<root@x.test>".into(),
+        list_unsubscribe: None,
         attachments: vec![],
     }
 }

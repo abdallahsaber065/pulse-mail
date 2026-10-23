@@ -357,10 +357,12 @@ Read-only list of Gmail filters (`settings.filters.list`), later create
 
 <a id="t7"></a>
 
-### T7. Unsubscribe helper 💡 · P2
-Detect `List-Unsubscribe` / `List-Unsubscribe-Post` headers; one button that
-does the one-click POST (RFC 8058) or opens the mailto/https link. Add
-`List-Unsubscribe` to the metadata headers we request.
+### T7. Unsubscribe helper 💡 · P2 · link variant ✅ built (2026-10-24)
+`List-Unsubscribe` is fetched in metadata batches, parsed on both paths
+(migration 11), and shown as an Unsubscribe button in the reader; the web
+link opens in the browser, mailto opens a pre-filled compose — both through
+the phishing-checked link path. Still open: the RFC 8058 one-click POST
+(sends to arbitrary endpoints; needs explicit user approval under rule 8).
 
 ## N. Notifications
 

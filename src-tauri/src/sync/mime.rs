@@ -48,6 +48,13 @@ pub fn to_new_message(raw: &RawMessage, bytes: &[u8]) -> NewMessage {
     }
     m.rfc_message_id = p.message_id().map(|id| format!("<{id}>")).unwrap_or_default();
     m.rfc_references = header_ids(p.references());
+    m.list_unsubscribe = p
+        .headers()
+        .iter()
+        .find(|h| h.name.as_str().eq_ignore_ascii_case("List-Unsubscribe"))
+        .and_then(|h| unsub_value(&h.value))
+        .map(|s| sanitize_header_value(&s))
+        .filter(|s| !s.is_empty());
     // mail-parser converts text-only mail to HTML; keep real HTML only, so
     // plain text gets our own rendering (linkified, quotes folded).
     let html = p
@@ -83,6 +90,30 @@ fn header_ids(v: &HeaderValue<'_>) -> String {
         HeaderValue::Text(t) => format!("<{t}>"),
         HeaderValue::TextList(l) => l.iter().map(|t| format!("<{t}>")).collect::<Vec<_>>().join(" "),
         _ => String::new(),
+    }
+}
+
+/// Header values never legitimately contain CR/LF; fold them out before
+/// the value is stored or re-parsed.
+fn sanitize_header_value(v: &str) -> String {
+    v.chars()
+        .map(|c| if c == '\r' || c == '\n' { ' ' } else { c })
+        .collect()
+}
+
+/// mail-parser types List-Unsubscribe as an address list (`<https://…>`
+/// looks like an angle-addr); rebuild the angle-bracket URL list either way.
+fn unsub_value(v: &HeaderValue<'_>) -> Option<String> {
+    match v {
+        HeaderValue::Text(t) => Some(t.to_string()),
+        HeaderValue::Address(list) => {
+            let parts: Vec<String> = list
+                .iter()
+                .filter_map(|a| a.address().map(|u| format!("<{u}>")))
+                .collect();
+            (!parts.is_empty()).then(|| parts.join(", "))
+        }
+        _ => None,
     }
 }
 
@@ -191,12 +222,7 @@ pub fn from_metadata(meta: &MetaMessage) -> NewMessage {
     let mut head = String::new();
     for name in ["From", "To", "Subject"] {
         if let Some(v) = meta.header(name) {
-            // header values never legitimately contain CR/LF
-            let v: String = v
-                .chars()
-                .map(|c| if c == '\r' || c == '\n' { ' ' } else { c })
-                .collect();
-            head.push_str(&format!("{name}: {v}\r\n"));
+            head.push_str(&format!("{name}: {}\r\n", sanitize_header_value(v)));
         }
     }
     head.push_str("\r\n");
@@ -210,6 +236,10 @@ pub fn from_metadata(meta: &MetaMessage) -> NewMessage {
             m.to_list = to.iter().filter_map(|a| a.address()).collect::<Vec<_>>().join(", ");
         }
     }
+    m.list_unsubscribe = meta
+        .header("List-Unsubscribe")
+        .map(sanitize_header_value)
+        .filter(|s| !s.is_empty());
     // Most OTP mails put the code in the first line, which is in the snippet.
     let (subject, snippet, from) = (m.subject.clone(), m.snippet.clone(), m.from_email.clone());
     apply_otp(
@@ -334,6 +364,30 @@ mod tests {
         assert_eq!(m.from_name, "Facebook");
         assert_eq!(m.subject, "Did you just log in near Sidi Bishr?");
         assert_eq!(m.otp_code, None);
+    }
+
+    #[test]
+    fn list_unsubscribe_extracted_and_sanitized() {
+        // Metadata path (history/batch fetches).
+        let json = r#"{"id":"m","threadId":"t","snippet":"deal","internalDate":"5",
+            "payload":{"headers":[{"name":"From","value":"Deals <deals@shop.test>"},
+            {"name":"List-Unsubscribe","value":"<https://shop.test/u?x=1>, <mailto:leave@shop.test>"}]}}"#;
+        let m = from_metadata(&serde_json::from_str(json).unwrap());
+        assert_eq!(
+            m.list_unsubscribe.as_deref(),
+            Some("<https://shop.test/u?x=1>, <mailto:leave@shop.test>")
+        );
+        // Raw path (full MIME), including a folded header line.
+        let eml = b"From: Deals <deals@shop.test>\r\nSubject: deal\r\nList-Unsubscribe: <https://shop.test/leave>,\r\n <mailto:leave@shop.test>\r\nContent-Type: text/plain\r\n\r\nbye\r\n";
+        let m = to_new_message(&raw(&["CATEGORY_PROMOTIONS"]), eml);
+        let unsub = m.list_unsubscribe.as_deref().unwrap_or_default();
+        assert!(
+            unsub.contains("https://shop.test/leave") && unsub.contains("mailto:leave@shop.test"),
+            "{unsub}"
+        );
+        // No header -> None on both paths.
+        let plain = b"From: a@x.test\r\nSubject: hi\r\n\r\nhello\r\n";
+        assert_eq!(to_new_message(&raw(&["INBOX"]), plain).list_unsubscribe, None);
     }
 
     #[test]

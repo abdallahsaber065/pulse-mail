@@ -2,6 +2,14 @@
 
 ## Current Release: v0.2.1 (2026-10-24)
 
+- **Unsubscribe helper (2026-10-24, T7 link variant):** messages carrying a
+  `List-Unsubscribe` header (fetched in metadata batches and parsed from
+  full MIME — mail-parser types it as an address list, which is handled)
+  show an Unsubscribe button in the reader header. It opens the sender's
+  web link in the system browser (or a pre-filled email for mailto), through
+  the same phishing-checked `open_external` path as every mail link. The
+  RFC 8058 one-click POST is deliberately not implemented: it would send
+  requests to arbitrary endpoints (rule 8; ask first). Migration 11.
 - **Always-on reliability (2026-10-24, ADR 0026):**
   **Quiet hours (N2)** — Settings → Notifications, a local-time window
   (30-minute steps, may cross midnight) that pauses non-code toasts while
