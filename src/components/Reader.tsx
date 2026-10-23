@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, Index, Show } from "solid-js";
+import { createEffect, createSignal, For, Index, on, Show } from "solid-js";
 import { api } from "../lib/api";
 import { formatSize } from "../lib/format";
 import Icon, { type IconName } from "./Icon";
@@ -159,6 +159,18 @@ export default function Reader(p: Props) {
     a.mime.startsWith("image/") ? "image" : a.mime === "application/pdf" ? "pdf" : "attachment";
 
   const [togglingDark, setTogglingDark] = createSignal(false);
+  let readerScroll: HTMLDivElement | undefined;
+  // A new thread starts at the top; label/state refreshes of the same thread
+  // (same message ids) keep the reading position.
+  createEffect(
+    on(
+      () => p.messages.map((m) => m.id).join(","),
+      () => {
+        if (readerScroll) readerScroll.scrollTop = 0;
+      },
+      { defer: true },
+    ),
+  );
   const handleToggleEmailDark = async () => {
     if (togglingDark()) return;
     setTogglingDark(true);
@@ -182,7 +194,7 @@ export default function Reader(p: Props) {
         </Show>
       }
     >
-      <div class="reader h-full overflow-y-auto">
+      <div class="reader h-full overflow-y-auto" ref={readerScroll}>
         <div class="no-print sticky top-0 z-10 flex h-12 items-center gap-1 border-b border-divider bg-surface px-2">
           <Btn icon="back" title="Back to list (u)" onClick={p.onBack} />
           <div class="mx-1 h-5 w-px bg-divider" />

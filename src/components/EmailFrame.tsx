@@ -33,9 +33,15 @@ export default function EmailFrame(p: Props) {
   createEffect(
     on(
       () => [p.messageId, p.dark, p.showImages, p.version] as const,
-      ([id, dark, images]) => {
+      ([id, dark, images], prev) => {
         const n = ++seq;
         setError(null);
+        // A reused row (Index re-purposes it when the thread changes) must
+        // never show the previous message's body while this one renders.
+        if (prev && prev[0] !== id) {
+          setDoc(null);
+          setHeight(120);
+        }
         api.renderMessage(id, dark, images, p.accountId).then(
           (r) => {
             if (n !== seq) return;

@@ -104,6 +104,15 @@ export default function App() {
   const [overrides, setOverrides] = createSignal<Record<string, Override>>({});
   const [msgs, setMsgs] = createSignal<Message[]>([]);
   const [msgLoading, setMsgLoading] = createSignal(false);
+  /** Which thread `msgs` belongs to; the reader must never show another thread's mail. */
+  const [msgsThread, setMsgsThread] = createSignal<string | null>(null);
+  /** The last few opened threads, so revisits render instantly instead of flashing skeletons. */
+  const threadCache = new Map<string, Message[]>();
+  const rememberThread = (id: string, list: Message[]) => {
+    threadCache.delete(id);
+    threadCache.set(id, list);
+    if (threadCache.size > 8) threadCache.delete(threadCache.keys().next().value!);
+  };
   /** Body download for the open thread failed (offline, Gmail error). */
   const [bodyError, setBodyError] = createSignal<string | null>(null);
   let searchInput: HTMLInputElement | undefined;
@@ -159,6 +168,9 @@ export default function App() {
   const PAGE = 200;
   const [limit, setLimit] = createSignal(PAGE);
   const pageContexts = new WeakMap<ThreadRow[], string>();
+  /** View (label|query|account|category, without tick) a fetched list belongs to. */
+  const viewContexts = new WeakMap<ThreadRow[], string>();
+  const viewKeyNow = () => `${label()}|${debounced().trim()}|${accountView() ?? ""}|${tabsOn() && category() ? category()! : ""}`;
   const [threads] = createResource(
     () =>
       signedIn()
@@ -174,6 +186,7 @@ export default function App() {
       const previous = info.value && pageContexts.get(info.value) === context && info.value.length < n ? info.value : [];
       const result = await loadRows((offset, count) => q ? api.search(q, count, a, offset) : api.threads(lbl, count, offset, a, c), n, previous);
       pageContexts.set(result, context);
+      viewContexts.set(result, `${lbl}|${q}|${aStr}|${cStr}`);
       return result;
     },
     { initialValue: [] as ThreadRow[] },
@@ -213,7 +226,11 @@ export default function App() {
 
   const rows = createMemo(() => {
     const o = overrides();
-    const base = searching() ? mergeResults(threads(), serverHits()) : threads();
+    // While the fetch for the new view is in flight the resource still holds
+    // the previous view's rows; showing them under the new tab is a glitch,
+    // so render nothing (the list shows its skeleton) until the view matches.
+    const list = viewContexts.get(threads()) === viewKeyNow() ? threads() : [];
+    const base = searching() ? mergeResults(list, serverHits()) : list;
     const q = debounced().toLowerCase();
     const unreadOnly = label() === "UNREAD" || q.includes("is:unread");
     const starredOnly = label() === "STARRED" || q.includes("is:starred");
@@ -260,7 +277,9 @@ export default function App() {
   let selectionEpoch = 0;
   let stopBulk = false;
   const selectionCount = () => selectedCount(selection());
-  const selectionScope = createMemo(() => JSON.stringify([accountView(), label(), tabsOn() ? category() : null, query().trim()]));
+  // Keyed on the debounced query: typing shouldn't clear the selection or
+  // reset the scroll — only an executed view change should.
+  const selectionScope = createMemo(() => JSON.stringify([accountView(), label(), tabsOn() ? category() : null, debounced().trim()]));
   const selectionReady = () => !threads.loading && query().trim() === debounced().trim() && (!needsServer(debounced()) || serverState() === "done" || serverState() === "error");
   createEffect(on(selectionScope, () => {
     selectionEpoch++;
@@ -371,6 +390,8 @@ export default function App() {
     }
   };
   const messages = createMemo(() => {
+    // Nothing foreign can ever reach the reader, even mid-flight.
+    if (msgsThread() !== selected()) return [];
     const x = selected() ? overrides()[selected()!] : undefined;
     return x
       ? msgs().map((m) => {
@@ -482,12 +503,18 @@ export default function App() {
         }
         return cached;
       });
+      setMsgsThread(id);
+      rememberThread(id, msgs());
     }
     if (fetchBodies && (cached.length === 0 || cached.some((m) => !m.bodyLoaded))) {
       setBodyError(null);
       try {
         const full = await api.loadThread(id, acct);
-        if (seq === loadSeq) setMsgs(full);
+        if (seq === loadSeq) {
+          setMsgs(full);
+          setMsgsThread(id);
+          rememberThread(id, full);
+        }
       } catch (e) {
         if (seq === loadSeq) setBodyError((e as Error).message);
       }
@@ -498,9 +525,20 @@ export default function App() {
     on(selected, (id) => {
       setBodyError(null);
       if (id) {
+        // Show this thread instantly if we have it cached; otherwise show the
+        // skeleton — never the previous thread's messages under a new header.
+        const hit = threadCache.get(id);
+        if (hit) {
+          setMsgsThread(id);
+          setMsgs(hit);
+        } else {
+          setMsgsThread(id);
+          setMsgs([]);
+        }
         setMsgLoading(true);
         void loadThread(id, true);
       } else {
+        setMsgsThread(null);
         setMsgs([]);
       }
     }),
