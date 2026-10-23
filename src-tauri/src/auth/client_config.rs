@@ -40,10 +40,8 @@ pub enum ConfigError {
 /// 3. Source directory (`./src-tauri/google-oauth-client.json`)
 /// 4. User app config directory (`<app config dir>/google-oauth-client.json`)
 pub fn resolve_path(app_config_dir: &Path) -> PathBuf {
-    if let Some(p) = std::env::var_os(ENV_OVERRIDE) {
-        if !p.is_empty() {
-            return PathBuf::from(p);
-        }
+    if let Some(p) = std::env::var_os(ENV_OVERRIDE).filter(|p| !p.is_empty()) {
+        return PathBuf::from(p);
     }
     // 1. Check local project root
     let local = PathBuf::from(FILE_NAME);
@@ -67,13 +65,11 @@ pub fn load(path: &Path) -> Result<OAuthClient, ConfigError> {
     if let (Some(id), Some(secret)) = (
         option_env!("PULSE_GOOGLE_CLIENT_ID"),
         option_env!("PULSE_GOOGLE_CLIENT_SECRET"),
-    ) {
-        if !id.is_empty() && !secret.is_empty() {
-            return Ok(OAuthClient {
-                client_id: id.to_string(),
-                client_secret: Secret::new(secret.to_string()),
-            });
-        }
+    ) && !id.is_empty() && !secret.is_empty() {
+        return Ok(OAuthClient {
+            client_id: id.to_string(),
+            client_secret: Secret::new(secret.to_string()),
+        });
     }
     Err(ConfigError::Missing(path.to_path_buf()))
 }

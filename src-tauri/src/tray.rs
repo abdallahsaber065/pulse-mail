@@ -86,9 +86,15 @@ fn update_badge(app: &AppHandle) {
             let _ = tray.set_icon(Some(img));
         }
     }
+    #[cfg(target_os = "windows")]
     if let Some(win) = app.get_webview_window("main") {
         let overlay = crate::badge::overlay(total).map(|(rgba, w, h)| Image::new_owned(rgba, w, h));
         let _ = win.set_overlay_icon(overlay);
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(win) = app.get_webview_window("main") {
+        let count = if total > 0 { Some(total) } else { None };
+        let _ = win.set_badge_count(count);
     }
 }
 

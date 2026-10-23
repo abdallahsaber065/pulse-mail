@@ -48,6 +48,7 @@ fn disc(buf: &mut [u8], size: u32, cx: f32, cy: f32, r: f32, c: [u8; 4]) {
 }
 
 /// 32×32 RGBA overlay: red circle with the count in white.
+#[allow(dead_code)]
 pub fn overlay(count: i64) -> Option<(Vec<u8>, u32, u32)> {
     let text = label(count);
     if text.is_empty() {
