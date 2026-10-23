@@ -5,9 +5,9 @@ mod auth;
 mod badge;
 mod commands;
 mod compose;
-mod files;
 #[doc(hidden)]
 pub mod devtools;
+mod files;
 mod notify;
 mod otp;
 mod prefs;
@@ -49,7 +49,13 @@ impl AppState {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .entry(account_id)
-            .or_insert_with(|| Arc::new(sync::status::StatusCell::for_account(Some(app.clone()), account_id, email)))
+            .or_insert_with(|| {
+                Arc::new(sync::status::StatusCell::for_account(
+                    Some(app.clone()),
+                    account_id,
+                    email,
+                ))
+            })
             .clone()
     }
 
@@ -79,7 +85,12 @@ pub(crate) fn copy_secret(app: &AppHandle, text: &str) {
     }
     let secs = app
         .try_state::<AppState>()
-        .map(|s| prefs::get_num(&s.store.lock().unwrap_or_else(|e| e.into_inner()), "clipboard_clear_secs"))
+        .map(|s| {
+            prefs::get_num(
+                &s.store.lock().unwrap_or_else(|e| e.into_inner()),
+                "clipboard_clear_secs",
+            )
+        })
         .unwrap_or(60);
     if secs == 0 {
         return;
@@ -98,8 +109,8 @@ pub(crate) fn copy_secret(app: &AppHandle, text: &str) {
 
 fn init_tracing() {
     use tracing_subscriber::EnvFilter;
-    let filter =
-        EnvFilter::try_from_env("PULSE_MAIL_LOG").unwrap_or_else(|_| EnvFilter::new("pulse_mail_lib=info,warn,html5ever=error"));
+    let filter = EnvFilter::try_from_env("PULSE_MAIL_LOG")
+        .unwrap_or_else(|_| EnvFilter::new("pulse_mail_lib=info,warn,html5ever=error"));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)

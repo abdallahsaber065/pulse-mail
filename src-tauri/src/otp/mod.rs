@@ -79,8 +79,15 @@ pub struct OtpMatch {
 /// Code-only detection from subject and plain text.
 #[cfg(test)]
 pub fn extract(subject: &str, body: &str) -> Option<OtpMatch> {
-    let d = detect(&Input { subject, text: body, ..Default::default() })?;
-    (d.kind == Kind::Code && d.confidence >= STORE_THRESHOLD).then_some(OtpMatch { code: d.value, score: d.confidence })
+    let d = detect(&Input {
+        subject,
+        text: body,
+        ..Default::default()
+    })?;
+    (d.kind == Kind::Code && d.confidence >= STORE_THRESHOLD).then_some(OtpMatch {
+        code: d.value,
+        score: d.confidence,
+    })
 }
 
 /// Best code or link at or above [`STORE_THRESHOLD`], if any.
@@ -91,7 +98,12 @@ pub fn detect(input: &Input) -> Option<Detection> {
     let expires_min = expiry_minutes(&text);
 
     if let Some(c) = WEBOTP.captures_iter(&text).last() {
-        return Some(Detection { kind: Kind::Code, value: c[2].to_string(), confidence: 95, expires_min });
+        return Some(Detection {
+            kind: Kind::Code,
+            value: c[2].to_string(),
+            confidence: 95,
+            expires_min,
+        });
     }
 
     let html_head = input.html.map(|h| head(h, MAX_HTML_SCAN));
@@ -121,14 +133,24 @@ pub fn detect(input: &Input) -> Option<Detection> {
         None
     };
     if let Some((confidence, value)) = code.filter(|(s, _)| *s >= STORE_THRESHOLD) {
-        return Some(Detection { kind: Kind::Code, value, confidence, expires_min });
+        return Some(Detection {
+            kind: Kind::Code,
+            value,
+            confidence,
+            expires_min,
+        });
     }
     if input.promotional {
         return None;
     }
     best_link(html_head, &subject, &text, &weak, &strong)
         .filter(|(s, _)| *s >= LINK_THRESHOLD)
-        .map(|(confidence, value)| Detection { kind: Kind::Link, value, confidence, expires_min })
+        .map(|(confidence, value)| Detection {
+            kind: Kind::Link,
+            value,
+            confidence,
+            expires_min,
+        })
 }
 
 struct Ctx<'a> {
@@ -156,7 +178,10 @@ fn best_code(c: &Ctx) -> Option<(i32, String)> {
         let digits_only = code.bytes().all(|b| b.is_ascii_digit());
         let has_sep = raw.len() != code.len();
 
-        if c.blocked.iter().any(|&(s, e)| s < end && start < e) || footer_line(text, start, end) || in_identifier(text, start, end) {
+        if c.blocked.iter().any(|&(s, e)| s < end && start < e)
+            || footer_line(text, start, end)
+            || in_identifier(text, start, end)
+        {
             continue;
         }
         let mut score = if digits_only {
@@ -248,8 +273,8 @@ fn best_code(c: &Ctx) -> Option<(i32, String)> {
         let line_end = text[end..].find('\n').map_or(text.len(), |i| end + i);
         let d_neg_after = nearest_after(&text[..line_end], c.negative, end).filter(|d| *d <= 20);
         let neg_labels = d_neg_before.is_some_and(|n| d_strong_before.is_none_or(|s| n < s));
-        let neg_follows = d_neg_after
-            .is_some_and(|n| d_strong_before.is_none_or(|s| s > 30) && d_strong_after.is_none_or(|s| n < s));
+        let neg_follows =
+            d_neg_after.is_some_and(|n| d_strong_before.is_none_or(|s| s > 30) && d_strong_after.is_none_or(|s| n < s));
         let neg_names_keyword = d_strong_before.is_some_and(|d| d <= 80)
             && strong_start_before(c.strong, start)
                 .and_then(|kw| nearest_before(text, c.negative, kw))
@@ -352,9 +377,11 @@ fn head(s: &str, max: usize) -> &str {
 }
 
 fn has_long_token(url: &str) -> bool {
-    url.split(['/', '?', '&', '=', '#'])
-        .any(|p| p.len() >= 16 && p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.'))
-        && url.matches('.').count() < 12
+    url.split(['/', '?', '&', '=', '#']).any(|p| {
+        p.len() >= 16
+            && p.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+    }) && url.matches('.').count() < 12
 }
 
 fn expiry_minutes(text: &str) -> Option<u32> {
@@ -382,7 +409,9 @@ pub(crate) fn normalize(s: &str) -> String {
             '\u{0660}'..='\u{0669}' => Some(char::from(b'0' + (c as u32 - 0x0660) as u8)),
             '\u{06F0}'..='\u{06F9}' => Some(char::from(b'0' + (c as u32 - 0x06F0) as u8)),
             '\u{FF10}'..='\u{FF19}' => Some(char::from(b'0' + (c as u32 - 0xFF10) as u8)),
-            '\u{200B}'..='\u{200F}' | '\u{2060}' | '\u{FEFF}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' => None,
+            '\u{200B}'..='\u{200F}' | '\u{2060}' | '\u{FEFF}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' => {
+                None
+            }
             '\u{00A0}' | '\u{2000}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}' => Some(' '),
             _ => Some(c),
         })
@@ -408,7 +437,11 @@ fn nearest_after(text: &str, spans: &[(usize, usize)], idx: usize) -> Option<usi
 
 /// Start of the closest strong keyword ending before `idx`.
 fn strong_start_before(spans: &[(usize, usize)], idx: usize) -> Option<usize> {
-    spans.iter().filter(|&&(_, e)| e <= idx).max_by_key(|&&(_, e)| e).map(|&(s, _)| s)
+    spans
+        .iter()
+        .filter(|&&(_, e)| e <= idx)
+        .max_by_key(|&&(_, e)| e)
+        .map(|&(s, _)| s)
 }
 
 fn strong_end_before(spans: &[(usize, usize)], idx: usize) -> Option<usize> {
@@ -418,9 +451,36 @@ fn strong_end_before(spans: &[(usize, usize)], idx: usize) -> Option<usize> {
 /// Only linking words between the keyword and the code ("code is", "رمز التحقق الخاص بك هو").
 fn filler_only(between: &str) -> bool {
     const FILLER: &[&str] = &[
-        "is", "was", "your", "the", "below", "here", "it", "lautet", "ist", "est", "es", "de", "for", "to", "use",
-        "verification", "security", "login", "sign-in", "one-time", "vérification", "verificación",
-        "هو", "هي", "الخاص", "الخاصة", "بك", "التفعيل", "التحقق", "الدخول",
+        "is",
+        "was",
+        "your",
+        "the",
+        "below",
+        "here",
+        "it",
+        "lautet",
+        "ist",
+        "est",
+        "es",
+        "de",
+        "for",
+        "to",
+        "use",
+        "verification",
+        "security",
+        "login",
+        "sign-in",
+        "one-time",
+        "vérification",
+        "verificación",
+        "هو",
+        "هي",
+        "الخاص",
+        "الخاصة",
+        "بك",
+        "التفعيل",
+        "التحقق",
+        "الدخول",
     ];
     let words: Vec<&str> = between
         .split(|c: char| c.is_whitespace() || matches!(c, ':' | '：' | ',' | '،' | '[' | '(' | '"' | '«'))
@@ -473,7 +533,11 @@ fn numeric_context(text: &str, start: usize, end: usize) -> bool {
     if matches!(n0, Some('%')) || (n0 == Some(' ') && n1 == Some('%')) {
         return true;
     }
-    if prev.iter().take(2).any(|c| matches!(c, '$' | '€' | '£' | '¥' | '₹' | '+' | '#' | '№')) {
+    if prev
+        .iter()
+        .take(2)
+        .any(|c| matches!(c, '$' | '€' | '£' | '¥' | '₹' | '+' | '#' | '№'))
+    {
         return true;
     }
     if (p0 == Some(' ') && digit(p1)) || (n0 == Some(' ') && digit(n1)) {
@@ -483,7 +547,10 @@ fn numeric_context(text: &str, start: usize, end: usize) -> bool {
         "egp", "usd", "eur", "sar", "aed", "gbp", "kwd", "le", "ج.م", "جنيه", "ريال", "درهم", "mb", "gb", "kb", "px",
         "pts", "points", "miles", "km", "kg",
     ];
-    let clean = |w: &str| w.trim_matches(|c: char| !c.is_alphanumeric() && c != '.').to_lowercase();
+    let clean = |w: &str| {
+        w.trim_matches(|c: char| !c.is_alphanumeric() && c != '.')
+            .to_lowercase()
+    };
     let prev_word = text[..start].split_whitespace().last().map(clean).unwrap_or_default();
     let next_word = text[end..].split_whitespace().next().map(clean).unwrap_or_default();
     UNITS.contains(&prev_word.as_str()) || UNITS.contains(&next_word.as_str())
@@ -496,7 +563,10 @@ fn in_url_or_email(text: &str, start: usize, end: usize) -> bool {
         .find(|(_, c)| c.is_whitespace())
         .map(|(i, c)| i + c.len_utf8())
         .unwrap_or(0);
-    let tok_end = text[end..].find(char::is_whitespace).map(|i| end + i).unwrap_or(text.len());
+    let tok_end = text[end..]
+        .find(char::is_whitespace)
+        .map(|i| end + i)
+        .unwrap_or(text.len());
     let tok = &text[tok_start..tok_end];
     tok.contains("://") || tok.contains("www.") || tok.contains('=') || tok.contains('/') || tok.contains('@')
 }

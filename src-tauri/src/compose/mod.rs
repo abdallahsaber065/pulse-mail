@@ -48,7 +48,11 @@ pub fn safe_mime(m: &str) -> String {
     let m = m.trim().to_ascii_lowercase();
     let ok = m.len() <= 100
         && m.split_once('/').is_some_and(|(a, b)| {
-            !a.is_empty() && !b.is_empty() && (a.to_string() + b).bytes().all(|c| c.is_ascii_alphanumeric() || b"+-.".contains(&c))
+            !a.is_empty()
+                && !b.is_empty()
+                && (a.to_string() + b)
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"+-.".contains(&c))
         });
     if ok { m } else { "application/octet-stream".into() }
 }
@@ -60,8 +64,28 @@ pub fn sanitize_compose_html(html: &str) -> String {
     use std::collections::HashSet;
     ammonia::Builder::empty()
         .add_tags([
-            "p", "br", "div", "span", "strong", "b", "em", "i", "u", "s", "strike", "ul", "ol", "li", "blockquote", "a",
-            "h1", "h2", "h3", "code", "pre", "hr",
+            "p",
+            "br",
+            "div",
+            "span",
+            "strong",
+            "b",
+            "em",
+            "i",
+            "u",
+            "s",
+            "strike",
+            "ul",
+            "ol",
+            "li",
+            "blockquote",
+            "a",
+            "h1",
+            "h2",
+            "h3",
+            "code",
+            "pre",
+            "hr",
         ])
         .add_generic_attributes(["dir"])
         .add_tag_attributes("a", ["href"])
@@ -102,7 +126,10 @@ pub fn parse_recipients(field: &str) -> Result<Vec<Recipient>, String> {
     let mut out = Vec::new();
     for p in parts.iter().map(|p| p.trim()).filter(|p| !p.is_empty()) {
         let (name, email) = match (p.rfind('<'), p.ends_with('>')) {
-            (Some(i), true) => (p[..i].trim().trim_matches('"').trim().to_string(), p[i + 1..p.len() - 1].trim().to_string()),
+            (Some(i), true) => (
+                p[..i].trim().trim_matches('"').trim().to_string(),
+                p[i + 1..p.len() - 1].trim().to_string(),
+            ),
             _ => (String::new(), p.to_string()),
         };
         if !valid_email(&email) || name.chars().any(char::is_control) {
@@ -118,7 +145,9 @@ pub fn parse_recipients(field: &str) -> Result<Vec<Recipient>, String> {
 
 pub fn valid_email(s: &str) -> bool {
     s.len() <= 254
-        && !s.chars().any(|c| c.is_control() || c.is_whitespace() || "<>,;\"()[]\\".contains(c))
+        && !s
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || "<>,;\"()[]\\".contains(c))
         && s.split_once('@').is_some_and(|(l, d)| {
             !l.is_empty() && !d.contains('@') && d.contains('.') && !d.starts_with('.') && !d.ends_with('.')
         })
@@ -176,8 +205,14 @@ pub struct Prepared {
 impl Draft {
     /// Validate the fields. `sending` requires at least one recipient.
     pub fn prepare(&self, sending: bool) -> Result<Prepared, String> {
-        let field = |name: &str, v: &str| parse_recipients(v).map_err(|bad| format!("{name}: \"{bad}\" isn't a valid address."));
-        let p = Prepared { to: field("To", &self.to)?, cc: field("Cc", &self.cc)?, bcc: field("Bcc", &self.bcc)? };
+        let field = |name: &str, v: &str| {
+            parse_recipients(v).map_err(|bad| format!("{name}: \"{bad}\" isn't a valid address."))
+        };
+        let p = Prepared {
+            to: field("To", &self.to)?,
+            cc: field("Cc", &self.cc)?,
+            bcc: field("Bcc", &self.bcc)?,
+        };
         if sending && p.to.is_empty() && p.cc.is_empty() && p.bcc.is_empty() {
             return Err("Add at least one recipient.".into());
         }
@@ -211,13 +246,22 @@ impl Draft {
 pub fn message_ids(s: &str) -> Vec<String> {
     s.split_whitespace()
         .filter_map(|t| t.strip_prefix('<')?.strip_suffix('>'))
-        .filter(|id| !id.is_empty() && id.len() <= 250 && id.contains('@') && !id.chars().any(|c| c.is_control() || "<> ".contains(c)))
+        .filter(|id| {
+            !id.is_empty()
+                && id.len() <= 250
+                && id.contains('@')
+                && !id.chars().any(|c| c.is_control() || "<> ".contains(c))
+        })
         .map(str::to_owned)
         .collect()
 }
 
 fn single_line(s: &str) -> String {
-    s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect::<String>().trim().to_string()
+    s.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 pub fn escape_html(s: &str) -> String {
@@ -300,7 +344,10 @@ fn addresses(list: &[Recipient]) -> Address<'static> {
 /// the message (Gmail strips it when sending and needs it to deliver).
 pub fn build_raw(d: &Draft, p: &Prepared, from: &str, from_name: &str, files: Vec<FilePart>) -> Vec<u8> {
     let name = single_line(from_name);
-    let mut b = MessageBuilder::new().from(Address::new_address((!name.is_empty()).then_some(name), from.to_string()));
+    let mut b = MessageBuilder::new().from(Address::new_address(
+        (!name.is_empty()).then_some(name),
+        from.to_string(),
+    ));
     if !p.to.is_empty() {
         b = b.to(addresses(&p.to));
     }
@@ -322,7 +369,15 @@ pub fn build_raw(d: &Draft, p: &Prepared, from: &str, from_name: &str, files: Ve
     b = b.text_body(text_body(d)).html_body(html_body(d));
     for f in files {
         let name = crate::sync::mime::safe_filename(&single_line(&f.name));
-        b = b.attachment(safe_mime(&f.mime), if name.is_empty() { "attachment".to_string() } else { name }, f.bytes);
+        b = b.attachment(
+            safe_mime(&f.mime),
+            if name.is_empty() {
+                "attachment".to_string()
+            } else {
+                name
+            },
+            f.bytes,
+        );
     }
     b.write_to_vec().unwrap_or_default()
 }
@@ -365,18 +420,38 @@ fn prefixed(subject: &str, prefix: &str) -> String {
         "Re:" => lower.starts_with("re:") || lower.starts_with("aw:"),
         _ => lower.starts_with("fwd:") || lower.starts_with("fw:"),
     };
-    if has { s.to_string() } else if s.is_empty() { prefix.to_string() } else { format!("{prefix} {s}") }
+    if has {
+        s.to_string()
+    } else if s.is_empty() {
+        prefix.to_string()
+    } else {
+        format!("{prefix} {s}")
+    }
 }
 
 fn display(name: &str, email: &str) -> String {
-    if name.is_empty() || name == email { email.to_string() } else { format!("\"{}\" <{email}>", name.replace('"', "")) }
+    if name.is_empty() || name == email {
+        email.to_string()
+    } else {
+        format!("\"{}\" <{email}>", name.replace('"', ""))
+    }
 }
 
 pub fn reply_context(m: &MessageRow, me: &str, mode: Mode) -> ComposeInit {
     let me_l = me.to_lowercase();
     let not_me = |e: &&str| !e.trim().is_empty() && e.trim().to_lowercase() != me_l;
-    let split = |s: &str| s.split(',').map(str::trim).filter(|e| !e.is_empty()).map(str::to_owned).collect::<Vec<_>>();
-    let sender = if m.reply_to.trim().is_empty() { m.from_email.clone() } else { m.reply_to.clone() };
+    let split = |s: &str| {
+        s.split(',')
+            .map(str::trim)
+            .filter(|e| !e.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let sender = if m.reply_to.trim().is_empty() {
+        m.from_email.clone()
+    } else {
+        m.reply_to.clone()
+    };
     let from_me = m.from_email.eq_ignore_ascii_case(me);
 
     let mut init = ComposeInit {
@@ -426,7 +501,14 @@ pub fn reply_context(m: &MessageRow, me: &str, mode: Mode) -> ComposeInit {
                 cc = split(&m.cc_list).into_iter().filter(|e| not_me(&e.as_str())).collect();
             }
             let mut seen = std::collections::HashSet::new();
-            let key = |s: &str| s.rsplit('<').next().unwrap_or(s).trim_end_matches('>').trim().to_lowercase();
+            let key = |s: &str| {
+                s.rsplit('<')
+                    .next()
+                    .unwrap_or(s)
+                    .trim_end_matches('>')
+                    .trim()
+                    .to_lowercase()
+            };
             to.retain(|e| seen.insert(key(e)));
             cc.retain(|e| seen.insert(key(e)));
             init.to = to.join(", ");

@@ -21,7 +21,11 @@ pub fn to_new_message(raw: &RawMessage, bytes: &[u8]) -> NewMessage {
         internal_date: raw.internal_date_ms(),
         snippet: decode_snippet(&raw.snippet),
         label_ids: raw.label_ids.clone(),
-        size: if raw.size_estimate > 0 { raw.size_estimate } else { bytes.len() as i64 },
+        size: if raw.size_estimate > 0 {
+            raw.size_estimate
+        } else {
+            bytes.len() as i64
+        },
         ..Default::default()
     };
     let Some(p) = parsed else {
@@ -109,7 +113,8 @@ fn attachments(p: &mail_parser::Message<'_>) -> Vec<NewAttachment> {
                 part: i as u32,
                 filename,
                 size: bytes.len() as i64,
-                data: (inline && bytes.len() <= MAX_INLINE_IMAGE_BYTES && !mime.contains("svg")).then(|| bytes.to_vec()),
+                data: (inline && bytes.len() <= MAX_INLINE_IMAGE_BYTES && !mime.contains("svg"))
+                    .then(|| bytes.to_vec()),
                 mime,
                 content_id,
                 inline,
@@ -122,13 +127,30 @@ fn attachments(p: &mail_parser::Message<'_>) -> Vec<NewAttachment> {
 pub fn safe_filename(name: &str) -> String {
     let cleaned: String = name
         .chars()
-        .map(|c| if c.is_control() || r#"\/:*?"<>|"#.contains(c) { '_' } else { c })
+        .map(|c| {
+            if c.is_control() || r#"\/:*?"<>|"#.contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     let cleaned = cleaned.trim().trim_matches('.').trim().to_string();
     let reserved = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "LPT1", "LPT2"];
     let stem = cleaned.split('.').next().unwrap_or_default().to_ascii_uppercase();
-    let cleaned = if reserved.contains(&stem.as_str()) { format!("_{cleaned}") } else { cleaned };
-    let mut out: String = cleaned.chars().rev().take(150).collect::<Vec<_>>().into_iter().rev().collect();
+    let cleaned = if reserved.contains(&stem.as_str()) {
+        format!("_{cleaned}")
+    } else {
+        cleaned
+    };
+    let mut out: String = cleaned
+        .chars()
+        .rev()
+        .take(150)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
     if out.chars().count() < cleaned.chars().count() {
         // keep the extension, drop the front
         out = format!("…{out}");
@@ -327,7 +349,11 @@ mod tests {
         let pdf = &m.attachments[1];
         assert!(!pdf.inline && pdf.data.is_none());
         assert_eq!(pdf.mime, "application/pdf");
-        assert!(!pdf.filename.contains('/') && !pdf.filename.contains(':') && pdf.filename.ends_with(".pdf"), "{}", pdf.filename);
+        assert!(
+            !pdf.filename.contains('/') && !pdf.filename.contains(':') && pdf.filename.ends_with(".pdf"),
+            "{}",
+            pdf.filename
+        );
         assert!(m.has_attachments);
     }
 

@@ -5,8 +5,8 @@
 //! never hold the connection across an `.await`.
 
 mod migrations;
-pub mod selection;
 pub mod query;
+pub mod selection;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -371,7 +371,9 @@ impl Store {
 
     /// All accounts, oldest first (the first is the default account).
     pub fn accounts(&self) -> Result<Vec<Account>> {
-        let mut stmt = self.conn.prepare_cached(&format!("SELECT {ACCOUNT_COLS} FROM accounts ORDER BY id"))?;
+        let mut stmt = self
+            .conn
+            .prepare_cached(&format!("SELECT {ACCOUNT_COLS} FROM accounts ORDER BY id"))?;
         stmt.query_map([], map_account)?.collect()
     }
 
@@ -397,20 +399,25 @@ impl Store {
              WHERE id = ?1",
             params![account_id, window],
         )?;
-        self.conn.execute("DELETE FROM hist_queue WHERE account_id = ?1", [account_id])?;
+        self.conn
+            .execute("DELETE FROM hist_queue WHERE account_id = ?1", [account_id])?;
         Ok(())
     }
 
     pub fn set_backfill_phase(&self, account_id: i64, phase: &str) -> Result<()> {
         debug_assert!(BACKFILL_PHASES.contains(&phase));
-        self.conn
-            .execute("UPDATE accounts SET backfill_phase = ?2 WHERE id = ?1", params![account_id, phase])?;
+        self.conn.execute(
+            "UPDATE accounts SET backfill_phase = ?2 WHERE id = ?1",
+            params![account_id, phase],
+        )?;
         Ok(())
     }
 
     pub fn set_backfill_error(&self, account_id: i64, error: Option<&str>) -> Result<()> {
-        self.conn
-            .execute("UPDATE accounts SET backfill_error = ?2 WHERE id = ?1", params![account_id, error])?;
+        self.conn.execute(
+            "UPDATE accounts SET backfill_error = ?2 WHERE id = ?1",
+            params![account_id, error],
+        )?;
         Ok(())
     }
 
@@ -425,14 +432,23 @@ impl Store {
         ] {
             if let Some(v) = v {
                 // column names come from the fixed list above
-                tx.execute(&format!("UPDATE accounts SET {col} = ?2 WHERE id = ?1"), params![account_id, v])?;
+                tx.execute(
+                    &format!("UPDATE accounts SET {col} = ?2 WHERE id = ?1"),
+                    params![account_id, v],
+                )?;
             }
         }
         if let Some(mb) = s.attach_max_mb {
-            tx.execute("UPDATE accounts SET attach_max_mb = ?2 WHERE id = ?1", params![account_id, mb])?;
+            tx.execute(
+                "UPDATE accounts SET attach_max_mb = ?2 WHERE id = ?1",
+                params![account_id, mb],
+            )?;
         }
         if let Some(on) = s.category_tabs {
-            tx.execute("UPDATE accounts SET category_tabs = ?2 WHERE id = ?1", params![account_id, on])?;
+            tx.execute(
+                "UPDATE accounts SET category_tabs = ?2 WHERE id = ?1",
+                params![account_id, on],
+            )?;
         }
         tx.commit()
     }
@@ -473,8 +489,11 @@ impl Store {
     }
 
     pub fn queue_len(&self, account_id: i64) -> Result<i64> {
-        self.conn
-            .query_row("SELECT COUNT(*) FROM hist_queue WHERE account_id = ?1", [account_id], |r| r.get(0))
+        self.conn.query_row(
+            "SELECT COUNT(*) FROM hist_queue WHERE account_id = ?1",
+            [account_id],
+            |r| r.get(0),
+        )
     }
 
     /// Sizes of the messages newer than `since_ms` (0 = all) on this PC.
@@ -484,7 +503,13 @@ impl Store {
                     COALESCE(SUM(CASE WHEN has_attachments THEN MIN(size, 80000) ELSE size END), 0)
              FROM messages WHERE account_id = ?1 AND internal_date >= ?2 AND size > 0",
             params![account_id, since_ms],
-            |r| Ok(SizeEstimate { sized: r.get(0)?, total_bytes: r.get(1)?, text_bytes: r.get(2)? }),
+            |r| {
+                Ok(SizeEstimate {
+                    sized: r.get(0)?,
+                    total_bytes: r.get(1)?,
+                    text_bytes: r.get(2)?,
+                })
+            },
         )
     }
 
@@ -496,7 +521,8 @@ impl Store {
                AND (?3 = 0 OR size <= ?3)
              ORDER BY internal_date DESC LIMIT ?4",
         )?;
-        stmt.query_map(params![account_id, since_ms, max_size, limit], |r| r.get(0))?.collect()
+        stmt.query_map(params![account_id, since_ms, max_size, limit], |r| r.get(0))?
+            .collect()
     }
 
     /// Messages whose body is cached but some attachment allowed by the
@@ -508,7 +534,8 @@ impl Store {
                AND a.inline = 0 AND a.stored = 0 AND (?3 = 0 OR a.size <= ?3)
              ORDER BY m.internal_date DESC LIMIT ?4",
         )?;
-        stmt.query_map(params![account_id, since_ms, max_file, limit], |r| r.get(0))?.collect()
+        stmt.query_map(params![account_id, since_ms, max_file, limit], |r| r.get(0))?
+            .collect()
     }
 
     pub fn mark_stored(&self, account_id: i64, message_id: &str, part: u32) -> Result<()> {
@@ -550,21 +577,27 @@ impl Store {
     }
 
     pub fn set_account_notify(&self, account_id: i64, mode: &str) -> Result<()> {
-        self.conn
-            .execute("UPDATE accounts SET notify = ?2 WHERE id = ?1", params![account_id, mode])?;
+        self.conn.execute(
+            "UPDATE accounts SET notify = ?2 WHERE id = ?1",
+            params![account_id, mode],
+        )?;
         Ok(())
     }
 
     pub fn set_messages_total(&self, account_id: i64, total: i64) -> Result<()> {
-        self.conn
-            .execute("UPDATE accounts SET messages_total = ?2 WHERE id = ?1", params![account_id, total])?;
+        self.conn.execute(
+            "UPDATE accounts SET messages_total = ?2 WHERE id = ?1",
+            params![account_id, total],
+        )?;
         Ok(())
     }
 
     pub fn set_backfill_state(&self, account_id: i64, state: &str) -> Result<()> {
         debug_assert!(BACKFILL_STATES.contains(&state));
-        self.conn
-            .execute("UPDATE accounts SET backfill_state = ?2 WHERE id = ?1", params![account_id, state])?;
+        self.conn.execute(
+            "UPDATE accounts SET backfill_state = ?2 WHERE id = ?1",
+            params![account_id, state],
+        )?;
         Ok(())
     }
 
@@ -627,7 +660,8 @@ impl Store {
              FROM inbox GROUP BY cat",
             cat = CATEGORY_EXPR
         ))?;
-        stmt.query_map([account_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect()
+        stmt.query_map([account_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect()
     }
 
     /// Learned adjustment for codes from this sender (+ copied, - "not a code").
@@ -709,7 +743,15 @@ impl Store {
     }
 
     /// Store a re-run OTP result (feedback still applies).
-    pub fn set_otp(&mut self, account_id: i64, id: &str, from: &str, code: Option<&str>, link: Option<&str>, score: i32) -> Result<()> {
+    pub fn set_otp(
+        &mut self,
+        account_id: i64,
+        id: &str,
+        from: &str,
+        code: Option<&str>,
+        link: Option<&str>,
+        score: i32,
+    ) -> Result<()> {
         let bias = otp_bias(&self.conn, account_id, from)?;
         let keep = score + bias >= crate::otp::STORE_THRESHOLD;
         self.conn.execute(
@@ -797,7 +839,8 @@ impl Store {
             let mut stmt = tx.prepare_cached(
                 "SELECT part FROM attachments WHERE account_id = ?1 AND message_id = ?2 AND stored = 1",
             )?;
-            stmt.query_map(params![account_id, m.id], |r| r.get(0))?.collect::<Result<_>>()?
+            stmt.query_map(params![account_id, m.id], |r| r.get(0))?
+                .collect::<Result<_>>()?
         };
         tx.execute(
             "DELETE FROM attachments WHERE account_id = ?1 AND message_id = ?2",
@@ -810,7 +853,18 @@ impl Store {
             )?;
             for a in &m.attachments {
                 let stored = kept.contains(&a.part);
-                stmt.execute(params![account_id, m.id, a.part, a.filename, a.mime, a.size, a.content_id, a.inline, a.data, stored])?;
+                stmt.execute(params![
+                    account_id,
+                    m.id,
+                    a.part,
+                    a.filename,
+                    a.mime,
+                    a.size,
+                    a.content_id,
+                    a.inline,
+                    a.data,
+                    stored
+                ])?;
             }
         }
         tx.commit()
@@ -1029,7 +1083,13 @@ impl Store {
 
     /// Threads carrying `label_id`, newest first. `account_id` None = every
     /// account (the unified inbox).
-    pub fn list_threads(&self, account_id: Option<i64>, label_id: &str, limit: i64, offset: i64) -> Result<Vec<ThreadRow>> {
+    pub fn list_threads(
+        &self,
+        account_id: Option<i64>,
+        label_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ThreadRow>> {
         self.list_threads_in(account_id, label_id, None, limit, offset)
     }
 
@@ -1107,8 +1167,11 @@ impl Store {
              ORDER BY internal_date DESC, account_id, thread_id
              LIMIT ?3 OFFSET ?7",
         )?;
-        stmt.query_map(params![account_id, q.fts, limit, unread, q.starred, q.attachment, offset], map_thread)?
-            .collect()
+        stmt.query_map(
+            params![account_id, q.fts, limit, unread, q.starred, q.attachment, offset],
+            map_thread,
+        )?
+        .collect()
     }
 
     /// Of `ids`, the ones not cached for this account (server search fills them in).
@@ -1164,7 +1227,8 @@ impl Store {
             "SELECT id FROM messages WHERE account_id = ?1 AND body_loaded = 0 AND internal_date >= ?2
              ORDER BY internal_date DESC LIMIT ?3",
         )?;
-        stmt.query_map(params![account_id, since_ms, limit], |r| r.get(0))?.collect()
+        stmt.query_map(params![account_id, since_ms, limit], |r| r.get(0))?
+            .collect()
     }
 
     /// Size of the database file in bytes (page_count * page_size).
@@ -1188,34 +1252,34 @@ impl Store {
         )?;
         let mut rows = stmt
             .query_map(params![account_id, thread_id], |r| {
-            let labels: Option<String> = r.get(15)?;
-            Ok(MessageRow {
-                id: r.get(0)?,
-                thread_id: r.get(1)?,
-                internal_date: r.get(2)?,
-                from_name: r.get(3)?,
-                from_email: r.get(4)?,
-                to_list: r.get(5)?,
-                subject: r.get(6)?,
-                snippet: r.get(7)?,
-                body_text: r.get(8)?,
-                body_html: r.get(9)?,
-                unread: r.get(10)?,
-                starred: r.get(11)?,
-                has_attachments: r.get(12)?,
-                otp_code: r.get(13)?,
-                otp_link: r.get(20)?,
-                body_loaded: r.get(14)?,
-                label_ids: labels
-                    .map(|s| s.split(' ').map(str::to_owned).collect())
-                    .unwrap_or_default(),
-                cc_list: r.get(16)?,
-                reply_to: r.get(17)?,
-                rfc_message_id: r.get(18)?,
-                rfc_references: r.get(19)?,
-                attachments: Vec::new(),
-            })
-        })?
+                let labels: Option<String> = r.get(15)?;
+                Ok(MessageRow {
+                    id: r.get(0)?,
+                    thread_id: r.get(1)?,
+                    internal_date: r.get(2)?,
+                    from_name: r.get(3)?,
+                    from_email: r.get(4)?,
+                    to_list: r.get(5)?,
+                    subject: r.get(6)?,
+                    snippet: r.get(7)?,
+                    body_text: r.get(8)?,
+                    body_html: r.get(9)?,
+                    unread: r.get(10)?,
+                    starred: r.get(11)?,
+                    has_attachments: r.get(12)?,
+                    otp_code: r.get(13)?,
+                    otp_link: r.get(20)?,
+                    body_loaded: r.get(14)?,
+                    label_ids: labels
+                        .map(|s| s.split(' ').map(str::to_owned).collect())
+                        .unwrap_or_default(),
+                    cc_list: r.get(16)?,
+                    reply_to: r.get(17)?,
+                    rfc_message_id: r.get(18)?,
+                    rfc_references: r.get(19)?,
+                    attachments: Vec::new(),
+                })
+            })?
             .collect::<Result<Vec<_>>>()?;
         for m in &mut rows {
             m.attachments = self.attachments(account_id, &m.id, false)?;
@@ -1248,8 +1312,10 @@ impl Store {
             "SELECT content_id, mime, data FROM attachments
              WHERE account_id = ?1 AND message_id = ?2 AND content_id IS NOT NULL AND data IS NOT NULL",
         )?;
-        stmt.query_map(params![account_id, message_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-            .collect()
+        stmt.query_map(params![account_id, message_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?
+        .collect()
     }
 
     /// One message's cached body for rendering.
@@ -1364,8 +1430,13 @@ const CATEGORY_EXPR: &str = "COALESCE((SELECT c.label_id FROM message_labels c
        AND c.label_id IN ('CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS')
      LIMIT 1), 'CATEGORY_PERSONAL')";
 
-pub const CATEGORIES: &[&str] =
-    &["CATEGORY_PERSONAL", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_UPDATES", "CATEGORY_FORUMS"];
+pub const CATEGORIES: &[&str] = &[
+    "CATEGORY_PERSONAL",
+    "CATEGORY_PROMOTIONS",
+    "CATEGORY_SOCIAL",
+    "CATEGORY_UPDATES",
+    "CATEGORY_FORUMS",
+];
 
 fn otp_bias(conn: &Connection, account_id: i64, sender: &str) -> Result<i32> {
     if sender.is_empty() {
@@ -1646,9 +1717,16 @@ mod tests {
         b.from_name = "Bob".into();
         b.from_email = "bob@corp.test".into();
         s.upsert_message(id, &b).unwrap();
-        s.upsert_message(id, &msg("m3", "t3", 300, &["TRASH"], "Invoice trash")).unwrap();
+        s.upsert_message(id, &msg("m3", "t3", 300, &["TRASH"], "Invoice trash"))
+            .unwrap();
 
-        let ids = |q: &str| s.search(Some(id), q, 10).unwrap().into_iter().map(|t| t.last_message_id).collect::<Vec<_>>();
+        let ids = |q: &str| {
+            s.search(Some(id), q, 10)
+                .unwrap()
+                .into_iter()
+                .map(|t| t.last_message_id)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(ids("invoice"), ["m2", "m1"], "trash excluded, newest first");
         assert_eq!(ids("from:bob invoice"), ["m2"]);
         assert_eq!(ids("is:unread"), ["m1"]);
@@ -1659,7 +1737,8 @@ mod tests {
 
         let missing = s.missing_ids(id, &["m1".into(), "zz".into()]).unwrap();
         assert_eq!(missing, ["zz"]);
-        s.upsert_message(id, &msg("m4", "t1", 400, &["SENT"], "Re: Invoice March")).unwrap();
+        s.upsert_message(id, &msg("m4", "t1", 400, &["SENT"], "Re: Invoice March"))
+            .unwrap();
         let rows = s.threads_for_messages(id, &["m1".into(), "m2".into()]).unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].last_message_id, "m4", "thread shows its newest message");
@@ -1735,14 +1814,33 @@ mod tests {
         let (mut s, id) = setup();
         let mut m = msg("m1", "t1", 1, &["INBOX"], "Files");
         m.attachments = vec![
-            NewAttachment { part: 0, filename: "logo.png".into(), mime: "image/png".into(), size: 3, content_id: Some("logo@x".into()), inline: true, data: Some(vec![1, 2, 3]) },
-            NewAttachment { part: 1, filename: "r.pdf".into(), mime: "application/pdf".into(), size: 9, content_id: None, inline: false, data: None },
+            NewAttachment {
+                part: 0,
+                filename: "logo.png".into(),
+                mime: "image/png".into(),
+                size: 3,
+                content_id: Some("logo@x".into()),
+                inline: true,
+                data: Some(vec![1, 2, 3]),
+            },
+            NewAttachment {
+                part: 1,
+                filename: "r.pdf".into(),
+                mime: "application/pdf".into(),
+                size: 9,
+                content_id: None,
+                inline: false,
+                data: None,
+            },
         ];
         s.upsert_message(id, &m).unwrap();
         let t = s.get_thread(id, "t1").unwrap();
         assert_eq!(t[0].attachments.len(), 1);
         assert_eq!(t[0].attachments[0].filename, "r.pdf");
-        assert_eq!(s.inline_images(id, "m1").unwrap(), vec![("logo@x".into(), "image/png".into(), vec![1, 2, 3])]);
+        assert_eq!(
+            s.inline_images(id, "m1").unwrap(),
+            vec![("logo@x".into(), "image/png".into(), vec![1, 2, 3])]
+        );
         // re-upsert replaces, doesn't duplicate
         s.upsert_message(id, &m).unwrap();
         assert_eq!(s.attachments(id, "m1", true).unwrap().len(), 2);
@@ -1773,15 +1871,22 @@ mod tests {
         s.set_account_window(a.id, "1y").unwrap();
         s.set_backfill_progress(a.id, Some("tok"), 40, 100).unwrap();
         let a2 = s.account(a.id).unwrap().unwrap();
-        assert_eq!((a2.sync_window.as_str(), a2.backfill_done, a2.backfill_page.as_deref()), ("1y", 40, Some("tok")));
+        assert_eq!(
+            (a2.sync_window.as_str(), a2.backfill_done, a2.backfill_page.as_deref()),
+            ("1y", 40, Some("tok"))
+        );
         s.set_account_window(a.id, "all").unwrap();
         let a3 = s.account(a.id).unwrap().unwrap();
-        assert_eq!((a3.backfill_done, a3.backfill_page, a3.backfill_state.as_str()), (0, None, "setup"));
+        assert_eq!(
+            (a3.backfill_done, a3.backfill_page, a3.backfill_state.as_str()),
+            (0, None, "setup")
+        );
         s.set_backfill_state(a.id, "running").unwrap();
         s.set_account_window(a.id, "30d").unwrap();
         assert_eq!(s.account(a.id).unwrap().unwrap().backfill_state, "pending");
 
-        s.upsert_message(a.id, &msg("m1", "t1", 10, &["INBOX", "UNREAD"], "hi")).unwrap();
+        s.upsert_message(a.id, &msg("m1", "t1", 10, &["INBOX", "UNREAD"], "hi"))
+            .unwrap();
         s.upsert_message(b.id, &msg("m1", "t1", 20, &["INBOX"], "hi")).unwrap();
         let all = s.list_threads(None, "INBOX", 10, 0).unwrap();
         assert_eq!(all.len(), 2, "same Gmail ids in two accounts stay separate");
@@ -1795,12 +1900,35 @@ mod tests {
     fn inbox_tabs_important_and_otp_feedback() {
         let mut s = Store::open_in_memory().unwrap();
         let a = s.upsert_account("a@example.com", 1).unwrap();
-        s.upsert_message(a.id, &msg("p1", "t1", 10, &["INBOX", "UNREAD", "CATEGORY_PERSONAL", "IMPORTANT"], "hi")).unwrap();
-        s.upsert_message(a.id, &msg("n1", "t2", 20, &["INBOX", "UNREAD"], "no category = primary")).unwrap();
-        s.upsert_message(a.id, &msg("x1", "t3", 30, &["INBOX", "CATEGORY_PROMOTIONS"], "sale")).unwrap();
-        s.upsert_message(a.id, &msg("u1", "t4", 40, &["INBOX", "UNREAD", "CATEGORY_UPDATES"], "receipt")).unwrap();
+        s.upsert_message(
+            a.id,
+            &msg(
+                "p1",
+                "t1",
+                10,
+                &["INBOX", "UNREAD", "CATEGORY_PERSONAL", "IMPORTANT"],
+                "hi",
+            ),
+        )
+        .unwrap();
+        s.upsert_message(
+            a.id,
+            &msg("n1", "t2", 20, &["INBOX", "UNREAD"], "no category = primary"),
+        )
+        .unwrap();
+        s.upsert_message(a.id, &msg("x1", "t3", 30, &["INBOX", "CATEGORY_PROMOTIONS"], "sale"))
+            .unwrap();
+        s.upsert_message(
+            a.id,
+            &msg("u1", "t4", 40, &["INBOX", "UNREAD", "CATEGORY_UPDATES"], "receipt"),
+        )
+        .unwrap();
         let ids = |cat: &str| -> Vec<String> {
-            s.list_threads_in(Some(a.id), "INBOX", Some(cat), 50, 0).unwrap().into_iter().map(|t| t.thread_id).collect()
+            s.list_threads_in(Some(a.id), "INBOX", Some(cat), 50, 0)
+                .unwrap()
+                .into_iter()
+                .map(|t| t.thread_id)
+                .collect()
         };
         assert_eq!(ids("CATEGORY_PERSONAL"), vec!["t2".to_string(), "t1".to_string()]);
         assert_eq!(ids("CATEGORY_PROMOTIONS"), vec!["t3".to_string()]);
@@ -1823,11 +1951,19 @@ mod tests {
         s.upsert_message(a.id, &otp).unwrap();
         assert_eq!(s.get_thread(a.id, "t5").unwrap()[0].otp_code.as_deref(), Some("482913"));
         s.otp_feedback(a.id, "alerts@shop.example", false, Some("o1")).unwrap();
-        assert_eq!(s.get_thread(a.id, "t5").unwrap()[0].otp_code, None, "cleared on feedback");
+        assert_eq!(
+            s.get_thread(a.id, "t5").unwrap()[0].otp_code,
+            None,
+            "cleared on feedback"
+        );
         s.otp_feedback(a.id, "alerts@shop.example", false, None).unwrap();
         assert_eq!(s.otp_bias(a.id, "ALERTS@shop.example").unwrap(), -60);
         s.upsert_message(a.id, &otp).unwrap();
-        assert_eq!(s.get_thread(a.id, "t5").unwrap()[0].otp_code, None, "vetoed for this sender");
+        assert_eq!(
+            s.get_thread(a.id, "t5").unwrap()[0].otp_code,
+            None,
+            "vetoed for this sender"
+        );
         // A copy nudges it back up, capped.
         for _ in 0..10 {
             s.otp_feedback(a.id, "alerts@shop.example", true, None).unwrap();
@@ -1856,14 +1992,35 @@ mod tests {
         let mut big = msg("m4", "t4", 20, &["INBOX"], "files");
         big.size = 5_000_000;
         big.has_attachments = true;
-        big.attachments = vec![NewAttachment { part: 0, filename: "a.pdf".into(), mime: "application/pdf".into(), size: 4_900_000, ..Default::default() }];
-        s.upsert_metadata(a.id, &NewMessage { size: 5_000_000, has_attachments: true, ..big.clone() }).unwrap();
+        big.attachments = vec![NewAttachment {
+            part: 0,
+            filename: "a.pdf".into(),
+            mime: "application/pdf".into(),
+            size: 4_900_000,
+            ..Default::default()
+        }];
+        s.upsert_metadata(
+            a.id,
+            &NewMessage {
+                size: 5_000_000,
+                has_attachments: true,
+                ..big.clone()
+            },
+        )
+        .unwrap();
         let est = s.size_estimate(a.id, 0).unwrap();
         assert_eq!((est.sized, est.total_bytes, est.text_bytes), (1, 5_000_000, 80_000));
-        assert_eq!(s.body_candidates(a.id, 0, 1_000_000, 10).unwrap(), Vec::<String>::new(), "too big for the policy");
+        assert_eq!(
+            s.body_candidates(a.id, 0, 1_000_000, 10).unwrap(),
+            Vec::<String>::new(),
+            "too big for the policy"
+        );
         assert_eq!(s.body_candidates(a.id, 0, 0, 10).unwrap(), vec!["m4".to_string()]);
         s.upsert_message(a.id, &big).unwrap();
-        assert_eq!(s.file_candidates(a.id, 0, 10_000_000, 10).unwrap(), vec!["m4".to_string()]);
+        assert_eq!(
+            s.file_candidates(a.id, 0, 10_000_000, 10).unwrap(),
+            vec!["m4".to_string()]
+        );
         assert!(s.file_candidates(a.id, 0, 1_000_000, 10).unwrap().is_empty());
         s.mark_stored(a.id, "m4", 0).unwrap();
         assert!(s.attachment_stored(a.id, "m4", 0).unwrap());
@@ -1872,9 +2029,20 @@ mod tests {
         s.upsert_message(a.id, &big).unwrap();
         assert!(s.file_candidates(a.id, 0, 0, 10).unwrap().is_empty());
 
-        s.set_account_settings(a.id, &AccountSettings { attach_mode: Some("all".into()), signature: Some("-- A".into()), ..Default::default() }).unwrap();
+        s.set_account_settings(
+            a.id,
+            &AccountSettings {
+                attach_mode: Some("all".into()),
+                signature: Some("-- A".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let acc = s.account(a.id).unwrap().unwrap();
-        assert_eq!((acc.attach_mode.as_str(), acc.signature.as_str(), acc.attach_max_mb), ("all", "-- A", 10));
+        assert_eq!(
+            (acc.attach_mode.as_str(), acc.signature.as_str(), acc.attach_max_mb),
+            ("all", "-- A", 10)
+        );
     }
 
     #[test]

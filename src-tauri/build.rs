@@ -49,8 +49,7 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn main() {
-    let mut attrs = tauri_build::Attributes::new()
-        .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS));
+    let mut attrs = tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(COMMANDS));
 
     // Tauri embeds its Common-Controls v6 manifest into the app binary only.
     // Test harnesses link the same code (TaskDialogIndirect & co.) and then die

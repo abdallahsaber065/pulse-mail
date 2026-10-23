@@ -35,9 +35,19 @@ pub fn text(s: &str, max: usize) -> Result<(), CmdError> {
 pub fn email(s: &str) -> Result<(), CmdError> {
     let s = s.trim();
     let ok = s.len() <= 254
-        && !s.chars().any(|c| c.is_control() || c.is_whitespace() || "<>,;\"()[]\\".contains(c))
-        && s.split_once('@').is_some_and(|(l, d)| !l.is_empty() && d.contains('.') && !d.starts_with('.') && !d.ends_with('.'));
-    if ok { Ok(()) } else { Err(CmdError::new(format!("\"{}\" isn't a valid email address.", s.chars().take(80).collect::<String>()))) }
+        && !s
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || "<>,;\"()[]\\".contains(c))
+        && s.split_once('@')
+            .is_some_and(|(l, d)| !l.is_empty() && d.contains('.') && !d.starts_with('.') && !d.ends_with('.'));
+    if ok {
+        Ok(())
+    } else {
+        Err(CmdError::new(format!(
+            "\"{}\" isn't a valid email address.",
+            s.chars().take(80).collect::<String>()
+        )))
+    }
 }
 
 #[cfg(test)]
@@ -58,7 +68,16 @@ mod tests {
     fn emails() {
         assert!(email("abdallah@example.com").is_ok());
         assert!(email("a.b+tag@sub.example.co").is_ok());
-        for bad in ["", "no-at", "a@b", "a@.com", "a b@x.com", "a@x.com\r\nBcc: v@x.com", "<a@x.com>", "a@x.com,b@x.com"] {
+        for bad in [
+            "",
+            "no-at",
+            "a@b",
+            "a@.com",
+            "a b@x.com",
+            "a@x.com\r\nBcc: v@x.com",
+            "<a@x.com>",
+            "a@x.com,b@x.com",
+        ] {
             assert!(email(bad).is_err(), "{bad:?}");
         }
     }

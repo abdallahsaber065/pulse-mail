@@ -14,19 +14,47 @@ pub struct Pref {
 
 pub const PREFS: &[Pref] = &[
     // Remote images in mail: ask (default, shows a bar) or always load (proxied).
-    Pref { key: "images", default: "ask", allowed: &["ask", "always"] },
+    Pref {
+        key: "images",
+        default: "ask",
+        allowed: &["ask", "always"],
+    },
     // Dark theme rendering of HTML mail: smart invert or the sender's colors.
-    Pref { key: "email_dark", default: "smart", allowed: &["smart", "original"] },
+    Pref {
+        key: "email_dark",
+        default: "smart",
+        allowed: &["smart", "original"],
+    },
     // Copy a newly arrived verification code to the clipboard automatically.
-    Pref { key: "otp_autocopy", default: "0", allowed: &["0", "1"] },
+    Pref {
+        key: "otp_autocopy",
+        default: "0",
+        allowed: &["0", "1"],
+    },
     // Clear a code we copied after this many seconds (if still on the clipboard).
-    Pref { key: "clipboard_clear_secs", default: "60", allowed: &["0", "30", "60", "120"] },
+    Pref {
+        key: "clipboard_clear_secs",
+        default: "60",
+        allowed: &["0", "30", "60", "120"],
+    },
     // Keep codes out of toasts while the PC is locked.
-    Pref { key: "otp_lockscreen", default: "hide", allowed: &["hide", "show"] },
+    Pref {
+        key: "otp_lockscreen",
+        default: "hide",
+        allowed: &["hide", "show"],
+    },
     // Delay before a sent message actually leaves (Undo window).
-    Pref { key: "undo_send_secs", default: "5", allowed: &["0", "5", "10", "20", "30"] },
+    Pref {
+        key: "undo_send_secs",
+        default: "5",
+        allowed: &["0", "5", "10", "20", "30"],
+    },
     // Local cache budget in MB (mail + saved attachments); downloads stop at it.
-    Pref { key: "storage_budget_mb", default: "1024", allowed: &["512", "1024", "2048", "5120"] },
+    Pref {
+        key: "storage_budget_mb",
+        default: "1024",
+        allowed: &["512", "1024", "2048", "5120"],
+    },
 ];
 
 pub fn find(key: &str) -> Option<&'static Pref> {
@@ -69,7 +97,11 @@ mod tests {
         assert!(!valid("images", "sometimes"));
         assert!(!valid("history_id", "1"));
         s.set_setting("images", "bogus").unwrap();
-        assert_eq!(get(&s, "images"), "ask", "invalid stored values fall back to the default");
+        assert_eq!(
+            get(&s, "images"),
+            "ask",
+            "invalid stored values fall back to the default"
+        );
         for p in PREFS {
             assert!(p.allowed.contains(&p.default), "{} default must be allowed", p.key);
         }

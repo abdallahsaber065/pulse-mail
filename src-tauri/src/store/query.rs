@@ -55,11 +55,18 @@ fn lit(s: &str, prefix: bool) -> Option<String> {
     if w.is_empty() {
         return None;
     }
-    Some(if prefix { format!("\"{w}\"*") } else { format!("\"{w}\"") })
+    Some(if prefix {
+        format!("\"{w}\"*")
+    } else {
+        format!("\"{w}\"")
+    })
 }
 
 pub fn parse(input: &str) -> LocalQuery {
-    let mut q = LocalQuery { local_ok: true, ..Default::default() };
+    let mut q = LocalQuery {
+        local_ok: true,
+        ..Default::default()
+    };
     let toks = tokens(input);
     let n = toks.len().min(16);
     let mut parts: Vec<String> = Vec::new();
@@ -70,7 +77,10 @@ pub fn parse(input: &str) -> LocalQuery {
             q.local_ok = false;
             continue;
         }
-        if let Some((op, val)) = lower.split_once(':').filter(|(op, _)| !op.is_empty() && op.chars().all(|c| c.is_ascii_alphabetic() || c == '_')) {
+        if let Some((op, val)) = lower
+            .split_once(':')
+            .filter(|(op, _)| !op.is_empty() && op.chars().all(|c| c.is_ascii_alphabetic() || c == '_'))
+        {
             let raw_val = &t[op.len() + 1..];
             match (op, val) {
                 ("from", _) => match lit(raw_val, true) {
@@ -124,7 +134,14 @@ mod tests {
 
     #[test]
     fn server_only_operators() {
-        for s in ["in:sent hello", "label:clients", "before:2024/01/01", "-promo", "a OR b", "older_than:1y"] {
+        for s in [
+            "in:sent hello",
+            "label:clients",
+            "before:2024/01/01",
+            "-promo",
+            "a OR b",
+            "older_than:1y",
+        ] {
             assert!(!parse(s).local_ok, "{s}");
         }
         assert!(parse("https://example.com").local_ok);

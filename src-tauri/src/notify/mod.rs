@@ -79,9 +79,7 @@ fn ellipsize(s: &str, max_chars: usize) -> String {
 
 #[cfg(windows)]
 pub fn init(app: &AppHandle) {
-    use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegCreateKeyW, RegSetValueExW, HKEY_CURRENT_USER, REG_SZ,
-    };
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RegCloseKey, RegCreateKeyW, RegSetValueExW};
     use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 
     let app_id = &app.config().identifier;
@@ -108,13 +106,7 @@ pub fn init(app: &AppHandle) {
     let mut hkey = std::ptr::null_mut();
 
     unsafe {
-        if RegCreateKeyW(
-            HKEY_CURRENT_USER,
-            wide_subkey.as_ptr(),
-            &mut hkey,
-        ) == 0
-            && !hkey.is_null()
-        {
+        if RegCreateKeyW(HKEY_CURRENT_USER, wide_subkey.as_ptr(), &mut hkey) == 0 && !hkey.is_null() {
             let name: Vec<u16> = "Pulse Mail\0".encode_utf16().collect();
             let val_name: Vec<u16> = "DisplayName\0".encode_utf16().collect();
             let _ = RegSetValueExW(

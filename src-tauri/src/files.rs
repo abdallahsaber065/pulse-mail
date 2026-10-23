@@ -25,7 +25,11 @@ fn safe_id(id: &str) -> bool {
 }
 
 pub fn path(base: &Path, account_id: i64, message_id: &str, part: u32) -> Option<PathBuf> {
-    safe_id(message_id).then(|| base.join(account_id.to_string()).join(message_id).join(part.to_string()))
+    safe_id(message_id).then(|| {
+        base.join(account_id.to_string())
+            .join(message_id)
+            .join(part.to_string())
+    })
 }
 
 pub fn read(base: &Path, account_id: i64, message_id: &str, part: u32) -> Option<Vec<u8>> {

@@ -46,7 +46,8 @@ fn percent_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len()
+        if b[i] == b'%'
+            && i + 2 < b.len()
             && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
         {
             out.push(v);
@@ -70,16 +71,29 @@ pub fn stage_attachment(request: tauri::ipc::Request<'_>) -> CmdResult<StagedRef
         return Err(CmdError::new("Files can be up to 25 MB (Gmail's limit)."));
     }
     let name = crate::sync::mime::safe_filename(&percent_decode(header(&request, "x-name").unwrap_or("attachment")));
-    let name = if name.is_empty() { "attachment".to_string() } else { name };
+    let name = if name.is_empty() {
+        "attachment".to_string()
+    } else {
+        name
+    };
     let mime = compose::safe_mime(header(&request, "x-mime").unwrap_or(""));
     let mut staged = STAGED.lock().unwrap_or_else(|e| e.into_inner());
     let used: usize = staged.values().map(|s| s.bytes.len()).sum();
     if used + bytes.len() > STAGED_MAX {
-        return Err(CmdError::new("Too many large files are open in compose. Send or discard a message first."));
+        return Err(CmdError::new(
+            "Too many large files are open in compose. Send or discard a message first.",
+        ));
     }
     let id = format!("s{}", NEXT_SEND.fetch_add(1, Ordering::SeqCst));
     let size = bytes.len() as i64;
-    staged.insert(id.clone(), Staged { name: name.clone(), mime: mime.clone(), bytes: std::sync::Arc::new(bytes.clone()) });
+    staged.insert(
+        id.clone(),
+        Staged {
+            name: name.clone(),
+            mime: mime.clone(),
+            bytes: std::sync::Arc::new(bytes.clone()),
+        },
+    );
     Ok(StagedRef { id, name, mime, size })
 }
 
@@ -97,17 +111,29 @@ async fn resolve_files(state: &AppState, d: &Draft, account_id: i64) -> CmdResul
     for a in &d.attachments {
         if let Some(id) = &a.staged {
             let s = STAGED.lock().unwrap_or_else(|e| e.into_inner());
-            let f = s.get(id).ok_or_else(|| CmdError::new(format!("\"{}\" isn't available any more. Attach it again.", a.name)))?;
-            out.push(FilePart { name: f.name.clone(), mime: f.mime.clone(), bytes: f.bytes.as_ref().clone() });
+            let f = s
+                .get(id)
+                .ok_or_else(|| CmdError::new(format!("\"{}\" isn't available any more. Attach it again.", a.name)))?;
+            out.push(FilePart {
+                name: f.name.clone(),
+                mime: f.mime.clone(),
+                bytes: f.bytes.as_ref().clone(),
+            });
             continue;
         }
-        let (Some(mid), Some(part)) = (&a.source_message, a.source_part) else { continue };
+        let (Some(mid), Some(part)) = (&a.source_message, a.source_part) else {
+            continue;
+        };
         validate::gmail_id(mid)?;
         let stored = {
             let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
             store.attachment_stored(account_id, mid, part)?
         };
-        let local = if stored { crate::files::read(&state.files_dir, account_id, mid, part) } else { None };
+        let local = if stored {
+            crate::files::read(&state.files_dir, account_id, mid, part)
+        } else {
+            None
+        };
         let bytes = match local {
             Some(b) => b,
             None => {
@@ -121,7 +147,11 @@ async fn resolve_files(state: &AppState, d: &Draft, account_id: i64) -> CmdResul
                     .ok_or_else(|| CmdError::new(format!("Couldn't attach \"{}\" from the original.", a.name)))?
             }
         };
-        out.push(FilePart { name: a.name.clone(), mime: a.mime.clone(), bytes });
+        out.push(FilePart {
+            name: a.name.clone(),
+            mime: a.mime.clone(),
+            bytes,
+        });
     }
     Ok(out)
 }
@@ -185,10 +215,21 @@ async fn save(state: &AppState, d: &Draft, account_id: Option<i64>, sending: boo
     let r = engine
         .with_token(|t| {
             let (raw, engine) = (&raw, &engine);
-            async move { engine.gmail().save_draft(&t, d.draft_id.as_deref(), raw, d.thread_id.as_deref()).await }
+            async move {
+                engine
+                    .gmail()
+                    .save_draft(&t, d.draft_id.as_deref(), raw, d.thread_id.as_deref())
+                    .await
+            }
         })
         .await?;
-    Ok((Saved { draft_id: r.id, thread_id: r.message.thread_id }, account.id))
+    Ok((
+        Saved {
+            draft_id: r.id,
+            thread_id: r.message.thread_id,
+        },
+        account.id,
+    ))
 }
 
 /// Create or update the Gmail draft for an open compose window.
@@ -244,12 +285,20 @@ pub async fn send_message(
         crate::prefs::get_num(&store, "undo_send_secs")
     };
     let send_id = NEXT_SEND.fetch_add(1, Ordering::SeqCst);
-    OUTBOX.lock().unwrap_or_else(|e| e.into_inner()).insert(send_id, account);
+    OUTBOX
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(send_id, account);
     let draft_id = saved.draft_id.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(delay)).await;
         // Taking the entry out is the point of no return; Undo can't win after it.
-        if OUTBOX.lock().unwrap_or_else(|e| e.into_inner()).remove(&send_id).is_none() {
+        if OUTBOX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&send_id)
+            .is_none()
+        {
             return;
         }
         let state = app.state::<AppState>();
@@ -277,22 +326,38 @@ pub async fn send_message(
                 if let Some(c) = state.syncs.lock().await.get(&account) {
                     c.sync_now(false);
                 }
-                SendResult { send_id, status: "sent", message: None }
+                SendResult {
+                    send_id,
+                    status: "sent",
+                    message: None,
+                }
             }
             Err(e) => {
                 tracing::warn!("send failed");
-                SendResult { send_id, status: "failed", message: Some(e) }
+                SendResult {
+                    send_id,
+                    status: "failed",
+                    message: Some(e),
+                }
             }
         };
         let _ = app.emit("send-result", event);
     });
-    Ok(Sending { send_id, draft_id: saved.draft_id, delay_secs: delay })
+    Ok(Sending {
+        send_id,
+        draft_id: saved.draft_id,
+        delay_secs: delay,
+    })
 }
 
 /// Undo a send still inside its window. False if it already went out.
 #[tauri::command]
 pub fn cancel_send(send_id: u64) -> bool {
-    OUTBOX.lock().unwrap_or_else(|e| e.into_inner()).remove(&send_id).is_some()
+    OUTBOX
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&send_id)
+        .is_some()
 }
 
 /// Typeahead auto-complete suggestions for To/Cc/Bcc.

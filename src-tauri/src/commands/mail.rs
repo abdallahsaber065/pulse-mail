@@ -3,7 +3,7 @@
 use super::{CmdError, CmdResult, validate};
 use crate::AppState;
 use crate::prefs;
-use crate::render::{self, Rendered, RenderOptions, Resources};
+use crate::render::{self, RenderOptions, Rendered, Resources};
 use base64::Engine as _;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -130,9 +130,45 @@ pub struct SavedAttachment {
 
 /// Extensions Windows will execute or that commonly carry malware.
 const DANGEROUS: &[&str] = &[
-    "exe", "com", "scr", "pif", "bat", "cmd", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "msi",
-    "msp", "msc", "cpl", "dll", "jar", "lnk", "reg", "url", "scf", "inf", "appx", "msix", "appinstaller", "iso",
-    "img", "vhd", "vhdx", "application", "gadget", "chm", "settingcontent-ms", "xll", "library-ms",
+    "exe",
+    "com",
+    "scr",
+    "pif",
+    "bat",
+    "cmd",
+    "ps1",
+    "psm1",
+    "vbs",
+    "vbe",
+    "js",
+    "jse",
+    "wsf",
+    "wsh",
+    "hta",
+    "msi",
+    "msp",
+    "msc",
+    "cpl",
+    "dll",
+    "jar",
+    "lnk",
+    "reg",
+    "url",
+    "scf",
+    "inf",
+    "appx",
+    "msix",
+    "appinstaller",
+    "iso",
+    "img",
+    "vhd",
+    "vhdx",
+    "application",
+    "gadget",
+    "chm",
+    "settingcontent-ms",
+    "xll",
+    "library-ms",
 ];
 
 pub fn is_dangerous(name: &str) -> bool {
