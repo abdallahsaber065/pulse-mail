@@ -17,6 +17,7 @@ pub struct OpenTarget {
 }
 
 pub fn show_main(app: &AppHandle) {
+    let fresh = app.get_webview_window(MAIN).is_none();
     let window = match app.get_webview_window(MAIN) {
         Some(w) => w,
         None => match create_main(app) {
@@ -34,6 +35,12 @@ pub fn show_main(app: &AppHandle) {
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
+    // Open/reopen marker for the PLAN.md window-latency targets.
+    tracing::info!(
+        ms = crate::started().elapsed().as_millis() as u64,
+        fresh,
+        "window shown"
+    );
 }
 
 fn create_main(app: &AppHandle) -> tauri::Result<WebviewWindow> {

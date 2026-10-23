@@ -117,6 +117,14 @@ fn init_tracing() {
         .try_init();
 }
 
+/// Process-start marker for the cold-start and window-reopen log lines
+/// ([PLAN.md] performance table: `startup ready`, `window shown`).
+static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+pub(crate) fn started() -> std::time::Instant {
+    STARTED.get().copied().unwrap_or_else(std::time::Instant::now)
+}
+
 fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent(concat!("PulseMail/", env!("CARGO_PKG_VERSION")))
@@ -131,6 +139,8 @@ fn http_client() -> reqwest::Client {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_tracing();
+    let started = STARTED.get_or_init(std::time::Instant::now);
+    tracing::info!("app starting");
     // One crypto provider for reqwest and IMAP TLS.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -176,6 +186,8 @@ pub fn run() {
                 window::show_main(&handle);
             }
             tauri::async_runtime::spawn(commands::resume(handle));
+            // Cold-start marker: tray built, DB open, engines spawning.
+            tracing::info!(ms = started.elapsed().as_millis() as u64, minimized, "startup ready");
             Ok(())
         })
         .on_window_event(window::on_window_event)
