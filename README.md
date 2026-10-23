@@ -69,7 +69,7 @@ Pulse Mail is engineered to run natively across all major desktop operating syst
 | Platform          | Target Architecture                              | Package Format                       | Details                                                                             |
 | :---------------- | :----------------------------------------------- | :----------------------------------- | :---------------------------------------------------------------------------------- |
 | **Windows** | x86_64 (Windows 10, 11)                          | `.exe` (NSIS Installer) / `.msi` | Deep Windows tray integration, native WinRT notifications, Credential Manager vault |
-| **macOS**   | Apple Silicon (`aarch64`) & Intel (`x86_64`) | `.dmg`                             | Menu bar extra, native notifications, macOS Keychain integration                    |
+| **macOS**   | Apple Silicon M-Series (`aarch64`)               | `.dmg`                               | Menu bar extra, native dock count, macOS Keychain integration                        |
 | **Linux**   | x86_64                                           | `.deb` / `.AppImage`             | WebKitGTK 4.1 runtime, libsecret vault, AppIndicator tray support                   |
 
 Automated multi-platform binaries are compiled on every tagged release via GitHub Actions.
