@@ -62,6 +62,7 @@ Run from the repo root unless noted.
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` |
 | Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` |
 | One Rust module | `cargo test --manifest-path src-tauri/Cargo.toml otp::` |
+| RAM sampling (PLAN.md targets) | `powershell -ExecutionPolicy Bypass -File scripts\measure.ps1` (`-Seconds 600` to soak) |
 | Lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets` |
 | Format | `cargo fmt --manifest-path src-tauri/Cargo.toml` |
 | Installer | `pnpm tauri build` (NSIS, per-user) |

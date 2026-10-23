@@ -1,6 +1,19 @@
 # Status: what works today
 
-## Current Release: v0.2.0 (2026-10-23)
+## Current Release: v0.2.1 (2026-10-24)
+
+- **Hardening pass (2026-10-24, branch `chore/hardening-ci-docs`):**
+  `xlsx` upgraded 0.18.5 → 0.20.3 from the SheetJS CDN (two high advisories,
+  GHSA-5pgg-2g8v-p4x9 / CVE-2023-30533 — it parses untrusted attachments);
+  CI right-sized to a single Windows job with a `cargo fmt --all --check`
+  gate and `pnpm audit --audit-level high`; the release pipeline builds only
+  the Windows installer; repository-wide rustfmt drift cleared; M1
+  measurement prep (`startup ready` / `window shown` log lines,
+  `scripts/measure.ps1`); `PRAGMA optimize` + FTS5 merge after sync passes
+  (H3 slice); `docs/VERIFY-LIVE.md` checklist for the live-account session.
+  Verified: unread counts are live (`list_labels` computes from the cache,
+  not the synced `labels.unread` column) and the store's production paths
+  are `Result`-clean (unwraps are all inside `#[cfg(test)]`).
 
 - **Brand & App Icons**: Custom geometric pulse + envelope logo designed and generated across all target resolutions (`32x32`, `128x128`, `256x256`, `512x512`, `.ico`, `.icns`, Android mipmaps, iOS icons). See commit `6555d4b`.
 - **On-Demand Attachment Preview**: Click-to-preview modal in Reader supporting images (with zoom/pan), embedded Chromium PDF viewer (`#toolbar=1`), code/text/csv/json with UTF-8 decoding and line-wrap toggle, audio/video players, and fallback binary cards with direct system app launch or download. Full memory cleanup with `URL.revokeObjectURL()`. See ADR 0025.
@@ -30,8 +43,8 @@
   4. Decide on the Wise privacy-notice link (score 65, possible false positive).
   5. Support split alphanumeric codes.
 
-The matrix below describes `HEAD` (v0.1.0) plus the working-tree changes
-listed above. It describes implemented behavior, not planned features. Plans live in
+The matrix below describes `HEAD` plus the working-tree changes listed
+above. It describes implemented behavior, not planned features. Plans live in
 [ROADMAP.md](ROADMAP.md) and [PLAN.md](PLAN.md).
 
 Legend: **Done** = works end to end on the user's PC · **Partial** = works
@@ -83,7 +96,7 @@ yet exercised against the real account.
 | Top progress bar | Done | Only for user-started or long work (first sync, history download, manual refresh). Appears after 400 ms, stays at least 600 ms | `SyncIndicator.tsx::TopProgress` |
 | Rate limits | Done | 429/403 rate reasons retried with backoff; batches paced ≥ 1 s | `gmail.rs` |
 | Panic isolation | Done | Sync passes, background job and IMAP loop run under `catch_unwind` | ADR 0007 |
-| Labels and counts | Partial | Synced from Gmail; local actions update counts only on the next sync | `Engine::sync_labels` |
+| Labels and counts | Done | Synced from Gmail; sidebar unread counts are computed live from the local cache (`list_labels`), so local actions update them immediately | `Engine::sync_labels`, `store::list_labels` |
 
 ### Reading and rendering
 
@@ -125,7 +138,7 @@ yet exercised against the real account.
 | Settings sheet | Done | General, Appearance, Reading (images, dark mail), Codes, Accounts (range, notifications, history progress, pause, remove), Storage (budget, size used); per-account page, About |
 | Theme, density | Done | `localStorage` |
 | Sync chip + popover | Done | Per-account history rows with pause/resume; activity list names the account |
-| App icon | Stubbed | Default Tauri icon |
+| App icon | Done | Full brand icon suite (tray, taskbar, installer, toast) since `6555d4b` |
 | Installer (NSIS, per-user) | Partial | Configured, never installed on the PC |
 | Tray unread badge | Done | Taskbar overlay with the unread count ("9+" above nine), a dot on the tray icon, per-account tooltip; updates 400 ms after mail changes | `badge.rs`, `tray.rs` |
 | Auto-update, code signing | Not started | |
@@ -134,12 +147,12 @@ yet exercised against the real account.
 
 | Item | State | Notes |
 | --- | --- | --- |
-| Rust unit tests | Done | 128 tests, offline (current working tree) |
-| UI unit tests | Done | 39 tests (vitest; current working tree) |
-| Clippy / fmt | Partial | All-target Clippy with `-D warnings` passes; repository-wide fmt reports pre-existing drift |
+| Rust unit tests | Done | 133 tests, offline (current working tree) |
+| UI unit tests | Done | 47 tests (vitest; current working tree) |
+| Clippy / fmt | Done | All-target Clippy with `-D warnings` passes; rustfmt clean and gated in CI |
 | Security invariant tests | Done | IPC allowlist in sync, devtools off in release, log calls never format secrets (`security.rs`) |
-| Dependency audit | Done | `cargo audit`: no vulnerabilities; 5 allowed warnings, all Linux-only GTK/zbus crates not built on Windows. `pnpm audit`: none |
-| CI | Not started | Local gates only |
+| Dependency audit | Done | `cargo audit`: no vulnerabilities; 5 allowed warnings, all Linux-only GTK/zbus crates not built on Windows. `pnpm audit`: clean since the `xlsx` 0.20.3 upgrade (2026-10-24) |
+| CI | Done | GitHub Actions: one Windows job per PR/push to main running pnpm test, typecheck + build, `pnpm audit`, `cargo fmt --check`, check, test, clippy `-D warnings`; the release pipeline builds only the Windows NSIS installer into a draft release |
 
 ## Measured numbers
 
@@ -152,12 +165,13 @@ yet exercised against the real account.
 
 ## Known bugs and limitations
 
-1. **Compose and server search untested live.** Both are unit-tested and run against the mock UI; no real message has been sent from the app yet.
-2. **Existing Gmail drafts can't be reopened** from the Drafts folder yet. Rich compose, attachments and forwarded files are implemented but sending is untested live.
-3. **Second account untested live.** The multi-account path is unit-tested and the existing account migrated (range 90 days); adding a real second account hasn't been tried.
-4. **Unread counts lag** local actions until the next sync.
-5. **Dev toasts show PowerShell** as the sender.
-6. **IMAP watches INBOX only**; other labels catch up on the 15-min poll.
-7. **Cache not encrypted at rest** (relies on the Windows account / BitLocker). Next step: SQLCipher with a DPAPI-protected key (V2), see SECURITY.md.
-8. **Default Tauri icon.** Account rail and Ctrl+1…9 account switching not built.
-9. **Body eviction** above the storage budget isn't implemented; the download simply stops adding bodies at the budget.
+1. **Several paths are unit-tested but untested live** (no real send yet,
+   second account, onboarding, server search, reopened drafts). The full
+   checklist and measurement session live in
+   [VERIFY-LIVE.md](VERIFY-LIVE.md).
+2. **Second account untested live.** The multi-account path is unit-tested and the existing account migrated (range 90 days); adding a real second account hasn't been tried.
+3. **Dev toasts show PowerShell** as the sender.
+4. **IMAP watches INBOX only**; other labels catch up on the 15-min poll.
+5. **Cache not encrypted at rest** (relies on the Windows account / BitLocker). Next step: SQLCipher with a DPAPI-protected key (V2), see SECURITY.md.
+6. **Account rail and Ctrl+1…9 account switching not built.**
+7. **Body eviction** above the storage budget isn't implemented; the download simply stops adding bodies at the budget. (`PRAGMA optimize` + FTS merge run after sync passes; VACUUM and integrity checks are still open, ROADMAP H3.)

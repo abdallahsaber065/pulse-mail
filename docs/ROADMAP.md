@@ -33,24 +33,34 @@ Quota numbers: Gmail allows 250 units per user per second; `messages.get` = 5,
 | 9 | [App icon, AUMID, installer, tray badge](#w1) | P1 | 💡 |
 | 10 | [Command palette (Ctrl+K)](#k1) | P1 | 💡 |
 
-### Current priorities (2026-10-22)
+### Current priorities (2026-10-24)
 
-The historical order above includes already-built work. Reading modes,
-server search, rich compose, attachments and the command palette exist.
-The current working tree adds the requested layout discoverability, bulk
-selection/mark-read and search filters/paging. Proposed next slices:
+Verification and hardening landed on `chore/hardening-ci-docs` (xlsx 0.20.3,
+Windows-only CI + fmt/audit gates, M1 markers + measure script, H3 optimize
+slice, VERIFY-LIVE.md). Before new features: run the live session — it is the
+only thing standing between "unit-tested" and "known to work" for send,
+second account, toasts and the performance table.
 
 | Order | Feature | Acceptance and boundary |
 | --- | --- | --- |
-| 1 | Reopen existing Gmail drafts | Open from Drafts into compose with recipients, rich text and attachments intact; save back to the same draft; ask before any additional endpoint. |
-| 2 | Cached recipient autocomplete ([C3](#c3)) | Rank addresses from local correspondents by recency/frequency; keyboard selection; deduplicate by address and respect account boundaries. No Contacts permission. |
-| 3 | Quiet hours ([N2](#n2)) | Local schedule crossing midnight, explicit OTP exception, no new timer loop; test boundary times. |
-| 4 | Bulk archive / mark unread | Reuse frozen selections and paced writes; accurate per-message undo state and partial-failure handling before adding destructive actions. |
+| 0 | **Live verification + measurement session** | Work through [VERIFY-LIVE.md](VERIFY-LIVE.md) on the real PC (one or two sessions). Fills the PLAN.md Measured column, decides ADR 0004, and unblocks everything below. No code. |
+| 1 | **Sleep/resume + network-change reconnect (X2)** | On power-resume and network-up events: reconnect IMAP IDLE and run one delta immediately. Biggest single win for the "never miss a code" promise; the log markers added 2026-10-24 make the before/after measurable. |
+| 2 | **Crash logs (V4)** | Panic hook + size-capped rolling log in `%LOCALAPPDATA%`, no message content, "Open logs folder" in Settings. Prerequisite for trusting any long-running behavior. |
+| 3 | **Reopen existing Gmail drafts** | Open from Drafts into compose with recipients, rich text and attachments intact; save back to the same draft. v0.2.0 built the PUT path; VERIFY-LIVE §1 exercises it. |
+| 4 | **Quiet hours (N2)** | Local schedule crossing midnight, OTP exception, no new timer loop (reuse existing tick points); test boundary times. |
+| 5 | **Trash / spam / archive-everywhere + label picker (T1/T2)** | `#`, `!`, `l` via `threads.modify`/`labels.*`, undo snackbar for each. Completes Phase 2 triage. |
+| 6 | **Offline outbox (X1)** | Durable retry/idempotency design first (ADR); queue label changes and sends while offline, replay in order. |
 
-These are recommendations, not completed features. Offline outbox and send
-later need durable retry/idempotency design; defer them until the daily
-reading/compose gaps are closed. Performance measurement ([M1](#m1)) remains
-open; no live-account benchmark runs without permission.
+Deferred until 0–5 are done: notification rules (N1), bulk archive
+(T0 extension), unsubscribe helper (T7), send later (C2), and the
+engineering slices below. Performance measurement stays open until the
+session runs; no live-account work without the user.
+
+**Standing engineering slices** (pick up opportunistically, none block
+features): split `store/mod.rs` (1,900 lines) and `App.tsx` (1,500 lines)
+into modules; 3–5 Playwright smoke flows against the browser mock (M3,
+catches IPC-contract drift the unit tests can't); VACUUM + integrity check
+(H3 remainder); body eviction above the storage budget (ADR 0014).
 
 ---
 
@@ -97,7 +107,10 @@ only. Cheap stepping stone before H1 is complete.
 
 <a id="h3"></a>
 
-### H3. Database maintenance 💡 · P2
+### H3. Database maintenance 💡 · P2 · partially built (2026-10-24)
+> As built: `PRAGMA optimize` + FTS5 `merge` run after every delta-sync pass
+> that changed something (cheap, non-fatal). Still open: `VACUUM` after big
+> evictions, integrity check on startup after a crash, size shown in Settings.
 `PRAGMA optimize` on idle, `VACUUM` after big evictions, FTS `merge`,
 integrity check on startup after a crash, size shown in Settings.
 
