@@ -1,6 +1,72 @@
 # Status: what works today
 
-## Current Release: v0.2.0 (2026-10-23)
+## Current Release: v0.3.0 (2026-10-24)
+
+Release highlights since v0.2.1 (full list in [CHANGELOG.md](../CHANGELOG.md)):
+quiet hours, sleep/resume catch-up, local crash logs with "Open logs folder",
+an Unsubscribe button on mail that offers one, faster view switches (50-row
+first page + per-view cache), readable dark-mode mail in both smart and
+original modes, toast-open-marks-read, and the xlsx security upgrade. The
+project is developed in the open (MIT) — Windows-first today, with
+macOS/Linux buildable from source; see the release table in
+[README.md](../README.md).
+
+- **Dark-mode mail rendering fix (2026-10-24, `0ea8ffc`):** smart dark no
+  longer renders washed-out light text on a light canvas (Chromium paints
+  the root background outside the invert filter — the canvas now gets the
+  final dark color directly and the pre-inverted background lives on
+  body), and "original colors" renders white mail as a white card (white
+  forced on html+body; the iframe element no longer sets a competing
+  `color-scheme`). New test pins all four mode combinations.
+- **Faster view switches (2026-10-24, `8d0bd8c`):** first page is 50 rows
+  (older pages still append on scroll) and the last 8 view results are
+  cached per view, so revisiting a category/label/account renders instantly
+  while a background refresh updates unread flags; the bulk select-all
+  sweep and infinite-scroll trigger are page-size independent.
+- **Unsubscribe helper (2026-10-24, T7 link variant):** messages carrying a
+  `List-Unsubscribe` header (fetched in metadata batches and parsed from
+  full MIME — mail-parser types it as an address list, which is handled)
+  show an Unsubscribe button in the reader header. It opens the sender's
+  web link in the system browser (or a pre-filled email for mailto), through
+  the same phishing-checked `open_external` path as every mail link. The
+  RFC 8058 one-click POST is deliberately not implemented: it would send
+  requests to arbitrary endpoints (rule 8; ask first). Migration 11.
+- **Always-on reliability (2026-10-24, ADR 0026):**
+  **Quiet hours (N2)** — Settings → Notifications, a local-time window
+  (30-minute steps, may cross midnight) that pauses non-code toasts while
+  mail keeps syncing; codes stay allowed by default (setting). Local time
+  via `GetDynamicTimeZoneInformation`, boundary logic unit-tested.
+  **Sleep/resume catch-up (X2, partial)** — a clock-jump detector
+  (wall vs monotonic ≥ 90 s) triggers a quiet `sync_now(false)` on every
+  account right after the PC wakes, instead of waiting out the IMAP
+  backoff; IMAP re-handshaking itself still rides the existing backoff.
+  **Crash logs (V4)** — rolling daily log files in
+  `%LOCALAPPDATA%\com.abdallah.pulsemail\logs` (7-day retention, no
+  message contents or tokens), a panic hook that records every panic, and
+  Settings → About → "Open logs folder" (`open_logs_dir`, allowlisted).
+- **Rendering fixes (2026-10-24, `f58be1c`):** eliminated the stale-content
+  flashes when switching threads and views — the reader can no longer show
+  the previous thread's messages under a new selection (thread-owned `msgs`
+  + an 8-thread instant-revisit cache), the list no longer shows the previous
+  label's rows while the new view loads (view-context gate, tick-excluded so
+  background mail updates don't flash), a reused message row drops the old
+  body as soon as the message id changes, and the reader scroll resets on
+  thread change while same-thread refreshes keep the reading position.
+  Search typing no longer clears the selection or resets scroll per
+  keystroke. Verified in the browser mock (thread→thread, Inbox→Sent,
+  cache revisit); tsc + 47 vitest green.
+- **Hardening pass (2026-10-24, branch `chore/hardening-ci-docs`):**
+  `xlsx` upgraded 0.18.5 → 0.20.3 from the SheetJS CDN (two high advisories,
+  GHSA-5pgg-2g8v-p4x9 / CVE-2023-30533 — it parses untrusted attachments);
+  CI right-sized to a single Windows job with a `cargo fmt --all --check`
+  gate and `pnpm audit --audit-level high`; the release pipeline builds only
+  the Windows installer; repository-wide rustfmt drift cleared; M1
+  measurement prep (`startup ready` / `window shown` log lines,
+  `scripts/measure.ps1`); `PRAGMA optimize` + FTS5 merge after sync passes
+  (H3 slice); `docs/VERIFY-LIVE.md` checklist for the live-account session.
+  Verified: unread counts are live (`list_labels` computes from the cache,
+  not the synced `labels.unread` column) and the store's production paths
+  are `Result`-clean (unwraps are all inside `#[cfg(test)]`).
 
 - **Brand & App Icons**: Custom geometric pulse + envelope logo designed and generated across all target resolutions (`32x32`, `128x128`, `256x256`, `512x512`, `.ico`, `.icns`, Android mipmaps, iOS icons). See commit `6555d4b`.
 - **On-Demand Attachment Preview**: Click-to-preview modal in Reader supporting images (with zoom/pan), embedded Chromium PDF viewer (`#toolbar=1`), code/text/csv/json with UTF-8 decoding and line-wrap toggle, audio/video players, and fallback binary cards with direct system app launch or download. Full memory cleanup with `URL.revokeObjectURL()`. See ADR 0025.
@@ -30,8 +96,8 @@
   4. Decide on the Wise privacy-notice link (score 65, possible false positive).
   5. Support split alphanumeric codes.
 
-The matrix below describes `HEAD` (v0.1.0) plus the working-tree changes
-listed above. It describes implemented behavior, not planned features. Plans live in
+The matrix below describes `HEAD` plus the working-tree changes listed
+above. It describes implemented behavior, not planned features. Plans live in
 [ROADMAP.md](ROADMAP.md) and [PLAN.md](PLAN.md).
 
 Legend: **Done** = works end to end on the user's PC · **Partial** = works
@@ -83,7 +149,7 @@ yet exercised against the real account.
 | Top progress bar | Done | Only for user-started or long work (first sync, history download, manual refresh). Appears after 400 ms, stays at least 600 ms | `SyncIndicator.tsx::TopProgress` |
 | Rate limits | Done | 429/403 rate reasons retried with backoff; batches paced ≥ 1 s | `gmail.rs` |
 | Panic isolation | Done | Sync passes, background job and IMAP loop run under `catch_unwind` | ADR 0007 |
-| Labels and counts | Partial | Synced from Gmail; local actions update counts only on the next sync | `Engine::sync_labels` |
+| Labels and counts | Done | Synced from Gmail; sidebar unread counts are computed live from the local cache (`list_labels`), so local actions update them immediately | `Engine::sync_labels`, `store::list_labels` |
 
 ### Reading and rendering
 
@@ -110,7 +176,7 @@ yet exercised against the real account.
 | Feature | State | Notes | Code |
 | --- | --- | --- | --- |
 | Windows toasts | Partial | New unread INBOX mail < 15 min old, per account; with several accounts the toast says "To <account>". Dev builds show PowerShell as the sender (no AUMID) | `notify/mod.rs` |
-| Notification mode per account | Done | All / codes only / off, chosen in onboarding and in Settings → Accounts | `accounts.notify` |
+| Notification mode per account | Done | All / codes only / off, chosen in onboarding and in Settings → Accounts; global quiet hours in Settings → Notifications | `accounts.notify`, `prefs.quiet_*` |
 | OTP extraction (v2) | Done (corpus-tested; untested on live new mail) | Scored pipeline: WebOTP line, multilingual keywords (EN/AR/FR/ES/DE + CJK), split and prefixed codes, Arabic-Indic and full-width digits, HTML emphasis, filters for dates, times, phones, money, URLs, footers and promos, expiry, confidence (store ≥ 50, toast ≥ 60). Magic sign-in links get an "Open" card. "Not a code" and copy feedback per sender. Corpus 90 samples: P/R 1.00/1.00; former holdout 20 now passes as a regression set ([ADR 0022](decisions/0022-otp-pipeline.md)). Cached mail re-scored once at startup | `otp/`, `Reader.tsx` |
 | Inbox tabs (Gmail categories) | Done (untested live in the UI) | Primary / Promotions / Social / Updates / Forums from Gmail's `CATEGORY_*` labels, with unread counts. Off by default (Gmail's API can't tell if the user uses tabs; the single inbox matches Gmail with tabs off); per-account switch, "Move to <tab>" in the palette, Important marker, "Primary + codes" notifications ([ADR 0021](decisions/0021-gmail-category-tabs.md)) | `InboxTabs.tsx`, `store::list_threads_in`, `category_counts` |
 | Copy code (toast, chip, banner, Shift+C) | Done | Written with the Windows formats that keep it out of Clipboard History, cloud clipboard and clipboard monitors; cleared after 60 s if unchanged (setting); auto-copy off by default (setting) | `secure_clipboard.rs`, `lib.rs::copy_secret` |
@@ -125,7 +191,7 @@ yet exercised against the real account.
 | Settings sheet | Done | General, Appearance, Reading (images, dark mail), Codes, Accounts (range, notifications, history progress, pause, remove), Storage (budget, size used); per-account page, About |
 | Theme, density | Done | `localStorage` |
 | Sync chip + popover | Done | Per-account history rows with pause/resume; activity list names the account |
-| App icon | Stubbed | Default Tauri icon |
+| App icon | Done | Full brand icon suite (tray, taskbar, installer, toast) since `6555d4b` |
 | Installer (NSIS, per-user) | Partial | Configured, never installed on the PC |
 | Tray unread badge | Done | Taskbar overlay with the unread count ("9+" above nine), a dot on the tray icon, per-account tooltip; updates 400 ms after mail changes | `badge.rs`, `tray.rs` |
 | Auto-update, code signing | Not started | |
@@ -134,12 +200,12 @@ yet exercised against the real account.
 
 | Item | State | Notes |
 | --- | --- | --- |
-| Rust unit tests | Done | 128 tests, offline (current working tree) |
-| UI unit tests | Done | 39 tests (vitest; current working tree) |
-| Clippy / fmt | Partial | All-target Clippy with `-D warnings` passes; repository-wide fmt reports pre-existing drift |
+| Rust unit tests | Done | 133 tests, offline (current working tree) |
+| UI unit tests | Done | 47 tests (vitest; current working tree) |
+| Clippy / fmt | Done | All-target Clippy with `-D warnings` passes; rustfmt clean and gated in CI |
 | Security invariant tests | Done | IPC allowlist in sync, devtools off in release, log calls never format secrets (`security.rs`) |
-| Dependency audit | Done | `cargo audit`: no vulnerabilities; 5 allowed warnings, all Linux-only GTK/zbus crates not built on Windows. `pnpm audit`: none |
-| CI | Not started | Local gates only |
+| Dependency audit | Done | `cargo audit`: no vulnerabilities; 5 allowed warnings, all Linux-only GTK/zbus crates not built on Windows. `pnpm audit`: clean since the `xlsx` 0.20.3 upgrade (2026-10-24) |
+| CI | Done | GitHub Actions: one Windows job per PR/push to main running pnpm test, typecheck + build, `pnpm audit`, `cargo fmt --check`, check, test, clippy `-D warnings`; the release pipeline builds only the Windows NSIS installer into a draft release |
 
 ## Measured numbers
 
@@ -152,12 +218,13 @@ yet exercised against the real account.
 
 ## Known bugs and limitations
 
-1. **Compose and server search untested live.** Both are unit-tested and run against the mock UI; no real message has been sent from the app yet.
-2. **Existing Gmail drafts can't be reopened** from the Drafts folder yet. Rich compose, attachments and forwarded files are implemented but sending is untested live.
-3. **Second account untested live.** The multi-account path is unit-tested and the existing account migrated (range 90 days); adding a real second account hasn't been tried.
-4. **Unread counts lag** local actions until the next sync.
-5. **Dev toasts show PowerShell** as the sender.
-6. **IMAP watches INBOX only**; other labels catch up on the 15-min poll.
-7. **Cache not encrypted at rest** (relies on the Windows account / BitLocker). Next step: SQLCipher with a DPAPI-protected key (V2), see SECURITY.md.
-8. **Default Tauri icon.** Account rail and Ctrl+1…9 account switching not built.
-9. **Body eviction** above the storage budget isn't implemented; the download simply stops adding bodies at the budget.
+1. **Several paths are unit-tested but untested live** (no real send yet,
+   second account, onboarding, server search, reopened drafts). The full
+   checklist and measurement session live in
+   [VERIFY-LIVE.md](VERIFY-LIVE.md).
+2. **Second account untested live.** The multi-account path is unit-tested and the existing account migrated (range 90 days); adding a real second account hasn't been tried.
+3. **Dev toasts show PowerShell** as the sender.
+4. **IMAP watches INBOX only**; other labels catch up on the 15-min poll.
+5. **Cache not encrypted at rest** (relies on the Windows account / BitLocker). Next step: SQLCipher with a DPAPI-protected key (V2), see SECURITY.md.
+6. **Account rail and Ctrl+1…9 account switching not built.**
+7. **Body eviction** above the storage budget isn't implemented; the download simply stops adding bodies at the budget. (`PRAGMA optimize` + FTS merge run after sync passes; VACUUM and integrity checks are still open, ROADMAP H3.)

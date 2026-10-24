@@ -12,89 +12,16 @@ on:
         default: 'v0.2.1'
 
 jobs:
-  pre-check:
-    name: Pre-release Fast Verification
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-
-      - name: Rust Cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri -> target'
-
-      - name: Install Linux system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            xdg-utils
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Run frontend tests
-        run: pnpm test
-
-      - name: Check TypeScript & Frontend build
-        run: pnpm build
-
-      - name: Cargo check
-        run: cargo check --manifest-path src-tauri/Cargo.toml
-
-      - name: Cargo clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-
+  # Gates (tests, clippy, fmt) already ran in CI on the PR that merged the
+  # tagged commit; tags are cut from protected main, so re-running them here
+  # would only duplicate the Windows job on a Linux toolchain install.
   build-release:
-    name: Build ${{ matrix.name }}
-    needs: [pre-check]
+    name: Build Windows installer
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: 'windows-latest'
-            target: 'x86_64-pc-windows-msvc'
-            args: ''
-            name: 'Windows (x64)'
-          - platform: 'macos-latest'
-            target: 'aarch64-apple-darwin'
-            args: '--target aarch64-apple-darwin'
-            name: 'macOS (Apple Silicon)'
-          - platform: 'ubuntu-22.04'
-            target: 'x86_64-unknown-linux-gnu'
-            args: '--bundles appimage,deb'
-            name: 'Linux (x64)'
-
-    runs-on: ${{ matrix.platform }}
+    runs-on: windows-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -105,34 +32,17 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          target: x86_64-pc-windows-msvc
 
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
-
-      - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            xdg-utils
 
       - name: Install dependencies
         run: pnpm install
@@ -147,7 +57,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name || inputs.tag }}
           releaseName: 'Pulse Mail ${{ github.ref_name || inputs.tag }}'
-          args: ${{ matrix.args }}
           releaseDraft: true
           prerelease: false
 
@@ -179,4 +88,4 @@ jobs:
     steps:
       - name: Log Release Failure Notice
         run: |
-          echo "::error::One or more release builds failed. The release remains as an unlisted draft to prevent shipping incomplete or broken platform binaries."
+          echo "::error::The Windows release build failed. The release remains as an unlisted draft to prevent shipping a broken installer."

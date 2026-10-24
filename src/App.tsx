@@ -80,14 +80,6 @@ export default function App() {
   const [debounced, setDebounced] = createSignal("");
   const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const [selected, setSelected] = createSignal<string | null>(urlParams?.get("thread") ?? null);
-  createEffect(() => {
-    const t = urlParams?.get("thread");
-    if (t && selected() !== t) {
-      setSelected(t);
-      setSelectedAccount(1);
-      void loadThread(t, true);
-    }
-  });
   const [cursor, setCursor] = createSignal(0);
   const [collapsed, setCollapsed] = createSignal(false);
   const [help, setHelp] = createSignal(false);
@@ -104,6 +96,15 @@ export default function App() {
   const [overrides, setOverrides] = createSignal<Record<string, Override>>({});
   const [msgs, setMsgs] = createSignal<Message[]>([]);
   const [msgLoading, setMsgLoading] = createSignal(false);
+  /** Which thread `msgs` belongs to; the reader must never show another thread's mail. */
+  const [msgsThread, setMsgsThread] = createSignal<string | null>(null);
+  /** The last few opened threads, so revisits render instantly instead of flashing skeletons. */
+  const threadCache = new Map<string, Message[]>();
+  const rememberThread = (id: string, list: Message[]) => {
+    threadCache.delete(id);
+    threadCache.set(id, list);
+    if (threadCache.size > 8) threadCache.delete(threadCache.keys().next().value!);
+  };
   /** Body download for the open thread failed (offline, Gmail error). */
   const [bodyError, setBodyError] = createSignal<string | null>(null);
   let searchInput: HTMLInputElement | undefined;
@@ -156,9 +157,20 @@ export default function App() {
     { initialValue: [] },
   );
   // Infinite scroll: the list grows a page at a time as you near the end.
-  const PAGE = 200;
+  // 50 keeps the first paint of a switch cheap; older pages load on scroll.
+  const PAGE = 50;
   const [limit, setLimit] = createSignal(PAGE);
   const pageContexts = new WeakMap<ThreadRow[], string>();
+  /** View (label|query|account|category, without tick) a fetched list belongs to. */
+  const viewContexts = new WeakMap<ThreadRow[], string>();
+  /** Recent results per view, so switching back renders instantly (stale-while-revalidate). */
+  const viewCache = new Map<string, ThreadRow[]>();
+  const rememberView = (key: string, rows: ThreadRow[]) => {
+    viewCache.delete(key);
+    viewCache.set(key, rows);
+    if (viewCache.size > 8) viewCache.delete(viewCache.keys().next().value!);
+  };
+  const viewKeyNow = () => `${label()}|${debounced().trim()}|${accountView() ?? ""}|${tabsOn() && category() ? category()! : ""}`;
   const [threads] = createResource(
     () =>
       signedIn()
@@ -174,6 +186,9 @@ export default function App() {
       const previous = info.value && pageContexts.get(info.value) === context && info.value.length < n ? info.value : [];
       const result = await loadRows((offset, count) => q ? api.search(q, count, a, offset) : api.threads(lbl, count, offset, a, c), n, previous);
       pageContexts.set(result, context);
+      const vkey = `${lbl}|${q}|${aStr}|${cStr}`;
+      viewContexts.set(result, vkey);
+      rememberView(vkey, result);
       return result;
     },
     { initialValue: [] as ThreadRow[] },
@@ -213,7 +228,13 @@ export default function App() {
 
   const rows = createMemo(() => {
     const o = overrides();
-    const base = searching() ? mergeResults(threads(), serverHits()) : threads();
+    // While the fetch for the new view is in flight the resource still holds
+    // the previous view's rows; showing those under the new tab is a glitch.
+    // Show the new view's own cached rows instead (stale-while-revalidate),
+    // or nothing (skeleton) on a first visit.
+    const key = viewKeyNow();
+    const list = viewContexts.get(threads()) === key ? threads() : viewCache.get(key) ?? [];
+    const base = searching() ? mergeResults(list, serverHits()) : list;
     const q = debounced().toLowerCase();
     const unreadOnly = label() === "UNREAD" || q.includes("is:unread");
     const starredOnly = label() === "STARRED" || q.includes("is:starred");
@@ -260,7 +281,9 @@ export default function App() {
   let selectionEpoch = 0;
   let stopBulk = false;
   const selectionCount = () => selectedCount(selection());
-  const selectionScope = createMemo(() => JSON.stringify([accountView(), label(), tabsOn() ? category() : null, query().trim()]));
+  // Keyed on the debounced query: typing shouldn't clear the selection or
+  // reset the scroll — only an executed view change should.
+  const selectionScope = createMemo(() => JSON.stringify([accountView(), label(), tabsOn() ? category() : null, debounced().trim()]));
   const selectionReady = () => !threads.loading && query().trim() === debounced().trim() && (!needsServer(debounced()) || serverState() === "done" || serverState() === "error");
   createEffect(on(selectionScope, () => {
     selectionEpoch++;
@@ -332,7 +355,9 @@ export default function App() {
     let changed = 0;
     let failed = 0;
     try {
-      if (chosen.all && toChange.length === 0 && rows().length >= 200 && targetRead) {
+      // Bulk folder sweep when the all-selection covers rows that aren't
+      // loaded (page-size independent; one page is 50 rows).
+      if (chosen.all && toChange.length === 0 && chosen.all.total > visibleChosen.length && targetRead) {
         // Bulk folder selection with hundreds of unloaded items
         const all = chosen.all;
         const excluded = [...chosen.exceptions].map(selectionKey);
@@ -371,6 +396,8 @@ export default function App() {
     }
   };
   const messages = createMemo(() => {
+    // Nothing foreign can ever reach the reader, even mid-flight.
+    if (msgsThread() !== selected()) return [];
     const x = selected() ? overrides()[selected()!] : undefined;
     return x
       ? msgs().map((m) => {
@@ -482,12 +509,18 @@ export default function App() {
         }
         return cached;
       });
+      setMsgsThread(id);
+      rememberThread(id, msgs());
     }
     if (fetchBodies && (cached.length === 0 || cached.some((m) => !m.bodyLoaded))) {
       setBodyError(null);
       try {
         const full = await api.loadThread(id, acct);
-        if (seq === loadSeq) setMsgs(full);
+        if (seq === loadSeq) {
+          setMsgs(full);
+          setMsgsThread(id);
+          rememberThread(id, full);
+        }
       } catch (e) {
         if (seq === loadSeq) setBodyError((e as Error).message);
       }
@@ -498,9 +531,20 @@ export default function App() {
     on(selected, (id) => {
       setBodyError(null);
       if (id) {
+        // Show this thread instantly if we have it cached; otherwise show the
+        // skeleton — never the previous thread's messages under a new header.
+        const hit = threadCache.get(id);
+        if (hit) {
+          setMsgsThread(id);
+          setMsgs(hit);
+        } else {
+          setMsgsThread(id);
+          setMsgs([]);
+        }
         setMsgLoading(true);
         void loadThread(id, true);
       } else {
+        setMsgsThread(null);
         setMsgs([]);
       }
     }),
@@ -723,10 +767,11 @@ export default function App() {
       if (ok) snack(next ? "Marked as important" : "Marked as not important");
     });
   };
-  const setRead = (t: ThreadRef, read: boolean) => {
+  /** `quiet`: an implicit read-on-open (row click, toast, deep link) — no snackbar. */
+  const setRead = (t: ThreadRef, read: boolean, quiet = false) => {
     if (!read && selected() === t.threadId) setSelected(null); // Gmail closes on "mark unread"
     void modify(t, { unread: !read }, read ? [] : ["UNREAD"], read ? ["UNREAD"] : []).then((ok) => {
-      if (ok) snack(read ? "Marked as read" : "Marked as unread");
+      if (ok && !quiet) snack(read ? "Marked as read" : "Marked as unread");
     });
   };
   const toggleStar = (t: ThreadRef) => {
@@ -787,7 +832,25 @@ export default function App() {
       setSelectedAccount(t.accountId);
       setSelected(t.threadId);
     });
-    if (t.unread) setRead(t, true);
+    if (t.unread) setRead(t, true, true);
+  };
+
+  /** Opening a thread from a toast click or deep link marks it read, like a
+   * row click. The row may not be in the loaded list (another view, old
+   * mail), so fall back to a direct idempotent modify + refresh. */
+  const markOpenedRead = (threadId: string, accountId: number | null) => {
+    const row = rows().find((r) => r.threadId === threadId && (accountId == null || r.accountId === accountId));
+    if (row?.unread) {
+      setRead(row, true, true);
+      return;
+    }
+    void api
+      .modifyThread(threadId, [], ["UNREAD"], accountId)
+      .then(() => {
+        settled.add(threadId);
+        setTick((n) => n + 1);
+      })
+      .catch(() => {});
   };
 
   const openTarget = (t: OpenTarget | null) => {
@@ -800,6 +863,7 @@ export default function App() {
       setSelectedAccount(t.accountId);
       setSelected(t.threadId);
     });
+    markOpenedRead(t.threadId, t.accountId);
   };
 
   // Move a thread to another Gmail inbox tab (CATEGORY_* labels).
@@ -868,8 +932,10 @@ export default function App() {
   onMount(() => {
     const initThread = urlParams?.get("thread");
     if (initThread) {
+      setSelectedAccount(1);
       setSelected(initThread);
       void loadThread(initThread, true);
+      markOpenedRead(initThread, 1);
     }
     if (urlParams?.has("compose")) {
       openCompose(

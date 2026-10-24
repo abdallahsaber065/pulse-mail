@@ -46,10 +46,7 @@ pub const FRAME_SCRIPT: &str = r#"(function(){var d=document,P=parent;function p
 /// `'sha256-…'` source expression for [`FRAME_SCRIPT`].
 pub fn frame_script_csp_hash() -> String {
     let digest = Sha256::digest(FRAME_SCRIPT.as_bytes());
-    format!(
-        "'sha256-{}'",
-        base64::engine::general_purpose::STANDARD.encode(digest)
-    )
+    format!("'sha256-{}'", base64::engine::general_purpose::STANDARD.encode(digest))
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -138,7 +135,9 @@ pub fn scan(html: &str) -> Scan {
                 _ => style = v.unwrap_or_default(),
             }
         }
-        let Some(src) = src.map(|s| s.trim().to_string()) else { continue };
+        let Some(src) = src.map(|s| s.trim().to_string()) else {
+            continue;
+        };
         if !is_remote(&src) {
             continue;
         }
@@ -164,12 +163,17 @@ fn is_tracker(url: &str, w: Option<&str>, h: Option<&str>, style: &str) -> bool 
             .and_then(|s| s.parse::<f32>().ok())
             .is_some_and(|n| n <= 3.0)
     };
-    let st: String = style.to_ascii_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
+    let st: String = style
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
     let hidden = st.contains("display:none")
         || st.contains("visibility:hidden")
         || st.contains("opacity:0;")
         || st.ends_with("opacity:0")
-        || ((st.contains("width:1px") || st.contains("width:0")) && (st.contains("height:1px") || st.contains("height:0")));
+        || ((st.contains("width:1px") || st.contains("width:0"))
+            && (st.contains("height:1px") || st.contains("height:0")));
     let u = url.to_ascii_lowercase();
     (tiny(w) && tiny(h)) || hidden || TRACKER_HINTS.iter().any(|p| u.contains(p))
 }
@@ -222,9 +226,30 @@ pub fn sanitize(html: &str, scan: &Scan, res: Resources) -> (String, usize) {
         "template", "svg", "math", "head",
     ])
     .add_generic_attributes([
-        "style", "class", "id", "dir", "align", "valign", "width", "height", "bgcolor", "color", "border",
-        "cellpadding", "cellspacing", "face", "size", "role", "aria-label", "aria-hidden", "colspan", "rowspan",
-        "nowrap", "type", "start", "alt",
+        "style",
+        "class",
+        "id",
+        "dir",
+        "align",
+        "valign",
+        "width",
+        "height",
+        "bgcolor",
+        "color",
+        "border",
+        "cellpadding",
+        "cellspacing",
+        "face",
+        "size",
+        "role",
+        "aria-label",
+        "aria-hidden",
+        "colspan",
+        "rowspan",
+        "nowrap",
+        "type",
+        "start",
+        "alt",
     ])
     .url_schemes(HashSet::from(["http", "https", "mailto", "cid", "data"]))
     .url_relative(ammonia::UrlRelative::Deny)
@@ -369,7 +394,11 @@ fn linkify(line: &str) -> String {
         } else {
             url.to_string()
         };
-        out.push_str(&format!("<a href=\"{}\" rel=\"noopener noreferrer\">{}</a>", escape(&href), escape(url)));
+        out.push_str(&format!(
+            "<a href=\"{}\" rel=\"noopener noreferrer\">{}</a>",
+            escape(&href),
+            escape(url)
+        ));
         last = end;
     }
     out.push_str(&escape(&line[last..]));
@@ -403,16 +432,25 @@ pub fn frame_csp() -> String {
 /// Wrap sanitized markup into the frame document.
 pub fn document(body: &str, stylesheet: &str, opts: RenderOptions, plain: bool) -> String {
     let smart_dark = opts.dark && !opts.original_colors && !plain;
-    let (fg, link, quote_border) = if opts.dark && plain { ("#e3e3e3", "#a8c7fa", "#5f6368") } else { ("#1f1f1f", "#0b57d0", "#c4c7c5") };
-    let bg = if opts.dark && plain {
-        "transparent"
-    } else if smart_dark {
-        // Inverted below, this becomes the app's dark surface.
-        "#e4e2dd"
-    } else if opts.dark {
-        "#ffffff"
+    let (fg, link, quote_border) = if opts.dark && plain {
+        ("#e3e3e3", "#a8c7fa", "#5f6368")
     } else {
-        "transparent"
+        ("#1f1f1f", "#0b57d0", "#c4c7c5")
+    };
+    // The html background propagates to the canvas, which Chromium paints
+    // OUTSIDE the invert filter — so the canvas must already be the final
+    // color, and any color the filter should darken lives on `body`
+    // (pre-inverted, so it lands on the same dark).
+    let (html_bg, body_bg) = if opts.dark && plain {
+        ("transparent", "transparent")
+    } else if smart_dark {
+        // #e4e2dd under invert(1) hue-rotate(180deg) ≈ #1b1d22.
+        ("#1b1d22", "#e4e2dd")
+    } else if opts.dark {
+        // Original colors in dark UI: mail without its own background assumes white.
+        ("#ffffff", "#ffffff")
+    } else {
+        ("transparent", "transparent")
     };
     let dark_css = if smart_dark {
         "html{filter:invert(1) hue-rotate(180deg)}\
@@ -427,8 +465,8 @@ pub fn document(body: &str, stylesheet: &str, opts: RenderOptions, plain: bool) 
 <meta name=\"color-scheme\" content=\"{scheme}\">\
 <style>{stylesheet}</style>\
 <style>\
-html{{background:{bg};color-scheme:{scheme}}}\
-body{{margin:0;padding:{pad};font:14px/1.5 \"Segoe UI\",system-ui,sans-serif;color:{fg};overflow-wrap:anywhere;overflow-y:hidden}}\
+html{{background:{html_bg};color-scheme:{scheme}}}\
+body{{margin:0;padding:{pad};background:{body_bg};font:14px/1.5 \"Segoe UI\",system-ui,sans-serif;color:{fg};overflow-wrap:anywhere;overflow-y:hidden}}\
 a{{color:{link}}}\
 img{{max-width:100%;height:auto}}\
 img[src^=\"{blank}\"]{{height:revert-layer;background:rgba(127,127,127,.08)}}\
@@ -443,7 +481,7 @@ blockquote.pm-quote{{margin:4px 0 4px 4px;border-inline-start:2px solid {quote_b
 font:700 12px/14px sans-serif;letter-spacing:1px;cursor:pointer;margin:8px 0}}\
 .pm-qt:hover{{background:#dadce0}}\
 {dark_css}\
-@media print{{html{{filter:none!important;background:#fff!important}}img{{filter:none!important}}.pm-qt{{display:none}}.pm-q{{display:block!important}}}}\
+@media print{{html{{filter:none!important;background:#fff!important}}body{{background:#fff!important}}img{{filter:none!important}}.pm-qt{{display:none}}.pm-q{{display:block!important}}}}\
 </style></head><body dir=\"auto\">{body}<script>{script}</script></body></html>",
         csp = frame_csp(),
         scheme = if opts.dark && plain { "dark" } else { "light" },

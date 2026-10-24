@@ -369,8 +369,17 @@ pub async fn account_estimates(state: State<'_, AppState>, account_id: i64) -> C
     let all = profile.messages_total.max(y1);
     // The range is downloaded in full (text and HTML), attachments per the
     // account's attachment setting (not included here).
-    let est = |window: &'static str, n: i64| WindowEstimate { window, messages: n, bytes: n * (META_BYTES + BODY_BYTES) };
-    Ok(vec![est("30d", d30), est("90d", d90.max(d30)), est("1y", y1.max(d90)), est("all", all)])
+    let est = |window: &'static str, n: i64| WindowEstimate {
+        window,
+        messages: n,
+        bytes: n * (META_BYTES + BODY_BYTES),
+    };
+    Ok(vec![
+        est("30d", d30),
+        est("90d", d90.max(d30)),
+        est("1y", y1.max(d90)),
+        est("all", all),
+    ])
 }
 
 fn check_window(window: &str) -> CmdResult<()> {
@@ -451,7 +460,9 @@ fn rescan_otp_if_needed(app: &AppHandle) {
     let started = std::time::Instant::now();
     let (mut after, mut scanned, mut found) = (0i64, 0usize, 0usize);
     loop {
-        let Ok(batch) = lock().otp_rescan_batch(after, 200) else { return };
+        let Ok(batch) = lock().otp_rescan_batch(after, 200) else {
+            return;
+        };
         if batch.is_empty() {
             break;
         }
@@ -496,7 +507,12 @@ fn rescan_otp_if_needed(app: &AppHandle) {
         std::thread::sleep(std::time::Duration::from_millis(15));
     }
     let _ = lock().set_setting("otp_version", OTP_VERSION);
-    tracing::info!(scanned, found, ms = started.elapsed().as_millis() as u64, "otp rescan done");
+    tracing::info!(
+        scanned,
+        found,
+        ms = started.elapsed().as_millis() as u64,
+        "otp rescan done"
+    );
     let _ = app.emit("mail-updated", ());
 }
 
@@ -546,7 +562,13 @@ pub fn list_threads(
         return Err(CmdError::new("Unknown inbox tab."));
     }
     let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
-    Ok(store.list_threads_in(account_id, &label_id, category.as_deref(), limit.clamp(1, 5000), offset.max(0))?)
+    Ok(store.list_threads_in(
+        account_id,
+        &label_id,
+        category.as_deref(),
+        limit.clamp(1, 5000),
+        offset.max(0),
+    )?)
 }
 
 #[derive(serde::Serialize)]
@@ -571,7 +593,11 @@ pub fn category_counts(state: State<'_, AppState>, account_id: Option<i64>) -> C
                 .find(|(c, _, _)| c == id)
                 .map(|(_, u, t)| (*u, *t))
                 .unwrap_or_default();
-            CategoryCount { id: (*id).to_string(), unread, total }
+            CategoryCount {
+                id: (*id).to_string(),
+                unread,
+                total,
+            }
         })
         .collect())
 }
@@ -596,7 +622,13 @@ pub fn otp_feedback(
 }
 
 #[tauri::command]
-pub fn search(state: State<'_, AppState>, query: String, limit: i64, account_id: Option<i64>, offset: Option<i64>) -> CmdResult<Vec<ThreadRow>> {
+pub fn search(
+    state: State<'_, AppState>,
+    query: String,
+    limit: i64,
+    account_id: Option<i64>,
+    offset: Option<i64>,
+) -> CmdResult<Vec<ThreadRow>> {
     validate::text(&query, 500)?;
     let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
     Ok(store.search_page(account_id, &query, limit.clamp(1, 200), offset.unwrap_or(0).max(0))?)
@@ -654,7 +686,11 @@ pub async fn search_server(
 }
 
 #[tauri::command]
-pub fn get_thread(state: State<'_, AppState>, thread_id: String, account_id: Option<i64>) -> CmdResult<Vec<MessageRow>> {
+pub fn get_thread(
+    state: State<'_, AppState>,
+    thread_id: String,
+    account_id: Option<i64>,
+) -> CmdResult<Vec<MessageRow>> {
     validate::gmail_id(&thread_id)?;
     let id = resolve_account(&state, account_id)?.id;
     let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
@@ -698,6 +734,18 @@ pub fn open_external(app: AppHandle, url: String) -> CmdResult<()> {
         return Err(CmdError::new("That link can't be opened."));
     }
     app.opener().open_url(parsed.as_str(), None::<&str>)?;
+    Ok(())
+}
+
+/// Reveal the local logs folder in Explorer (Settings → About). Local only;
+/// the rolling files never contain message bodies or tokens.
+#[tauri::command]
+pub fn open_logs_dir(app: AppHandle) -> CmdResult<()> {
+    let dir = crate::logs_dir().ok_or_else(|| CmdError::new("Logs are only kept on Windows."))?;
+    std::fs::create_dir_all(&dir).map_err(|_| CmdError::new("Couldn't create the logs folder."))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|_| CmdError::new("Couldn't open the logs folder."))?;
     Ok(())
 }
 

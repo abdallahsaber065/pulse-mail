@@ -32,10 +32,10 @@ use futures::{FutureExt, StreamExt};
 use gmail::{Gmail, GmailError, HistoryDelta};
 use status::{History, StatusCell};
 use std::panic::AssertUnwindSafe;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Notify;
 
@@ -132,7 +132,11 @@ pub fn spawn(
     status: Arc<StatusCell>,
 ) -> SyncController {
     let wake = Arc::new(Notify::new());
-    let files_dir = app.path().app_data_dir().map(|d| d.join("attachments")).unwrap_or_default();
+    let files_dir = app
+        .path()
+        .app_data_dir()
+        .map(|d| d.join("attachments"))
+        .unwrap_or_default();
     let engine = Arc::new(Engine {
         files_dir,
         retries: AtomicU32::new(0),
@@ -701,8 +705,13 @@ impl Engine {
                     break;
                 }
             }
-            tracing::info!(count = found, ms = t0.elapsed().as_millis() as u64, "history count done");
-            self.status.log("info", format!("Found {found} messages to keep on this PC"));
+            tracing::info!(
+                count = found,
+                ms = t0.elapsed().as_millis() as u64,
+                "history count done"
+            );
+            self.status
+                .log("info", format!("Found {found} messages to keep on this PC"));
             self.db(|s| s.set_backfill_phase(self.account_id, "index"))?;
             phase = "index".into();
         }
@@ -758,11 +767,17 @@ impl Engine {
                     last_sizes = Instant::now();
                 }
                 self.hist_set(total.saturating_sub(left), total);
-                self.db(|s| s.set_backfill_progress(self.account_id, None, total.saturating_sub(left) as i64, total as i64))?;
+                self.db(|s| {
+                    s.set_backfill_progress(self.account_id, None, total.saturating_sub(left) as i64, total as i64)
+                })?;
                 let _ = self.app.emit("mail-updated", ());
                 // 50 metadata gets = 250 quota units = Gmail's per-second
                 // budget; slow down more when parts were throttled.
-                let pace = if throttled { Duration::from_secs(5) } else { Duration::from_secs(1) };
+                let pace = if throttled {
+                    Duration::from_secs(5)
+                } else {
+                    Duration::from_secs(1)
+                };
                 tokio::time::sleep(pace.saturating_sub(started.elapsed())).await;
                 if self.halted() {
                     return Ok(());
@@ -819,13 +834,18 @@ impl Engine {
         }
 
         // 4. Attachments allowed by the policy.
-        if phase == "files" && let Some(max) = file_limit {
+        if phase == "files"
+            && let Some(max) = file_limit
+        {
             let pending = self.db(|s| s.file_candidates(self.account_id, since, max, 100_000))?;
             if !pending.is_empty() {
                 self.hist_begin(&window, "files", 0, pending.len() as u32);
                 for chunk in pending.chunks(20) {
                     if over_budget(self.as_ref())? {
-                        self.status.log("warn", "Storage budget reached: other attachments download when you open them");
+                        self.status.log(
+                            "warn",
+                            "Storage budget reached: other attachments download when you open them",
+                        );
                         break;
                     }
                     if self.fetch_bodies_hist(chunk, &a).await?.is_none() {
@@ -842,7 +862,10 @@ impl Engine {
         tracing::info!(count, ms = t0.elapsed().as_millis() as u64, "history download done");
         self.status.log(
             "success",
-            format!("Download complete: {count} messages from {} are on this PC", window_label(&window)),
+            format!(
+                "Download complete: {count} messages from {} are on this PC",
+                window_label(&window)
+            ),
         );
         Ok(())
     }
@@ -1088,7 +1111,9 @@ impl Engine {
 
     /// Full RFC 822 bytes of one message (for attachments, replies).
     pub async fn fetch_raw(&self, message_id: &str) -> Result<Vec<u8>, SyncError> {
-        let raw = self.with_token(|t| async move { self.gmail.get_raw(&t, message_id).await }).await?;
+        let raw = self
+            .with_token(|t| async move { self.gmail.get_raw(&t, message_id).await })
+            .await?;
         Ok(raw.decode_raw()?)
     }
 
@@ -1157,13 +1182,23 @@ impl Engine {
             }
 
             let clean_add: Vec<String> = add.iter().filter(|l| *l != "TRASH" && *l != "SPAM").cloned().collect();
-            let clean_remove: Vec<String> = remove.iter().filter(|l| *l != "TRASH" && *l != "SPAM").cloned().collect();
+            let clean_remove: Vec<String> = remove
+                .iter()
+                .filter(|l| *l != "TRASH" && *l != "SPAM")
+                .cloned()
+                .collect();
             if !clean_add.is_empty() || !clean_remove.is_empty() {
-                match self.gmail.modify_thread(&token, thread_id, &clean_add, &clean_remove).await {
+                match self
+                    .gmail
+                    .modify_thread(&token, thread_id, &clean_add, &clean_remove)
+                    .await
+                {
                     Err(GmailError::Unauthorized) => {
                         self.tokens.invalidate().await;
                         let token = self.tokens.access_token().await?;
-                        self.gmail.modify_thread(&token, thread_id, &clean_add, &clean_remove).await?;
+                        self.gmail
+                            .modify_thread(&token, thread_id, &clean_add, &clean_remove)
+                            .await?;
                     }
                     r => r?,
                 }
@@ -1204,12 +1239,22 @@ impl Engine {
         if total > 0 && visible {
             self.status.progress(false, &label, 0, total);
         }
-        let (notify_pref, autocopy, hide_locked, multi) = self.db(|s| {
+        let (notify_pref, autocopy, hide_locked, multi, quiet, quiet_otp_ok) = self.db(|s| {
+            let quiet = crate::prefs::quiet_active(
+                &crate::prefs::get(s, "quiet_start"),
+                &crate::prefs::get(s, "quiet_end"),
+                crate::prefs::local_minutes_now(),
+            );
             Ok((
-                s.account(self.account_id)?.map(|a| a.notify).unwrap_or_else(|| "all".into()),
+                s.account(self.account_id)?
+                    .map(|a| a.notify)
+                    .unwrap_or_else(|| "all".into()),
                 crate::prefs::get(s, "otp_autocopy") == "1",
                 crate::prefs::get(s, "otp_lockscreen") == "hide",
                 s.accounts()?.len() > 1,
+                quiet,
+                // Codes are time-critical; they stay allowed unless opted out.
+                crate::prefs::get(s, "quiet_allow_otp") == "1",
             ))
         })?;
         let mut added = 0;
@@ -1236,11 +1281,23 @@ impl Engine {
 
             let is_new_inbox = m.label_ids.iter().any(|l| l == "INBOX") && m.label_ids.iter().any(|l| l == "UNREAD");
             // Learned per-sender feedback can veto a code (and its toast).
-            let bias = if m.otp_code.is_some() { self.db(|s| s.otp_bias(self.account_id, &m.from_email))? } else { 0 };
-            let code = m.otp_code.clone().filter(|_| m.otp_score + bias >= crate::otp::STORE_THRESHOLD);
-            let toast_code = code.clone().filter(|_| m.otp_score + bias >= crate::otp::TOAST_THRESHOLD);
+            let bias = if m.otp_code.is_some() {
+                self.db(|s| s.otp_bias(self.account_id, &m.from_email))?
+            } else {
+                0
+            };
+            let code = m
+                .otp_code
+                .clone()
+                .filter(|_| m.otp_score + bias >= crate::otp::STORE_THRESHOLD);
+            let toast_code = code
+                .clone()
+                .filter(|_| m.otp_score + bias >= crate::otp::TOAST_THRESHOLD);
             let primary = !m.label_ids.iter().any(|l| {
-                matches!(l.as_str(), "CATEGORY_SOCIAL" | "CATEGORY_PROMOTIONS" | "CATEGORY_UPDATES" | "CATEGORY_FORUMS")
+                matches!(
+                    l.as_str(),
+                    "CATEGORY_SOCIAL" | "CATEGORY_PROMOTIONS" | "CATEGORY_UPDATES" | "CATEGORY_FORUMS"
+                )
             });
             let wanted = match notify_pref.as_str() {
                 "off" => false,
@@ -1248,18 +1305,26 @@ impl Engine {
                 // Codes always notify; other mail only from the Primary tab.
                 "primary" => toast_code.is_some() || primary,
                 _ => true,
-            };
+            } && !(quiet && !(quiet_otp_ok && toast_code.is_some()));
             let fresh = !existed && is_new_inbox && now_ms() - m.internal_date < NOTIFY_MAX_AGE_MS;
-            if fresh && autocopy && let Some(code) = &toast_code {
+            if fresh
+                && autocopy
+                && let Some(code) = &toast_code
+            {
                 crate::copy_secret(&self.app, code);
-                self.status.log("info", "Copied a new verification code to the clipboard");
+                self.status
+                    .log("info", "Copied a new verification code to the clipboard");
             }
             if wanted && fresh {
                 notify::show_new_mail(
                     &self.app,
                     NewMailToast {
                         account_id: self.account_id,
-                        account: if multi { self.tokens.email.clone() } else { String::new() },
+                        account: if multi {
+                            self.tokens.email.clone()
+                        } else {
+                            String::new()
+                        },
                         message_id: m.id.clone(),
                         thread_id: m.thread_id.clone(),
                         from: if m.from_name.is_empty() {
@@ -1291,6 +1356,9 @@ impl Engine {
         }
         self.db(|s| s.set_history_id(self.account_id, &latest, now_ms()))?;
         if changed {
+            if let Err(e) = self.db(|s| s.optimize()) {
+                tracing::debug!(error = %e, "post-sync optimize failed");
+            }
             let _ = self.app.emit("mail-updated", ());
         }
         Ok(added)
@@ -1312,7 +1380,9 @@ impl Engine {
         if self.fill_account_name_from_sent()? {
             return Ok(());
         }
-        let unnamed = self.db(|s| s.account(self.account_id))?.is_some_and(|a| a.display_name.is_empty());
+        let unnamed = self
+            .db(|s| s.account(self.account_id))?
+            .is_some_and(|a| a.display_name.is_empty());
         if unnamed {
             let token = self.tokens.access_token().await?;
             match self.gmail.primary_send_as_name(&token).await {
@@ -1366,7 +1436,11 @@ pub(crate) fn panic_text(p: &Box<dyn std::any::Any + Send>) -> String {
 /// "30 s", "2 min", "15 min".
 fn human_wait(d: Duration) -> String {
     let s = d.as_secs();
-    if s < 60 { format!("{s} s") } else { format!("{} min", s / 60) }
+    if s < 60 {
+        format!("{s} s")
+    } else {
+        format!("{} min", s / 60)
+    }
 }
 
 pub fn now_ms() -> i64 {

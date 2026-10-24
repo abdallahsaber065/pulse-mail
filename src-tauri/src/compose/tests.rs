@@ -23,6 +23,7 @@ fn msg() -> MessageRow {
         reply_to: String::new(),
         rfc_message_id: "<abc@x.test>".into(),
         rfc_references: "<root@x.test>".into(),
+        list_unsubscribe: None,
         attachments: vec![],
     }
 }
@@ -31,11 +32,24 @@ fn msg() -> MessageRow {
 fn recipients_parse_and_reject() {
     let r = parse_recipients(r#""Lima, Ana" <ana@x.test>, bob@y.test; Carol <carol@z.test>"#).unwrap();
     assert_eq!(r.len(), 3);
-    assert_eq!(r[0], Recipient { name: "Lima, Ana".into(), email: "ana@x.test".into() });
+    assert_eq!(
+        r[0],
+        Recipient {
+            name: "Lima, Ana".into(),
+            email: "ana@x.test".into()
+        }
+    );
     assert_eq!(r[1].email, "bob@y.test");
     assert_eq!(r[2].name, "Carol");
     assert!(parse_recipients("  ").unwrap().is_empty());
-    for bad in ["not-an-email", "a@b", "x@y.test\r\nBcc: evil@z.test", "<a@b.c", "a@@b.test", "a b@c.test"] {
+    for bad in [
+        "not-an-email",
+        "a@b",
+        "x@y.test\r\nBcc: evil@z.test",
+        "<a@b.c",
+        "a@@b.test",
+        "a b@c.test",
+    ] {
         assert!(parse_recipients(bad).is_err(), "{bad:?}");
     }
 }
@@ -62,7 +76,11 @@ fn reply_and_reply_all() {
     let mut mine = msg();
     mine.from_email = "me@gmail.com".into();
     mine.to_list = "ana@x.test".into();
-    assert_eq!(reply_context(&mine, "me@gmail.com", Mode::Reply).to, "ana@x.test", "replying to my own mail");
+    assert_eq!(
+        reply_context(&mine, "me@gmail.com", Mode::Reply).to,
+        "ana@x.test",
+        "replying to my own mail"
+    );
 
     let mut re = msg();
     re.subject = "RE: Q4 report".into();
@@ -82,7 +100,11 @@ fn draft() -> Draft {
         to: "Ana <ana@x.test>".into(),
         subject: "Re: Q4\r\nBcc: evil@z.test".into(),
         body: "Thanks <b>Ana</b> & team\nسلام".into(),
-        quote: Some(Quote { header: "On Tue, Ana wrote:".into(), text: "line 1\n\n<script>x</script>".into(), forward: false }),
+        quote: Some(Quote {
+            header: "On Tue, Ana wrote:".into(),
+            text: "line 1\n\n<script>x</script>".into(),
+            forward: false,
+        }),
         in_reply_to: "<abc@x.test>".into(),
         references: "<root@x.test> junk <abc@x.test>".into(),
         thread_id: Some("t1".into()),
@@ -99,7 +121,10 @@ fn bodies_escape_and_quote() {
     assert!(!html.contains("<script>"));
     assert!(html.contains("dir=\"auto\"") && html.contains("blockquote class=\"gmail_quote\""));
     let text = text_body(&d);
-    assert!(text.ends_with("On Tue, Ana wrote:\n> line 1\n>\n> <script>x</script>\n"), "{text}");
+    assert!(
+        text.ends_with("On Tue, Ana wrote:\n> line 1\n>\n> <script>x</script>\n"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -108,11 +133,17 @@ fn raw_message_headers_are_safe() {
     let p = d.prepare(true).unwrap();
     let raw = String::from_utf8(build_raw(&d, &p, "me@gmail.com", "", vec![])).unwrap();
     let headers = raw.split("\r\n\r\n").next().unwrap();
-    assert!(headers.contains("From: <me@gmail.com>") || headers.contains("From: me@gmail.com"), "{headers}");
+    assert!(
+        headers.contains("From: <me@gmail.com>") || headers.contains("From: me@gmail.com"),
+        "{headers}"
+    );
     assert!(headers.contains("ana@x.test"));
     assert!(headers.contains("In-Reply-To: <abc@x.test>"));
     assert!(headers.contains("<root@x.test>") && !headers.contains("junk"));
-    assert!(!headers.lines().any(|l| l.starts_with("Bcc:")), "no header injection through the subject");
+    assert!(
+        !headers.lines().any(|l| l.starts_with("Bcc:")),
+        "no header injection through the subject"
+    );
     assert!(raw.contains("multipart/alternative"));
 }
 
@@ -147,7 +178,18 @@ fn rich_html_is_sanitized_and_files_attached() {
     }
     assert!(html.contains(r#"href="https://ok.test""#));
     let p = d.prepare(true).unwrap();
-    let raw = String::from_utf8_lossy(&build_raw(&d, &p, "me@gmail.com", "Me", vec![FilePart { name: "a\r\n.txt".into(), mime: "text/plain\r\nX: y".into(), bytes: b"hello".to_vec() }])).to_string();
+    let raw = String::from_utf8_lossy(&build_raw(
+        &d,
+        &p,
+        "me@gmail.com",
+        "Me",
+        vec![FilePart {
+            name: "a\r\n.txt".into(),
+            mime: "text/plain\r\nX: y".into(),
+            bytes: b"hello".to_vec(),
+        }],
+    ))
+    .to_string();
     assert!(raw.contains("multipart/mixed") && raw.contains("multipart/alternative"));
     assert!(raw.contains("application/octet-stream"), "unsafe mime replaced");
     assert!(!raw.contains("\r\nX: y"));
@@ -156,8 +198,17 @@ fn rich_html_is_sanitized_and_files_attached() {
 
 #[test]
 fn attachment_limits() {
-    let mut d = Draft { to: "ana@x.test".into(), ..Default::default() };
-    d.attachments = vec![DraftAttachment { name: "big.bin".into(), mime: "application/zip".into(), size: MAX_ATTACH_TOTAL + 1, staged: Some("1".into()), ..Default::default() }];
+    let mut d = Draft {
+        to: "ana@x.test".into(),
+        ..Default::default()
+    };
+    d.attachments = vec![DraftAttachment {
+        name: "big.bin".into(),
+        mime: "application/zip".into(),
+        size: MAX_ATTACH_TOTAL + 1,
+        staged: Some("1".into()),
+        ..Default::default()
+    }];
     assert!(d.prepare(true).unwrap_err().contains("25 MB"));
     d.attachments[0].size = 10;
     d.attachments[0].staged = None;

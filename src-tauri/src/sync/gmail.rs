@@ -255,9 +255,9 @@ impl HistoryDelta {
 const BATCH_URL: &str = "https://gmail.googleapis.com/batch/gmail/v1";
 /// Google recommends at most 50 calls per batch; more trips rate limits.
 pub const BATCH_MAX: usize = 50;
-/// Query for metadata-only gets: the three headers the list needs + snippet.
+/// Query for metadata-only gets: the headers the list needs + snippet.
 const META_QUERY: &str = "format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject\
-                          &metadataHeaders=Content-Type\
+                          &metadataHeaders=Content-Type&metadataHeaders=List-Unsubscribe\
                           &fields=id,threadId,labelIds,snippet,internalDate,sizeEstimate,payload/headers";
 
 /// Split a `multipart/mixed` batch response into per-request results, ordered
@@ -452,7 +452,13 @@ impl Gmail {
     }
 
     /// One page (up to 500 ids) of messages matching `q`, newest first.
-    pub async fn list_page(&self, token: &Secret, q: &str, page: Option<&str>, max: u32) -> Result<MessagePage, GmailError> {
+    pub async fn list_page(
+        &self,
+        token: &Secret,
+        q: &str,
+        page: Option<&str>,
+        max: u32,
+    ) -> Result<MessagePage, GmailError> {
         let max = max.clamp(1, 500).to_string();
         let mut query = vec![("maxResults", max.as_str())];
         if !q.is_empty() {
@@ -484,7 +490,10 @@ impl Gmail {
                 ("metadataHeaders", "To"),
                 ("metadataHeaders", "Subject"),
                 ("metadataHeaders", "Content-Type"),
-                ("fields", "id,threadId,labelIds,snippet,internalDate,sizeEstimate,payload/headers"),
+                (
+                    "fields",
+                    "id,threadId,labelIds,snippet,internalDate,sizeEstimate,payload/headers",
+                ),
             ], // keep in sync with META_QUERY
         )
         .await
@@ -688,7 +697,10 @@ impl Gmail {
         match draft_id {
             Some(id) => {
                 let body = serde_json::json!({ "id": id, "message": message });
-                match self.write_json(token, reqwest::Method::PUT, &format!("/drafts/{id}"), &body).await {
+                match self
+                    .write_json(token, reqwest::Method::PUT, &format!("/drafts/{id}"), &body)
+                    .await
+                {
                     Ok(r) => Ok(r),
                     Err(GmailError::Status(404)) => {
                         // Draft was deleted remotely or ID invalid; recreate as new draft
@@ -729,8 +741,14 @@ impl Gmail {
         body.extend_from_slice(raw);
         body.extend_from_slice(format!("\r\n--{boundary}--").as_bytes());
         let (method, url) = match draft_id {
-            Some(id) => (reqwest::Method::PUT, format!("{UPLOAD_BASE}/drafts/{id}?uploadType=multipart")),
-            None => (reqwest::Method::POST, format!("{UPLOAD_BASE}/drafts?uploadType=multipart")),
+            Some(id) => (
+                reqwest::Method::PUT,
+                format!("{UPLOAD_BASE}/drafts/{id}?uploadType=multipart"),
+            ),
+            None => (
+                reqwest::Method::POST,
+                format!("{UPLOAD_BASE}/drafts?uploadType=multipart"),
+            ),
         };
         let resp = self
             .http
@@ -749,8 +767,13 @@ impl Gmail {
 
     /// Send a saved draft (Gmail moves it to Sent).
     pub async fn send_draft(&self, token: &Secret, draft_id: &str) -> Result<MessageRef, GmailError> {
-        self.write_json(token, reqwest::Method::POST, "/drafts/send", &serde_json::json!({ "id": draft_id }))
-            .await
+        self.write_json(
+            token,
+            reqwest::Method::POST,
+            "/drafts/send",
+            &serde_json::json!({ "id": draft_id }),
+        )
+        .await
     }
 
     /// Delete a draft (only drafts this app created in a compose session the

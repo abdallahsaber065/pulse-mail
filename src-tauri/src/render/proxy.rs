@@ -133,7 +133,11 @@ pub fn url_allowed(u: &url::Url) -> bool {
     match u.host() {
         Some(url::Host::Domain(d)) => {
             let d = d.to_ascii_lowercase();
-            !(d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local") || d.ends_with(".internal") || d.ends_with(".lan"))
+            !(d == "localhost"
+                || d.ends_with(".localhost")
+                || d.ends_with(".local")
+                || d.ends_with(".internal")
+                || d.ends_with(".lan"))
         }
         Some(url::Host::Ipv4(ip)) => is_public(IpAddr::V4(ip)),
         Some(url::Host::Ipv6(ip)) => is_public(IpAddr::V6(ip)),
@@ -237,7 +241,11 @@ mod tests {
         ] {
             assert!(!url_allowed(&url::Url::parse(u).unwrap()), "{u} should be blocked");
         }
-        for u in ["https://example.com/a.png", "http://8.8.8.8/a.gif", "https://cdn.example.com:443/x"] {
+        for u in [
+            "https://example.com/a.png",
+            "http://8.8.8.8/a.gif",
+            "https://cdn.example.com:443/x",
+        ] {
             assert!(url_allowed(&url::Url::parse(u).unwrap()), "{u} should be allowed");
         }
     }

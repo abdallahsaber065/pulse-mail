@@ -85,6 +85,10 @@ function message(t: ThreadRow): Message {
     replyTo: "",
     rfcMessageId: `<${t.lastMessageId}@mock>`,
     rfcReferences: "",
+    listUnsubscribe:
+      t.fromEmail === "notifications@vercel.com"
+        ? "<https://vercel.com/account/notifications/unsubscribe?token=mock>, <mailto:unsubscribe@vercel.com>"
+        : null,
     attachments: t.threadId === "t2" ? [
       { part: 0, filename: "Sprint-Roadmap-Q4.xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: 24_576, inline: false },
       { part: 1, filename: "Architecture-Spec.pdf", mime: "application/pdf", size: 482_133, inline: false },
@@ -157,6 +161,9 @@ const status: AppStatus = {
     otp_lockscreen: "hide",
     undo_send_secs: "5",
     storage_budget_mb: "1024",
+    quiet_start: "off",
+    quiet_end: "off",
+    quiet_allow_otp: "1",
   },
 };
 
@@ -336,6 +343,9 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       return;
     case "open_external":
       window.open(String(args?.url), "_blank", "noopener");
+      return;
+    case "open_logs_dir":
+      console.info("[mock] would open the logs folder");
       return;
     case "sign_in": {
       const reconnectId = args?.accountId;

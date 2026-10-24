@@ -14,20 +14,22 @@ Gmail, only cleaner. Fast and light: about 200 MB at most with the window open.
 ## Performance targets
 
 Measured on the user's PC (release build unless noted, one Gmail account).
-"p50/p95" are over at least 20 samples. Gaps: there's no `toast shown` log
-line yet, so toast latency needs [ROADMAP M1](ROADMAP.md#m1) first.
+"p50/p95" are over at least 20 samples. The log markers exist
+(`toast shown`, `startup ready`, `window shown`) and
+`scripts/measure.ps1` samples app + WebView2 RAM; run the session once and
+fill the Measured column ([VERIFY-LIVE.md](VERIFY-LIVE.md) §6).
 
 | Metric | Target | How to measure | Measured |
 | --- | --- | --- | --- |
 | First 50 inbox rows on a fresh sign-in | ≤ 1.5 s | `cargo run --example sync_bench` (in `src-tauri`), or the activity line "Inbox ready: N newest messages in X s" | ≈1.0 s bench; 2.4 s in debug app ✅ |
-| New-mail toast latency (Gmail receives it, toast shows) | p50 ≤ 3 s, p95 ≤ 6 s | Send a test mail with a timestamp in the subject; compare with the log line `toast shown` | not yet |
+| New-mail toast latency (Gmail receives it, toast shows) | p50 ≤ 3 s, p95 ≤ 6 s | Send a test mail with a timestamp in the subject; compare with the log line `toast shown` | not yet (log line exists) |
 | Latency with IMAP down (fallback polling) | ≤ 65 s | Block imap.gmail.com in the firewall, repeat | not yet |
-| Idle RAM, tray only (window destroyed) | ≤ 25 MB private working set for `pulse-mail.exe` | Task Manager → Details, or `Get-Process pulse-mail` (WS / PM) after 10 min idle | not yet |
-| Idle RAM, window hidden (hide-on-close) | ≤ 120 MB total incl. WebView2 processes | Sum of `pulse-mail` + its `msedgewebview2` children | not yet |
-| RAM, window open, reading mail | ≤ 200 MB total | Same as above while reading a large HTML mail | not yet |
+| Idle RAM, tray only (window destroyed) | ≤ 25 MB private working set for `pulse-mail.exe` | `scripts\measure.ps1` (app private column) after 10 min idle | not yet |
+| Idle RAM, window hidden (hide-on-close) | ≤ 120 MB total incl. WebView2 processes | `scripts\measure.ps1` (total column) | not yet |
+| RAM, window open, reading mail | ≤ 200 MB total | same, while reading a large HTML mail | not yet |
 | Idle CPU | ≈ 0 % (no wakeups beyond IDLE refresh every 20 min and the 15 min safety poll) | Process Explorer → CPU / context switches | not yet |
-| Reopen window from tray, hidden mode | ≤ 100 ms to first paint | `performance.now()` stamp vs tray click log | not yet |
-| Reopen window from tray, destroy mode | ≤ 600 ms to first paint | same | not yet |
+| Reopen window from tray, hidden mode | ≤ 100 ms to first paint | `window shown` log line (ms since start) + visual paint | not yet (log line exists) |
+| Reopen window from tray, destroy mode | ≤ 600 ms to first paint | `window shown` log line, `fresh=true` | not yet (log line exists) |
 | Toast "Copy code" → clipboard | ≤ 200 ms | manual | not yet |
 | Thread list scroll | 60 fps with 10k rows | DevTools performance panel | not yet |
 | Search in local cache | ≤ 50 ms for 10k messages | timing around the `search` command | not yet |
@@ -66,7 +68,12 @@ Goal: useful on day one even before the inbox UI is polished.
 - [x] First-pass Gmail-like UI: top bar with search, sidebar with labels and unread counts, virtualized thread list with OTP chips, reader pane with sandboxed HTML, image blocking, OTP banner, light/dark, shortcuts, setup and sign-in screens, browser mock mode
 - [x] **User:** create Google OAuth client and save the JSON (see `SETUP-GOOGLE-OAUTH.md`)
 - [x] First real sign-in and full sync on the user's PC
-- [ ] Add `toast shown` / first-paint / cold-start log lines, then measure toast latency (p50/p95) and fix whatever is slow ([M1](ROADMAP.md#m1))
+- [x] Add `toast shown` / `startup ready` / `window shown` log lines and
+      `scripts/measure.ps1` (done 2026-10-24; the measurement session itself
+      is [VERIFY-LIVE.md](VERIFY-LIVE.md) §6, needs the user's account)
+- [ ] Measure toast latency (p50/p95), idle RAM in both close modes, cold
+      start, and reopen latency; then fix whatever is slow and decide ADR 0004
+      ([M1](ROADMAP.md#m1))
 - [ ] Verify toasts and "Copy code" with an installed (NSIS) build: dev builds show the PowerShell name/icon
 - [ ] Measure idle RAM in both close modes; pick the default (ADR 0004)
 - [x] Settings UI for: start with Windows, close behavior (plus theme, density, notifications all / codes only / off)
@@ -130,6 +137,100 @@ and signing (W2), `mailto:` handler (W4), i18n/RTL UI (U2), themes (U1), print
 and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
+
+- **2026-10-24 (v0.3.0 release prep):** Version bumped to 0.3.0 across
+  package.json / tauri.conf.json / Cargo.toml; CHANGELOG.md added (Keep a
+  Changelog format) covering everything since v0.2.1; README refreshed —
+  honest release table (Windows installer ships; macOS/Linux build from
+  source), v0.3.0 + 139-test badges, CHANGELOG in the docs index. Project
+  positioning updated for the open-source direction (AGENTS.md "What this
+  is"; MIT + contributing + sponsor were already in place). Final gates:
+  139 Rust tests, 47 vitest, tsc, fmt. Release steps for the author: push
+  the branch, merge the PR to main, tag `v0.3.0` on main — the release
+  pipeline builds the Windows NSIS installer into a draft release.
+
+- **2026-10-24 (perf, `8d0bd8c`):** Faster view switches: first page 50
+  rows (was 200; older rows still append on scroll) and the last 8 view
+  results cached per view (stale-while-revalidate) so revisiting a
+  category/label/account renders instantly while a background refresh
+  updates unread flags; optimistic overrides apply on top of cached rows.
+  Bulk select-all sweep and the infinite-scroll trigger made page-size
+  independent (selection-total based). tsc + 47 vitest; browser mock
+  verified instant revisit.
+
+- **2026-10-24 (dark-mode fix, `0ea8ffc`):** Smart dark: the html canvas
+  is painted by Chromium outside the invert filter, so it showed the
+  pre-inverted LIGHT background with inverted (light) text — washed out.
+  Canvas now gets the final dark color; body carries the pre-inverted
+  light one. Original colors: the iframe element's `color-scheme: dark`
+  fought the light document; removed, and white is forced on html+body so
+  white mail renders as a white card. Test pins all four mode
+  combinations. 139 Rust tests, tsc.
+
+- **2026-10-24 (toast-open marks read, `93ba60a`):** User reported that
+  opening a mail from a notification never changed its read status. The
+  row-click path marked read, but the toast path (`openTarget`) and the
+  `?thread=` deep link didn't — both now share `markOpenedRead` (optimistic
+  when the row is visible, idempotent modify + refresh otherwise). Removing
+  the dead deep-link effect also fixed a latent bug: closing a deep-linked
+  thread re-opened it, because the effect re-ran when selected became null.
+  Verified in the browser mock (bold cleared, Back closes).
+
+- **2026-10-24 (unsubscribe helper, T7 link variant):** `List-Unsubscribe`
+  added to the metadata batch query and parsed on both fetch paths
+  (mail-parser types the header as an address list — `<https://…>` looks
+  like an angle-addr — so the angle-bracket URL list is rebuilt; CR/LF
+  sanitized). Migration 11 stores it; metadata refreshes never clear a
+  stored value. The reader shows an Unsubscribe button on messages that
+  have one; the web link opens in the system browser and mailto opens a
+  pre-filled compose, both via the existing phishing-checked link path.
+  The RFC 8058 one-click POST is out of scope by rule 8 (sends to
+  arbitrary endpoints) unless the user asks. Gates: 138 Rust tests (2
+  new), 47 vitest, tsc, fmt; button verified in the browser mock.
+
+- **2026-10-24 (always-on reliability, ADR 0026):** Quiet hours (N2):
+  prefs + crossing-midnight window logic + local time from
+  `GetDynamicTimeZoneInformation`, wired into the toast decision with an
+  OTP exception, Settings UI with two time selects (verified in the browser
+  mock: 10:00 PM–6:30 AM round-trips). Sleep/resume catch-up (X2, partial):
+  clock-jump detector (wall vs monotonic, 90 s grace, unit-tested) runs a
+  quiet sync on every account after wake. Crash logs (V4):
+  tracing-appender rolling daily files with 7-day pruning, panic hook,
+  `open_logs_dir` command (full rule-12 wiring: build.rs, capability,
+  security tests) and a Settings → About button. Gates: 136 Rust tests
+  (3 new), 47 vitest, tsc, fmt, cargo check, browser-mock settings check.
+
+- **2026-10-24 (rendering, `f58be1c`):** Fix the glitches seen when switching
+  threads and views. Root causes: the reader rendered the previous thread's
+  messages until the new fetch landed (`msgs` was never scoped to a thread);
+  the list resource kept the previous label's rows visible during a view
+  switch; a reused message row kept the old sanitized body; the reader kept
+  its scroll position across threads; and the selection scope keyed on the
+  raw query, clearing selection and scroll on every keystroke. Fixes: thread-
+  owned `msgs` with an 8-thread LRU cache, a view-context gate on `rows()`
+  (tick-excluded so background sync doesn't flash skeletons), doc/height drop
+  on `messageId` change in EmailFrame, reader scroll reset keyed on the
+  message-id list, and selection scope on the debounced query. Verified in
+  the browser mock (same-tick subject check, Inbox→Sent, cache revisit,
+  empty state); tsc + 47 vitest. Checked and deliberately NOT changed:
+  `<For>` over virtual items (tanstack reuses measurement objects, so no DOM
+  churn on scroll).
+
+- **2026-10-24 (hardening, branch `chore/hardening-ci-docs`):** Security and
+  engineering-health pass, no feature changes. `xlsx` 0.18.5 → 0.20.3
+  (SheetJS CDN) clearing two high advisories on the untrusted-attachment
+  parser; CI collapsed to one Windows job + `cargo fmt --all --check` +
+  `pnpm audit --audit-level high`, release pipeline Windows-only without the
+  duplicate Linux pre-check; rustfmt drift cleared repo-wide; M1 markers
+  (`startup ready`, `window shown`; `toast shown` already existed) and
+  `scripts/measure.ps1`; `PRAGMA optimize` + FTS5 `merge` after delta-sync
+  passes that changed something (H3 slice, non-fatal); `docs/VERIFY-LIVE.md`
+  live-session checklist. Verified in passing: unread counts are live from
+  the cache and the store's production paths have no unwraps.
+  Gates on this branch: pnpm typecheck, 47 vitest, `cargo check`, targeted
+  `cargo test store::`, `cargo fmt --check` after the edits; full suite runs
+  in CI. Docs refreshed to HEAD truth (STATUS: icon done, CI done, unread-lag
+  bug closed, v0.2.1).
 
 - **2026-10-23 (v0.2.0 release):** Brand app icon suite, attachment preview modal,
   undo send grace window, contact auto-complete in compose, thread context menu,

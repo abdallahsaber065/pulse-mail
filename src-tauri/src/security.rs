@@ -44,7 +44,10 @@ mod tests {
             .iter()
             .map(|p| p.as_str().expect("plain permission ids only").to_string())
             .collect();
-        let mut expected: BTreeSet<String> = handler.iter().map(|c| format!("allow-{}", c.replace('_', "-"))).collect();
+        let mut expected: BTreeSet<String> = handler
+            .iter()
+            .map(|c| format!("allow-{}", c.replace('_', "-")))
+            .collect();
         expected.insert("core:event:allow-listen".into());
         expected.insert("core:event:allow-unlisten".into());
         assert_eq!(granted, expected, "capability grants differ from the command list");
@@ -73,14 +76,26 @@ mod tests {
             include_str!("render/proxy.rs"),
         ];
         const BAD: &[&str] = &[
-            "access_token", "refresh_token", "expose(", ".body", "raw", "html", "otp_code", "code =", "snippet",
-            "password", "text =",
+            "access_token",
+            "refresh_token",
+            "expose(",
+            ".body",
+            "raw",
+            "html",
+            "otp_code",
+            "code =",
+            "snippet",
+            "password",
+            "text =",
         ];
         for src in sources {
             for (i, chunk) in src.split("tracing::").enumerate().skip(1) {
                 // The macro call up to its closing `);`.
                 let call = &chunk[..chunk.find(");").unwrap_or(chunk.len()).min(400)];
-                if !["info!", "warn!", "debug!", "error!", "trace!"].iter().any(|m| call.starts_with(m)) {
+                if !["info!", "warn!", "debug!", "error!", "trace!"]
+                    .iter()
+                    .any(|m| call.starts_with(m))
+                {
                     continue;
                 }
                 for bad in BAD {

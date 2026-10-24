@@ -2,10 +2,10 @@
 //! Also keeps the unread badge (tray dot + tooltip, taskbar overlay) current.
 
 use crate::AppState;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::image::Image;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Listener, Manager};
 
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
@@ -63,15 +63,25 @@ pub fn schedule_badge(app: &AppHandle) {
 }
 
 fn update_badge(app: &AppHandle) {
-    let Some(state) = app.try_state::<AppState>() else { return };
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
     let (counts, accounts) = {
         let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
-        (store.inbox_unread().unwrap_or_default(), store.accounts().unwrap_or_default())
+        (
+            store.inbox_unread().unwrap_or_default(),
+            store.accounts().unwrap_or_default(),
+        )
     };
     let total: i64 = counts.iter().map(|(_, n)| n).sum();
     let per: Vec<(String, i64)> = accounts
         .iter()
-        .map(|a| (a.email.clone(), counts.iter().find(|(id, _)| *id == a.id).map(|c| c.1).unwrap_or(0)))
+        .map(|a| {
+            (
+                a.email.clone(),
+                counts.iter().find(|(id, _)| *id == a.id).map(|c| c.1).unwrap_or(0),
+            )
+        })
         .collect();
 
     if let Some(tray) = app.tray_by_id("main") {

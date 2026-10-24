@@ -79,12 +79,13 @@ export default function ThreadList(p: Props) {
   // Changing filters starts at the top; adding a page keeps the scroll position.
   createEffect(on(() => p.viewKey, () => { scrollEl.scrollTop = 0; }));
 
-  // Ask for more rows when the last rendered row is close to the end.
+  // Ask for more rows when the last rendered row is close to the end;
+  // the caller decides whether anything is left to load.
   createEffect(() => {
     if (p.loading) return;
     const items = virtualizer.getVirtualItems();
     const last = items[items.length - 1];
-    if (last && p.threads.length >= 200 && last.index >= p.threads.length - 15) p.onEndReached?.();
+    if (last && p.threads.length > 0 && last.index >= p.threads.length - 15) p.onEndReached?.();
   });
 
   const comfy = () => prefs.density() === "comfortable";

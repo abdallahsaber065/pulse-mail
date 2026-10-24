@@ -24,8 +24,10 @@ pub fn emphasized(html: &str) -> HashSet<String> {
         )
         .unwrap()
     });
-    static CELL: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(?is)<td\b[^>]*>\s*([A-Za-z0-9\u{0660}-\u{0669}][A-Za-z0-9 \u{0660}-\u{0669}-]{2,14})\s*</td>").unwrap());
+    static CELL: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?is)<td\b[^>]*>\s*([A-Za-z0-9\u{0660}-\u{0669}][A-Za-z0-9 \u{0660}-\u{0669}-]{2,14})\s*</td>")
+            .unwrap()
+    });
     static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<[^>]*>").unwrap());
 
     let mut out = HashSet::new();
@@ -58,13 +60,18 @@ pub fn emphasized(html: &str) -> HashSet<String> {
 
 /// (url, anchor text) for every http(s) link.
 pub fn links(html: &str) -> Vec<(String, String)> {
-    static A: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r#"(?is)<a\b[^>]*?href\s*=\s*["'](https?://[^"']+)["'][^>]*>(.{0,300}?)</a\s*>"#).unwrap());
+    static A: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"(?is)<a\b[^>]*?href\s*=\s*["'](https?://[^"']+)["'][^>]*>(.{0,300}?)</a\s*>"#).unwrap()
+    });
     static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<[^>]*>").unwrap());
     A.captures_iter(html)
         .map(|c| {
             let url = c[1].replace("&amp;", "&");
-            let text = TAG.replace_all(&c[2], " ").split_whitespace().collect::<Vec<_>>().join(" ");
+            let text = TAG
+                .replace_all(&c[2], " ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
             (url, text)
         })
         .collect()

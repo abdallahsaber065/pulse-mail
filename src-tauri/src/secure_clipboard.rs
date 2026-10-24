@@ -9,10 +9,10 @@
 /// sync. Returns false if the clipboard couldn't be opened (caller falls back).
 #[cfg(windows)]
 pub fn write_secret(text: &str) -> bool {
+    use windows_sys::Win32::Foundation::GlobalFree;
     use windows_sys::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
     };
-    use windows_sys::Win32::Foundation::GlobalFree;
     use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
     use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 

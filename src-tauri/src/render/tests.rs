@@ -23,7 +23,19 @@ fn scripts_and_handlers_are_removed() {
            <a href="javascript:alert(7)">x</a><a href=" JaVaScRiPt:alert(8)">y</a>
            <a href="vbscript:msgbox(9)">z</a><a href="data:text/html,<script>alert(10)</script>">d</a>"#,
     );
-    assert_absent(&out, &["alert", "onclick", "onerror", "onload", "<script", "javascript:", "vbscript:", "data:text"]);
+    assert_absent(
+        &out,
+        &[
+            "alert",
+            "onclick",
+            "onerror",
+            "onload",
+            "<script",
+            "javascript:",
+            "vbscript:",
+            "data:text",
+        ],
+    );
     assert!(out.contains("hi"));
 }
 
@@ -38,7 +50,21 @@ fn active_and_navigational_elements_are_removed() {
     );
     assert_absent(
         &out,
-        &["<iframe", "<object", "<embed", "<form", "<input", "formaction", "<meta", "<base", "<link", "<frame", "evil.test", "<textarea", "<applet"],
+        &[
+            "<iframe",
+            "<object",
+            "<embed",
+            "<form",
+            "<input",
+            "formaction",
+            "<meta",
+            "<base",
+            "<link",
+            "<frame",
+            "evil.test",
+            "<textarea",
+            "<applet",
+        ],
     );
     // Button text (often a call to action) survives as plain text.
     assert!(out.contains("Go"));
@@ -63,7 +89,10 @@ fn mxss_and_parser_tricks_stay_inert() {
         // legitimately *contain* words like "onerror".
         let markup = values.replace_all(&out, "\"\"").to_ascii_lowercase();
         let l = markup;
-        assert!(!l.contains("<script") && !l.contains(" onerror=") && !l.contains("javascript:"), "{html}\n=> {out}");
+        assert!(
+            !l.contains("<script") && !l.contains(" onerror=") && !l.contains("javascript:"),
+            "{html}\n=> {out}"
+        );
     }
 }
 
@@ -77,11 +106,17 @@ fn remote_images_are_blanked_unless_provided() {
     let s = scan(html);
     assert_eq!(s.remote, vec!["https://cdn.shop.test/hero.png".to_string()]);
     let mut res = Resources::default();
-    res.images.insert("https://cdn.shop.test/hero.png".into(), "data:image/png;base64,AAA".into());
+    res.images.insert(
+        "https://cdn.shop.test/hero.png".into(),
+        "data:image/png;base64,AAA".into(),
+    );
     res.cids.insert("logo@x".into(), "data:image/gif;base64,BBB".into());
     let (out, shown) = sanitize(html, &s, res);
     assert_eq!(shown, 1);
-    assert!(out.contains("data:image/png;base64,AAA") && out.contains("data:image/gif;base64,BBB"), "{out}");
+    assert!(
+        out.contains("data:image/png;base64,AAA") && out.contains("data:image/gif;base64,BBB"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -95,7 +130,8 @@ fn tracking_pixels_are_detected_and_never_loaded() {
     assert_eq!(s.remote, vec!["https://ok.test/real.png".to_string()]);
     // Even if a caller hands us bytes for a tracker, it stays blank.
     let mut res = Resources::default();
-    res.images.insert("https://t.mail.test/o/abc".into(), "data:image/gif;base64,T".into());
+    res.images
+        .insert("https://t.mail.test/o/abc".into(), "data:image/gif;base64,T".into());
     let (out, shown) = sanitize(html, &s, res);
     assert_eq!(shown, 0);
     assert!(!out.contains("base64,T\""), "{out}");
@@ -112,7 +148,9 @@ fn styles_are_kept_but_cleaned() {
 
 #[test]
 fn links_keep_safe_schemes_and_get_noopener() {
-    let out = clean(r#"<a href="https://bank.test/login" target="_blank">Log in</a> <a href="mailto:a@b.test">mail</a> <a href="/relative">rel</a>"#);
+    let out = clean(
+        r#"<a href="https://bank.test/login" target="_blank">Log in</a> <a href="mailto:a@b.test">mail</a> <a href="/relative">rel</a>"#,
+    );
     assert!(out.contains(r#"href="https://bank.test/login""#), "{out}");
     assert!(out.contains("mailto:a@b.test"));
     assert!(out.contains("noopener noreferrer"));
@@ -149,7 +187,12 @@ fn plain_text_is_escaped_linkified_and_quotes_fold() {
     );
     assert!(r.plain_text);
     assert!(r.srcdoc.contains("&lt;b&gt;there&lt;/b&gt;"));
-    assert!(r.srcdoc.contains(r#"<a href="https://example.test/a?b=1&amp;c=2" rel="noopener noreferrer">"#), "{}", r.srcdoc);
+    assert!(
+        r.srcdoc
+            .contains(r#"<a href="https://example.test/a?b=1&amp;c=2" rel="noopener noreferrer">"#),
+        "{}",
+        r.srcdoc
+    );
     assert!(r.srcdoc.contains(r#"<a href="https://www.example.test""#));
     assert!(r.srcdoc.contains("مرحبا"));
     assert_eq!(r.srcdoc.matches("<blockquote class=\"pm-quote\">").count(), 2);
@@ -170,11 +213,31 @@ fn cid_normalization() {
 
 #[test]
 fn dark_modes() {
-    let smart = render_html("<p>x</p>", Resources::default(), RenderOptions { dark: true, original_colors: false });
+    let smart = render_html(
+        "<p>x</p>",
+        Resources::default(),
+        RenderOptions {
+            dark: true,
+            original_colors: false,
+        },
+    );
     assert!(smart.srcdoc.contains("invert(1)"));
-    let original = render_html("<p>x</p>", Resources::default(), RenderOptions { dark: true, original_colors: true });
+    let original = render_html(
+        "<p>x</p>",
+        Resources::default(),
+        RenderOptions {
+            dark: true,
+            original_colors: true,
+        },
+    );
     assert!(!original.srcdoc.contains("invert(1)"));
-    let text = render_text("x", RenderOptions { dark: true, original_colors: false });
+    let text = render_text(
+        "x",
+        RenderOptions {
+            dark: true,
+            original_colors: false,
+        },
+    );
     assert!(!text.srcdoc.contains("invert(1)") && text.srcdoc.contains("#e3e3e3"));
 }
 
@@ -185,4 +248,59 @@ fn rtl_and_huge_input_do_not_panic() {
     assert!(r.srcdoc.contains("رمز"));
     let nested = "<div>".repeat(5000) + "x" + &"</div>".repeat(5000);
     let _ = render_html(&nested, Resources::default(), RenderOptions::default());
+}
+
+#[test]
+fn dark_theme_backgrounds_are_readable() {
+    // Smart dark: the canvas (html) must already be the final dark color —
+    // Chromium paints it outside the invert filter — and the pre-inverted
+    // light background goes on body, which the filter darkens.
+    let smart = render_html(
+        "<p>hi</p>",
+        Resources::default(),
+        RenderOptions {
+            dark: true,
+            original_colors: false,
+        },
+    );
+    assert!(smart.srcdoc.contains("html{background:#1b1d22"), "{}", smart.srcdoc);
+    assert!(smart.srcdoc.contains("background:#e4e2dd"), "{}", smart.srcdoc);
+    assert!(smart.srcdoc.contains("filter:invert(1)"));
+    // Original colors in dark UI: white canvas and white body (most mail
+    // assumes white; a transparent canvas would put dark text on the dark
+    // app surface), no filter.
+    let original = render_html(
+        "<p>hi</p>",
+        Resources::default(),
+        RenderOptions {
+            dark: true,
+            original_colors: true,
+        },
+    );
+    assert!(
+        original.srcdoc.contains("html{background:#ffffff"),
+        "{}",
+        original.srcdoc
+    );
+    assert_eq!(
+        original.srcdoc.matches("background:#ffffff").count(),
+        2,
+        "html and body"
+    );
+    assert!(!original.srcdoc.contains("filter:invert(1)"));
+    // Plain text in dark stays on the app surface (transparent) with light text.
+    let text = render_text(
+        "hi",
+        RenderOptions {
+            dark: true,
+            original_colors: false,
+        },
+    );
+    assert!(text.srcdoc.contains("html{background:transparent"));
+    assert!(text.srcdoc.contains("color:#e3e3e3"));
+    // Light theme: transparent everywhere, dark text.
+    let light = render_html("<p>hi</p>", Resources::default(), RenderOptions::default());
+    assert!(light.srcdoc.contains("html{background:transparent"));
+    assert!(light.srcdoc.contains("background:transparent"));
+    assert!(light.srcdoc.contains("color:#1f1f1f"));
 }

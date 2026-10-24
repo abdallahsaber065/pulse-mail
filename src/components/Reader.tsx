@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, Index, Show } from "solid-js";
+import { createEffect, createSignal, For, Index, on, Show } from "solid-js";
 import { api } from "../lib/api";
 import { formatSize } from "../lib/format";
 import Icon, { type IconName } from "./Icon";
@@ -56,6 +56,13 @@ const CATEGORY_CONFIG: Record<Category, { name: string; icon: IconName; desc: st
 const CATEGORY_NAMES: Record<string, string> = Object.fromEntries(
   Object.entries(CATEGORY_CONFIG).map(([k, v]) => [k, v.name]),
 );
+
+/** First usable unsubscribe target: prefer the web link, fall back to mail. */
+function unsubLink(v?: string | null): string | null {
+  if (!v) return null;
+  const links = [...v.matchAll(/<((?:https|mailto):[^>]+)>/gi)].map((m) => m[1]);
+  return links.find((l) => l.toLowerCase().startsWith("https:")) ?? links[0] ?? null;
+}
 
 function BodySkeleton() {
   return (
@@ -159,6 +166,18 @@ export default function Reader(p: Props) {
     a.mime.startsWith("image/") ? "image" : a.mime === "application/pdf" ? "pdf" : "attachment";
 
   const [togglingDark, setTogglingDark] = createSignal(false);
+  let readerScroll: HTMLDivElement | undefined;
+  // A new thread starts at the top; label/state refreshes of the same thread
+  // (same message ids) keep the reading position.
+  createEffect(
+    on(
+      () => p.messages.map((m) => m.id).join(","),
+      () => {
+        if (readerScroll) readerScroll.scrollTop = 0;
+      },
+      { defer: true },
+    ),
+  );
   const handleToggleEmailDark = async () => {
     if (togglingDark()) return;
     setTogglingDark(true);
@@ -182,7 +201,7 @@ export default function Reader(p: Props) {
         </Show>
       }
     >
-      <div class="reader h-full overflow-y-auto">
+      <div class="reader h-full overflow-y-auto" ref={readerScroll}>
         <div class="no-print sticky top-0 z-10 flex h-12 items-center gap-1 border-b border-divider bg-surface px-2">
           <Btn icon="back" title="Back to list (u)" onClick={p.onBack} />
           <div class="mx-1 h-5 w-px bg-divider" />
@@ -378,6 +397,17 @@ export default function Reader(p: Props) {
                         <span class="selectable truncate text-xs text-muted">&lt;{m().fromEmail}&gt;</span>
                         <span class="ml-auto shrink-0 text-xs text-muted">{fullDate(m().internalDate)}</span>
                         <span class="no-print -my-2 flex shrink-0 items-center">
+                          <Show when={unsubLink(m().listUnsubscribe)}>
+                            {(href) => (
+                              <button
+                                class="mr-1 rounded-full border border-outline px-2.5 py-1 text-[11px] font-medium text-muted hover:bg-hover hover:text-text"
+                                title="Open this sender's unsubscribe link (in your browser, or as a pre-filled email)"
+                                onClick={() => p.onLink(href(), "Unsubscribe")}
+                              >
+                                Unsubscribe
+                              </button>
+                            )}
+                          </Show>
                           <Btn icon="reply" title="Reply (r)" onClick={() => p.onCompose(m(), "reply")} />
                           <Btn icon="forward" title="Forward (f)" onClick={() => p.onCompose(m(), "forward")} />
                         </span>

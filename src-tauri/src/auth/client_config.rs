@@ -65,7 +65,9 @@ pub fn load(path: &Path) -> Result<OAuthClient, ConfigError> {
     if let (Some(id), Some(secret)) = (
         option_env!("PULSE_GOOGLE_CLIENT_ID"),
         option_env!("PULSE_GOOGLE_CLIENT_SECRET"),
-    ) && !id.is_empty() && !secret.is_empty() {
+    ) && !id.is_empty()
+        && !secret.is_empty()
+    {
         return Ok(OAuthClient {
             client_id: id.to_string(),
             client_secret: Secret::new(secret.to_string()),

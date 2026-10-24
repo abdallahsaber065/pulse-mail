@@ -15,9 +15,8 @@ static COMMENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)/\*.*?\*/").
 /// Escapes can spell `url(` or `expression(` in ways simple matching misses,
 /// so any declaration with one is dropped whole.
 static ESCAPED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^;{}]*\\[^;{}]*").unwrap());
-static AT_RULES: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?is)@(?:import|charset|namespace)[^;{]*;?|@font-face\s*\{[^}]*\}").unwrap()
-});
+static AT_RULES: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)@(?:import|charset|namespace)[^;{]*;?|@font-face\s*\{[^}]*\}").unwrap());
 static URL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?i)url\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*))\s*\)"#).unwrap());
 /// A whole declaration that uses a script hook or a URL-taking function we
@@ -48,7 +47,12 @@ pub fn sanitize_declarations(style: &str) -> String {
 fn common(s: &str) -> String {
     let s = DANGEROUS.replace_all(s, "");
     let s = URL.replace_all(&s, |c: &regex::Captures<'_>| {
-        let v = c.get(1).or(c.get(2)).or(c.get(3)).map(|m| m.as_str().trim()).unwrap_or("");
+        let v = c
+            .get(1)
+            .or(c.get(2))
+            .or(c.get(3))
+            .map(|m| m.as_str().trim())
+            .unwrap_or("");
         if is_inline_image(v) {
             format!("url(\"{}\")", v.replace('"', ""))
         } else {
@@ -94,8 +98,14 @@ mod tests {
             "background:url(javascript:alert(1))",
         ] {
             let out = sanitize_declarations(bad).to_lowercase();
-            assert!(!out.contains("expression(") && !out.contains("x.test") && !out.contains("javascript:"), "{bad} -> {out}");
-            assert!(!out.contains("-moz-binding") && !out.contains("behavior:"), "{bad} -> {out}");
+            assert!(
+                !out.contains("expression(") && !out.contains("x.test") && !out.contains("javascript:"),
+                "{bad} -> {out}"
+            );
+            assert!(
+                !out.contains("-moz-binding") && !out.contains("behavior:"),
+                "{bad} -> {out}"
+            );
         }
     }
 

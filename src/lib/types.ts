@@ -138,6 +138,11 @@ export interface Prefs {
   otp_lockscreen: "hide" | "show";
   undo_send_secs: "0" | "5" | "10" | "20" | "30";
   storage_budget_mb: "512" | "1024" | "2048" | "5120";
+  /** Quiet hours window (minutes since local midnight, 30-minute steps); "off" disables. Validated in Rust. */
+  quiet_start: string;
+  quiet_end: string;
+  /** Verification codes may still toast during quiet hours. */
+  quiet_allow_otp: "0" | "1";
 }
 
 export type PrefKey = keyof Prefs;
@@ -231,6 +236,8 @@ export interface Message {
   replyTo: string;
   rfcMessageId: string;
   rfcReferences: string;
+  /** Raw List-Unsubscribe header (angle-bracket URL list) when the sender offers one. */
+  listUnsubscribe?: string | null;
   attachments: Attachment[];
 }
 
