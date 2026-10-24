@@ -5,7 +5,7 @@ All notable changes to Pulse Mail are documented here. The format follows
 the 1.0 hardening milestone. Released binaries are on
 [GitHub Releases](https://github.com/abdallahsaber065/pulse-mail/releases).
 
-## [Unreleased]
+## [0.4.0] — 2026-10-24
 
 ### Added
 
