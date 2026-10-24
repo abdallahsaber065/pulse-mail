@@ -245,12 +245,67 @@ pub fn session_locked() -> bool {
 
 #[cfg(not(windows))]
 pub fn session_locked() -> bool {
+    // Lock-screen hiding stays Windows-only until a cross-platform
+    // session-lock detector exists; codes still hide via `hide_code` prefs.
     false
 }
 
-#[cfg(not(windows))]
+/// Linux: freedesktop notifications through the pure-Rust zbus backend.
+/// "Copy code" and "Open" are real notification actions; delivery and the
+/// action routing live on a worker thread like on Windows.
+#[cfg(target_os = "linux")]
+pub fn show_new_mail(app: &AppHandle, t: NewMailToast) {
+    let text = toast_text(&t);
+    let app = app.clone();
+    // D-Bus calls can block briefly; keep them off the async runtime.
+    std::thread::spawn(move || {
+        let mut n = notify_rust::Notification::new();
+        n.appname("Pulse Mail")
+            .summary(&text.title)
+            .body(&format!("{}\n{}", text.line1, text.line2))
+            .timeout(if t.otp.is_some() { 25_000 } else { 10_000 })
+            .action("open", "Open");
+        if t.otp.is_some() {
+            n.action("copy", "Copy code");
+        }
+        let (otp, thread_id, message_id, account_id) =
+            (t.otp.clone(), t.thread_id.clone(), t.message_id.clone(), t.account_id);
+        match n.show() {
+            Ok(handle) => {
+                tracing::info!(otp = t.otp.is_some(), "toast shown");
+                handle.wait_for_action(|action| match action {
+                    "copy" => {
+                        if let Some(code) = &otp {
+                            crate::copy_secret(&app, code);
+                        }
+                    }
+                    "open" => {
+                        crate::window::open_thread(&app, account_id, &thread_id, Some(&message_id));
+                    }
+                    _ => {}
+                });
+            }
+            Err(e) => tracing::warn!(error = %e, "failed to show notification"),
+        }
+    });
+}
+
+/// macOS: banner via notify-rust's NSUserNotificationCenter backend.
+/// Action buttons need UNUserNotificationCenter (a signed bundle) — banners
+/// without buttons are the honest v1; auto-copy still covers OTPs.
+#[cfg(target_os = "macos")]
 pub fn show_new_mail(_app: &AppHandle, t: NewMailToast) {
-    tracing::info!(thread = %t.thread_id, "new mail (toasts are Windows-only)");
+    let text = toast_text(&t);
+    std::thread::spawn(move || {
+        let mut n = notify_rust::Notification::new();
+        n.appname("Pulse Mail")
+            .summary(&text.title)
+            .body(&format!("{}\n{}", text.line1, text.line2));
+        match n.show() {
+            Ok(_handle) => tracing::info!(otp = t.otp.is_some(), "toast shown"),
+            Err(e) => tracing::warn!(error = %e, "failed to show notification"),
+        }
+    });
 }
 
 #[cfg(test)]

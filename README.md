@@ -26,9 +26,9 @@
 
 ## Overview
 
-Pulse Mail is an independent, high-performance desktop Gmail client designed for speed, privacy, and frictionless daily triage. It lives in your system tray 24/7 with a tiny memory footprint, delivers new mail notifications in seconds via IMAP IDLE push, extracts two-factor verification codes right onto notification toasts, and opens any conversation instantly from an encrypted local SQLite cache.
+Pulse Mail is an independent, high-performance desktop Gmail client designed for speed, privacy, and frictionless daily triage. It lives in your system tray 24/7 with a small memory footprint, delivers new-mail notifications in seconds via IMAP IDLE push, extracts two-factor verification codes right onto notification toasts, and opens any conversation instantly from a local SQLite cache.
 
-Everything runs directly on your machine: your own Google OAuth client, tokens kept securely in native OS credential managers, zero tracking telemetry, and zero intermediate servers.
+Everything runs directly on your machine: sign-in tokens stay in native OS credential managers, email HTML renders in a sandboxed frame, and there is no telemetry and no intermediate server.
 
 ---
 
@@ -64,19 +64,15 @@ Everything runs directly on your machine: your own Google OAuth client, tokens k
 
 ## Releases
 
-Pulse Mail is developed Windows-first — that is where it is a daily driver,
-and where pre-built binaries ship:
-
 | Platform | Availability | Details |
 | :--- | :--- | :--- |
-| **Windows** | ✅ **Installer on [Releases](https://github.com/abdallahsaber065/pulse-mail/releases)** (x86_64, Windows 10/11) | NSIS per-user installer; deep tray integration, native WinRT notifications, Credential Manager vault |
-| **macOS** | ❌ **Not implemented yet — planned next** | The Rust core compiles cross-platform today, but the native toast/tray/vault experience is not built; packaging comes first |
-| **Linux** | ❌ **Not implemented yet — planned next** | Core compiles (WebKitGTK 4.1); native toast/tray/vault experience and packaging not built yet |
+| **Windows** | ✅ **Installer on [Releases](https://github.com/abdallahsaber065/pulse-mail/releases)** (x86_64, Windows 10/11) | NSIS per-user installer; tray integration, native notifications with "Copy code", Credential Manager vault |
+| **macOS** | 🧪 **Experimental — Apple Silicon (M-series)** | `.dmg` on Releases, unsigned (right-click → Open on first run). Banner notifications; unread badge in the Dock |
+| **Linux** | 🧪 **Experimental — x64 (`.deb` / `.rpm` / `.AppImage`)** | On Releases. Notifications with "Copy code" / "Open" buttons on GNOME/KDE; tray via appindicator |
 
-Native macOS/Linux support is the next milestone after Windows polish — the
-code base keeps cross-platform fallbacks and CI compiles every PR, but the
-toast, tray and credential-vault experience there is not implemented yet, so
-no installers ship for those platforms. See [ROADMAP.md](docs/ROADMAP.md).
+Notes: notification action buttons and hiding codes on the lock screen are
+Windows-only features. Apple Intel (x86_64 Mac) builds are not provided.
+Windows remains the most complete and most tested platform.
 
 ---
 

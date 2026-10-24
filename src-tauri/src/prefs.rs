@@ -169,7 +169,21 @@ fn local_utc_offset_minutes() -> u64 {
     offset.rem_euclid(1440) as u64
 }
 
-#[cfg(not(windows))]
+#[cfg(unix)]
+fn local_utc_offset_minutes() -> u64 {
+    // libc's localtime_r honors the user's timezone and DST without
+    // pulling in a date crate; tm_gmtoff is seconds east of UTC.
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    unsafe { libc::localtime_r(&secs, &mut tm) };
+    // tm_gmtoff is a long (i64 on both linux and macOS): seconds east of UTC.
+    (tm.tm_gmtoff / 60).rem_euclid(1440) as u64
+}
+
+#[cfg(all(not(windows), not(unix)))]
 fn local_utc_offset_minutes() -> u64 {
     0
 }

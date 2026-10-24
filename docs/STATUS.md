@@ -196,6 +196,19 @@ yet exercised against the real account.
 | Tray unread badge | Done | Taskbar overlay with the unread count ("9+" above nine), a dot on the tray icon, per-account tooltip; updates 400 ms after mail changes | `badge.rs`, `tray.rs` |
 | Auto-update, code signing | Not started | |
 
+### Platforms
+
+| Platform | State | Notes | Code |
+| --- | --- | --- | --- |
+| Windows | Done | Daily-driver platform: NSIS/MSI installers, WinRT toasts with "Copy code", taskbar overlay, secure clipboard, lock-screen hiding | |
+| macOS (Apple Silicon) | Experimental | `.dmg` (unsigned), Keychain via keyring, dock unread badge, tray, banner notifications without buttons; Intel Macs excluded from the pipelines | `notify/mod.rs` (macos), `tray.rs` |
+| Linux (x64) | Experimental | `.deb` / `.rpm` / `.AppImage`, Secret Service via keyring (zbus), tray via appindicator, freedesktop notifications with "Copy code" / "Open" actions | `notify/mod.rs` (linux), `tray.rs` |
+
+Both non-Windows platforms compile and pass the full test suite in CI on
+every PR; neither has been exercised on real hardware yet (see
+VERIFY-LIVE.md §7). Local time for quiet hours comes from
+`GetDynamicTimeZoneInformation` (Windows) and `localtime_r` (unix).
+
 ### Engineering
 
 | Item | State | Notes |

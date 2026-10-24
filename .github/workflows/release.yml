@@ -7,19 +7,36 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag name (e.g. v0.2.1)'
+        description: 'Tag name (e.g. v0.3.0)'
         required: true
-        default: 'v0.2.1'
+        default: 'v0.3.0'
 
 jobs:
   # Gates (tests, clippy, fmt) already ran in CI on the PR that merged the
   # tagged commit; tags are cut from protected main, so re-running them here
-  # would only duplicate the Windows job on a Linux toolchain install.
+  # would only duplicate the matrix per platform.
   build-release:
-    name: Build Windows installer
+    name: Build ${{ matrix.name }}
+    needs: []
     permissions:
       contents: write
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'windows-latest'
+            args: ''
+            name: 'Windows (x64)'
+          # Apple Silicon only: x86_64-apple-darwin is excluded (broken GitHub
+          # builds for this repo, and Intel Macs are the minority).
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+            name: 'macOS (Apple Silicon)'
+          - platform: 'ubuntu-22.04'
+            args: ''
+            name: 'Linux (x64)'
+
+    runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -37,12 +54,30 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          target: x86_64-pc-windows-msvc
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
 
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          cache-on-failure: true
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
 
       - name: Install dependencies
         run: pnpm install
@@ -57,6 +92,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name || inputs.tag }}
           releaseName: 'Pulse Mail ${{ github.ref_name || inputs.tag }}'
+          args: ${{ matrix.args }}
           releaseDraft: true
           prerelease: false
 
@@ -88,4 +124,4 @@ jobs:
     steps:
       - name: Log Release Failure Notice
         run: |
-          echo "::error::The Windows release build failed. The release remains as an unlisted draft to prevent shipping a broken installer."
+          echo "::error::One or more release builds failed. The release remains as an unlisted draft to prevent shipping incomplete or broken platform binaries."

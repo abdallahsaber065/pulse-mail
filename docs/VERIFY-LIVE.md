@@ -79,6 +79,18 @@ With the app running normally, record in PLAN.md's performance table:
 - [ ] "Copy code" → clipboard feels instant (target ≤ 200 ms).
 - [ ] Local search on the full cache feels instant (≤ 50 ms for 10k messages).
 
+## 7. macOS / Linux (experimental)
+
+If a Mac (Apple Silicon) or a Linux desktop is available:
+
+- [ ] The installer/.dmg/AppImage opens; Google sign-in works.
+- [ ] Tray icon appears with the menu (Open / Check mail now / Quit).
+- [ ] New mail shows a notification — macOS: banner (no buttons);
+      Linux: "Copy code" / "Open" buttons work on GNOME/KDE.
+- [ ] Quiet hours fire at the machine's local time (set a 5-minute window
+      around now, send a mail, then reset).
+- [ ] Full sync, search and the reader work; toasts arrive after sleep.
+
 When everything passes, update STATUS.md (drop the "untested live" tags) and
 PLAN.md (fill the Measured column), and close the corresponding items in the
 Phase 1/2 checklists.

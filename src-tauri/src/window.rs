@@ -57,7 +57,9 @@ fn create_main(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 
 /// Open a specific thread (from a toast click). The UI either receives the
 /// event (window alive) or pulls it with `take_pending_open` on mount.
-#[allow(dead_code)]
+// macOS banner notifications have no button routing yet, so this is only
+// called from the Windows and Linux notification paths.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn open_thread(app: &AppHandle, account_id: i64, thread_id: &str, message_id: Option<&str>) {
     let target = OpenTarget {
         account_id,
