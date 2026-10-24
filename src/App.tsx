@@ -80,14 +80,6 @@ export default function App() {
   const [debounced, setDebounced] = createSignal("");
   const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const [selected, setSelected] = createSignal<string | null>(urlParams?.get("thread") ?? null);
-  createEffect(() => {
-    const t = urlParams?.get("thread");
-    if (t && selected() !== t) {
-      setSelected(t);
-      setSelectedAccount(1);
-      void loadThread(t, true);
-    }
-  });
   const [cursor, setCursor] = createSignal(0);
   const [collapsed, setCollapsed] = createSignal(false);
   const [help, setHelp] = createSignal(false);
@@ -828,6 +820,24 @@ export default function App() {
     if (t.unread) setRead(t, true);
   };
 
+  /** Opening a thread from a toast click or deep link marks it read, like a
+   * row click. The row may not be in the loaded list (another view, old
+   * mail), so fall back to a direct idempotent modify + refresh. */
+  const markOpenedRead = (threadId: string, accountId: number | null) => {
+    const row = rows().find((r) => r.threadId === threadId && (accountId == null || r.accountId === accountId));
+    if (row?.unread) {
+      setRead(row, true);
+      return;
+    }
+    void api
+      .modifyThread(threadId, [], ["UNREAD"], accountId)
+      .then(() => {
+        settled.add(threadId);
+        setTick((n) => n + 1);
+      })
+      .catch(() => {});
+  };
+
   const openTarget = (t: OpenTarget | null) => {
     if (!t) return;
     batch(() => {
@@ -838,6 +848,7 @@ export default function App() {
       setSelectedAccount(t.accountId);
       setSelected(t.threadId);
     });
+    markOpenedRead(t.threadId, t.accountId);
   };
 
   // Move a thread to another Gmail inbox tab (CATEGORY_* labels).
@@ -906,8 +917,10 @@ export default function App() {
   onMount(() => {
     const initThread = urlParams?.get("thread");
     if (initThread) {
+      setSelectedAccount(1);
       setSelected(initThread);
       void loadThread(initThread, true);
+      markOpenedRead(initThread, 1);
     }
     if (urlParams?.has("compose")) {
       openCompose(
