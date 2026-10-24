@@ -1754,10 +1754,10 @@ mod tests {
     fn search_pagination_pages_through_threads_consistently() {
         let (mut s, id) = setup();
         for (i, (mid, tid)) in [("m1", "t1"), ("m2", "t2"), ("m3", "t3"), ("m4", "t4")]
-            .iter()
+            .into_iter()
             .enumerate()
         {
-            s.upsert_message(id, &msg(*mid, *tid, 100 + i as i64, &["INBOX"], "Invoice page test"))
+            s.upsert_message(id, &msg(mid, tid, 100 + i as i64, &["INBOX"], "Invoice page test"))
                 .unwrap();
         }
         let all = s.search(Some(id), "invoice page", 10).unwrap();
