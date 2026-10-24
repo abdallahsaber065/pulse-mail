@@ -17,6 +17,7 @@ mod security;
 mod store;
 mod sync;
 mod tray;
+mod update;
 mod window;
 
 use std::collections::BTreeMap;
@@ -245,6 +246,7 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
             let config_dir = app.path().app_config_dir()?;
@@ -270,13 +272,38 @@ pub fn run() {
 
             tray::build(&handle)?;
             app.manage(commands::selection::Selections::default());
+            app.manage(update::Pending::default());
+            app.manage(update::Downloaded::default());
 
             let minimized = std::env::args().any(|a| a == "--minimized");
             if !minimized {
                 window::show_main(&handle);
             }
             tauri::async_runtime::spawn(commands::resume(handle.clone()));
-            tauri::async_runtime::spawn(resume_watch(handle));
+            tauri::async_runtime::spawn(resume_watch(handle.clone()));
+            // One quiet update check 45 s after launch — never a polling loop.
+            let handle2 = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(45)).await;
+                let (check, auto) = {
+                    let Some(state) = handle2.try_state::<AppState>() else {
+                        return;
+                    };
+                    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
+                    (
+                        prefs::get(&store, "update_check") == "1",
+                        prefs::get(&store, "update_auto_download") == "1",
+                    )
+                };
+                if !check {
+                    return;
+                }
+                match update::run_check(&handle2, auto, true).await {
+                    Ok(Some(info)) => tracing::info!(version = %info.version, "update available"),
+                    Ok(None) => tracing::debug!("no update available"),
+                    Err(e) => tracing::debug!(error = %e, "update check failed"),
+                }
+            });
             // Cold-start marker: tray built, DB open, engines spawning.
             tracing::info!(ms = started.elapsed().as_millis() as u64, minimized, "startup ready");
             Ok(())
@@ -327,6 +354,8 @@ pub fn run() {
             commands::mail::set_pref,
             commands::mail::save_attachment,
             commands::mail::get_attachment_data,
+            update::update_check,
+            update::update_install,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pulse Mail");

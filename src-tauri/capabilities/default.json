@@ -51,6 +51,8 @@
     "allow-set-pref",
     "allow-save-attachment",
     "allow-search-contacts",
-    "allow-get-attachment-data"
+    "allow-get-attachment-data",
+    "allow-update-check",
+    "allow-update-install"
   ]
 }

@@ -97,7 +97,8 @@ phase done. Never mark work done on a failing build or test.
 7. **Schema changes** go in a new entry in `store/migrations.rs`; never edit a
    shipped migration.
 8. **Ask before** adding scopes, network endpoints, telemetry, or anything
-   that sends data anywhere except Google's Gmail/OAuth endpoints.
+   that sends data anywhere except Google's Gmail/OAuth endpoints and the
+   app's own GitHub Releases (self-update manifest/download, ADR 0027).
 9. **Never stop sync.** Long-lived tasks catch panics (ADR 0007); slice
    strings only on char boundaries and test with NBSP/emoji/Arabic (ADR 0008).
 10. **No native dialogs.** Use `confirmDialog()` / `snack()`; never

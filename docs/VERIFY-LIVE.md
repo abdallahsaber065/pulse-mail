@@ -91,6 +91,18 @@ If a Mac (Apple Silicon) or a Linux desktop is available:
       around now, send a mail, then reset).
 - [ ] Full sync, search and the reader work; toasts arrive after sleep.
 
+## 8. Self-update (needs two published releases)
+
+Once a newer release than the installed one exists:
+
+- [ ] Settings → About → "Check for updates" finds it (or the 45-second
+      startup check does) and the notification appears.
+- [ ] With "Download updates automatically" on, the download notification
+      follows; "Restart to install" swaps the version (Windows relaunches
+      through the installer; macOS/Linux need a manual relaunch check).
+- [ ] Both toggles off: no check at startup, manual check only reports.
+- [ ] The updater is signature-verified — a tampered artifact must fail.
+
 When everything passes, update STATUS.md (drop the "untested live" tags) and
 PLAN.md (fill the Measured column), and close the corresponding items in the
 Phase 1/2 checklists.

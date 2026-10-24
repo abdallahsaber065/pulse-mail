@@ -368,6 +368,24 @@ const Section = (p: { title: string; children: JSX.Element }) => (
 
 export default function SettingsPanel(p: Props) {
   const [page, setPage] = createSignal<number | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = createSignal(false);
+  const checkForUpdates = async () => {
+    if (checkingUpdate()) return;
+    setCheckingUpdate(true);
+    try {
+      const r = await api.updateCheck();
+      if (!r) snack("You're on the latest version.");
+      else if (p.prefs.update_auto_download !== "1")
+        snack(`Update to ${r.version} is available.`, {
+          duration: 8000,
+          action: { label: "Install", run: () => void api.updateInstall().catch((e: Error) => snack(e.message)) },
+        });
+    } catch (e) {
+      snack((e as Error).message);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
   const pageAccount = () => p.accounts.find((a) => a.id === page());
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -580,6 +598,21 @@ export default function SettingsPanel(p: Props) {
               <div class="selectable break-all">Local data: {p.status.dataDir}</div>
               <div>Your mail stays on this PC. Sign-in tokens live in Windows Credential Manager.</div>
             </div>
+            <Row title="Check for updates when Pulse Mail starts" desc="One quiet check after launch — never in the background while you work." stack>
+              <Toggle label="Check for updates at startup" checked={p.prefs.update_check === "1"} onChange={(v) => p.onPref("update_check", v ? "1" : "0")} />
+            </Row>
+            <Row title="Download updates automatically" desc="New versions download in the background; installing always waits for you." stack>
+              <Toggle label="Download updates automatically" checked={p.prefs.update_auto_download === "1"} onChange={(v) => p.onPref("update_auto_download", v ? "1" : "0")} />
+            </Row>
+            <Row title="Check now" desc="Look for a newer version right now." stack>
+              <button
+                class="h-9 self-start rounded-full px-4 text-sm font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+                disabled={checkingUpdate()}
+                onClick={() => void checkForUpdates()}
+              >
+                {checkingUpdate() ? "Checking…" : "Check for updates"}
+              </button>
+            </Row>
             <Row title="Logs" desc="Rolling local log files, kept for 7 days. Never message contents or tokens." stack>
               <button
                 class="h-9 self-start rounded-full px-4 text-sm font-medium text-primary hover:bg-primary/10"
