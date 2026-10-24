@@ -5,6 +5,24 @@ All notable changes to Pulse Mail are documented here. The format follows
 the 1.0 hardening milestone. Released binaries are on
 [GitHub Releases](https://github.com/abdallahsaber065/pulse-mail/releases).
 
+## [Unreleased]
+
+### Added
+
+- **Linux and macOS (Apple Silicon) support**: the app now builds, tests and
+  ships for all three platforms on every release. Linux gets freedesktop
+  notifications with "Copy code" / "Open" actions (pure-Rust zbus, no
+  libdbus); macOS gets banner notifications (buttons need a signed bundle —
+  later), a dock unread badge (already present) and the full sync engine.
+  Quiet hours use the system local time on every platform via
+  `localtime_r` on unix. CI compiles and tests all three platforms on every
+  PR; Apple Intel (x86_64 Mac) is excluded from the pipelines.
+
+### Changed
+
+- CI caches Rust builds even when a job fails (`cache-on-failure`), so
+  fix-and-retry loops start warm.
+
 ## [0.3.0] — 2026-10-24
 
 A reliability, rendering, and performance release: quieter nights, faster

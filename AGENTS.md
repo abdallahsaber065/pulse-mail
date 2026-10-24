@@ -161,8 +161,9 @@ phase done. Never mark work done on a failing build or test.
   - "What's new" grouped by user value, friendly and non-technical
     (rule 5 applies: no module names, no commit subjects);
   - an Install section naming the actual assets of that release;
-  - platform availability stated honestly (Windows ships; macOS/Linux are
-    **not implemented yet** — see the release table in README.md);
+  - platform availability stated honestly (Windows is the daily-driver
+    platform; macOS Apple Silicon and Linux ship experimental builds —
+    Apple Intel is excluded, see the release table in README.md);
   - links to `CHANGELOG.md` and `docs/VERIFY-LIVE.md`.
   Never claim an untested-live path works — point at VERIFY-LIVE.md instead.
 - Tag on `main` after the release PR merges: `git tag -a vX.Y.Z` (annotated;

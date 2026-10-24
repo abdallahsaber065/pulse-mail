@@ -1,7 +1,7 @@
 [package]
 name = "pulse-mail"
 version = "0.3.0"
-description = "Pulse Mail: a light, always-on Gmail client for Windows"
+description = "Pulse Mail: a light, always-on Gmail client"
 authors = ["Abdallah Saber"]
 edition = "2024"
 rust-version = "1.95"
@@ -63,6 +63,13 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Com",
     "Win32_System_Time",
 ] }
+
+# Notifications on Linux (freedesktop, actions via zbus) and macOS
+# (NSUserNotificationCenter banner); pure-Rust backends, no libdbus.
+[target.'cfg(unix)'.dependencies]
+notify-rust = { version = "4.18.2", default-features = false, features = ["z"] }
+# localtime_r for quiet-hours local time (honors TZ/DST; no chrono).
+libc = "0.2.191"
 
 [dev-dependencies]
 tempfile = "3"

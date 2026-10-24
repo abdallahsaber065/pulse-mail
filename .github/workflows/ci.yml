@@ -10,9 +10,19 @@ on:
 
 jobs:
   test:
-    name: Gates (Windows)
-    runs-on: windows-latest
+    name: Gates (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            name: Windows
+          - platform: macos-latest
+            name: macOS (Apple Silicon)
+          - platform: ubuntu-22.04
+            name: Linux
 
+    runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -36,6 +46,24 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          cache-on-failure: true
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
 
       - name: Install dependencies
         run: pnpm install
