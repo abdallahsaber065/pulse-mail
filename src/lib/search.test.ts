@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeResults, needsServer, serverSearchable } from "./search";
+import { mergeResults, needsServer, searchReady, serverSearchable } from "./search";
 import type { ThreadRow } from "./types";
 import { toggleSearchFilter, hasSearchFilter } from "./search";
 
@@ -30,5 +30,14 @@ describe("search merge", () => {
     expect(toggleSearchFilter('hello IS:UNREAD', "is:unread")).toBe("hello");
     expect(hasSearchFilter('"is:unread" hello', "is:unread")).toBe(false);
     expect(hasSearchFilter('hello HAS:ATTACHMENT', "has:attachment")).toBe(true);
+  });
+  it("activates search from two characters, or one non-ASCII character", () => {
+    expect(searchReady("")).toBe(false);
+    expect(searchReady(" ")).toBe(false);
+    expect(searchReady("a")).toBe(false);
+    expect(searchReady(" a ")).toBe(false);
+    expect(searchReady("ab")).toBe(true);
+    expect(searchReady("ع")).toBe(true);
+    expect(searchReady("ق")).toBe(true);
   });
 });

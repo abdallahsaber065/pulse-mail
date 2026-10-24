@@ -20,6 +20,14 @@ the 1.0 hardening milestone. Released binaries are on
 
 ### Changed
 
+- **Search no longer freezes the app**: list, search and tab-count queries
+  run on a background thread instead of the UI's main thread, and SQLite's
+  page cache grew to 20 MB so repeated searches stay fast on big mailboxes
+  (the tray-only RAM target moved to ≤ 50 MB to match).
+- **Search starts at two characters** (like Gmail; one CJK/Arabic character
+  still works), so the first keystroke no longer triggers the heaviest scan
+  for the least information. Results, ordering and paging are unchanged
+  while large result sets now paginate through a much cheaper query plan.
 - CI caches Rust builds even when a job fails (`cache-on-failure`), so
   fix-and-retry loops start warm.
 

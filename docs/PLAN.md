@@ -24,7 +24,7 @@ fill the Measured column ([VERIFY-LIVE.md](VERIFY-LIVE.md) §6).
 | First 50 inbox rows on a fresh sign-in | ≤ 1.5 s | `cargo run --example sync_bench` (in `src-tauri`), or the activity line "Inbox ready: N newest messages in X s" | ≈1.0 s bench; 2.4 s in debug app ✅ |
 | New-mail toast latency (Gmail receives it, toast shows) | p50 ≤ 3 s, p95 ≤ 6 s | Send a test mail with a timestamp in the subject; compare with the log line `toast shown` | not yet (log line exists) |
 | Latency with IMAP down (fallback polling) | ≤ 65 s | Block imap.gmail.com in the firewall, repeat | not yet |
-| Idle RAM, tray only (window destroyed) | ≤ 25 MB private working set for `pulse-mail.exe` | `scripts\measure.ps1` (app private column) after 10 min idle | not yet |
+| Idle RAM, tray only (window destroyed) | ≤ 50 MB private working set for `pulse-mail.exe` (raised from 25 MB: the 20 MB SQLite page cache that keeps search fast on big mailboxes is worth more than the last 20 MB of idle RAM) | `scripts\measure.ps1` (app private column) after 10 min idle | not yet |
 | Idle RAM, window hidden (hide-on-close) | ≤ 120 MB total incl. WebView2 processes | `scripts\measure.ps1` (total column) | not yet |
 | RAM, window open, reading mail | ≤ 200 MB total | same, while reading a large HTML mail | not yet |
 | Idle CPU | ≈ 0 % (no wakeups beyond IDLE refresh every 20 min and the 15 min safety poll) | Process Explorer → CPU / context switches | not yet |

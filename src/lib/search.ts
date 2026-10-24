@@ -54,3 +54,17 @@ export function toggleSearchFilter(query: string, filter: SearchFilter): string 
 
 /** Server search is worth it for 2+ characters of query. */
 export const serverSearchable = (q: string) => q.trim().length >= 2;
+
+/**
+ * Search activates from two characters (like Gmail): a single letter is a
+ * prefix over almost every word in the index, so the first keystroke would
+ * trigger the heaviest scan for the least information. One non-ASCII
+ * character (CJK, Arabic) can be a word on its own and is allowed.
+ */
+export const searchReady = (q: string): boolean => {
+  const t = q.trim();
+  if (!t) return false;
+  const chars = [...t];
+  // Two characters, or a single character outside ASCII (a CJK/Arabic word).
+  return chars.length >= 2 || /[^\u0000-\u007f]/.test(chars[0] ?? "");
+};
