@@ -24,7 +24,7 @@ import { checkLink } from "./lib/links";
 import { combineSync, windowLabel } from "./lib/accounts";
 import { installShortcuts } from "./lib/shortcuts";
 import { effectivePane, prefs as uiPrefs } from "./lib/prefs";
-import { mergeResults, needsServer, serverSearchable } from "./lib/search";
+import { mergeResults, needsServer, searchReady, serverSearchable } from "./lib/search";
 import type {
   Draft,
   SendResult,
@@ -78,6 +78,10 @@ export default function App() {
   const [label, setLabel] = createSignal("INBOX");
   const [query, setQuery] = createSignal("");
   const [debounced, setDebounced] = createSignal("");
+  /** The query actually searched: blank until it has 2+ characters (a single
+   * CJK/Arabic character counts), so the first keystroke never triggers the
+   * heaviest FTS scan for the least information. */
+  const searchQ = createMemo(() => (searchReady(debounced()) ? debounced().trim() : ""));
   const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const [selected, setSelected] = createSignal<string | null>(urlParams?.get("thread") ?? null);
   const [cursor, setCursor] = createSignal(0);
@@ -136,7 +140,7 @@ export default function App() {
     if (v == null) localStorage.removeItem(VIEW_KEY);
     else localStorage.setItem(VIEW_KEY, String(v));
   });
-  const inInbox = () => label() === "INBOX" && !debounced().trim();
+  const inInbox = () => label() === "INBOX" && !searchQ();
   // Gmail inbox tabs: on when the viewed account (or any, in All inboxes) wants them.
   const [category, setCategory] = createSignal<Category | null>(null);
   const tabsOn = createMemo(() => {
@@ -170,11 +174,11 @@ export default function App() {
     viewCache.set(key, rows);
     if (viewCache.size > 8) viewCache.delete(viewCache.keys().next().value!);
   };
-  const viewKeyNow = () => `${label()}|${debounced().trim()}|${accountView() ?? ""}|${tabsOn() && category() ? category()! : ""}`;
+  const viewKeyNow = () => `${label()}|${searchQ()}|${accountView() ?? ""}|${tabsOn() && category() ? category()! : ""}`;
   const [threads] = createResource(
     () =>
       signedIn()
-        ? `${label()}|${debounced().trim()}|${tick()}|${limit()}|${accountView() ?? ""}|${tabsOn() && category() ? category()! : ""}`
+        ? `${label()}|${searchQ()}|${tick()}|${limit()}|${accountView() ?? ""}|${tabsOn() && category() ? category()! : ""}`
         : false,
     async (sourceKey, info) => {
       if (!sourceKey) return [];
@@ -221,7 +225,7 @@ export default function App() {
         .catch(() => live && setServerState("error"));
     }),
   );
-  const searching = () => !!debounced().trim();
+  const searching = () => !!searchQ();
   const loadMore = () => {
     if (!threads.loading && threads().length >= limit() && threads().length > 0) setLimit((n) => n + PAGE);
   };
@@ -235,7 +239,7 @@ export default function App() {
     const key = viewKeyNow();
     const list = viewContexts.get(threads()) === key ? threads() : viewCache.get(key) ?? [];
     const base = searching() ? mergeResults(list, serverHits()) : list;
-    const q = debounced().toLowerCase();
+    const q = searchQ().toLowerCase();
     const unreadOnly = label() === "UNREAD" || q.includes("is:unread");
     const starredOnly = label() === "STARRED" || q.includes("is:starred");
     const curLabel = label();
@@ -283,8 +287,11 @@ export default function App() {
   const selectionCount = () => selectedCount(selection());
   // Keyed on the debounced query: typing shouldn't clear the selection or
   // reset the scroll — only an executed view change should.
-  const selectionScope = createMemo(() => JSON.stringify([accountView(), label(), tabsOn() ? category() : null, debounced().trim()]));
-  const selectionReady = () => !threads.loading && query().trim() === debounced().trim() && (!needsServer(debounced()) || serverState() === "done" || serverState() === "error");
+  const selectionScope = createMemo(() => JSON.stringify([accountView(), label(), tabsOn() ? category() : null, searchQ()]));
+  const selectionReady = () =>
+    !threads.loading &&
+    query().trim() === debounced().trim() &&
+    (!searching() || !needsServer(searchQ()) || serverState() === "done" || serverState() === "error");
   createEffect(on(selectionScope, () => {
     selectionEpoch++;
     stopBulk = true;
@@ -303,9 +310,9 @@ export default function App() {
     setSelectingAll(true);
     try {
       // Unsupported local operators select exactly the loaded Gmail results.
-      const source = searching() && needsServer(debounced())
+      const source = searching() && needsServer(searchQ())
         ? { kind: "threads" as const, threads: rows().map(({ accountId, threadId }) => ({ accountId, threadId })) }
-        : { kind: "view" as const, accountId: accountView(), labelId: label(), category: tabsOn() ? category() : null, query: debounced() };
+        : { kind: "view" as const, accountId: accountView(), labelId: label(), category: tabsOn() ? category() : null, query: searchQ() };
       const all = await api.createSelection(source);
       if (epoch !== selectionEpoch) return;
       setSelection(selectAll(all));
@@ -1129,7 +1136,7 @@ export default function App() {
   };
 
   const empty = (): { icon: IconName; title: string; hint: string } => {
-    const q = debounced().trim();
+    const q = searchQ();
     if (q)
       return {
         icon: "searchOff",
@@ -1286,7 +1293,7 @@ export default function App() {
   const listLoading = () =>
     rows().length === 0 &&
     (threads.loading ||
-      (searching() && needsServer(debounced()) && serverState() === "loading") ||
+      (searching() && needsServer(searchQ()) && serverState() === "loading") ||
       (!searching() && (!!sync()?.foreground || !!sync()?.progress)));
 
   return (
@@ -1344,7 +1351,7 @@ export default function App() {
                 count={selectionCount()} all={!!selection().all && selection().exceptions.size === 0}
                 disabled={!selectionReady()} selecting={selectingAll()} busy={bulkBusy()} progress={bulkProgress()}
                 scope={selection().all
-                  ? searching() && needsServer(debounced()) ? "Selection covers loaded Gmail results only." : "Selection includes matching mail saved on this PC, including unloaded rows. New arrivals are excluded."
+                  ? searching() && needsServer(searchQ()) ? "Selection covers loaded Gmail results only." : "Selection includes matching mail saved on this PC, including unloaded rows. New arrivals are excluded."
                   : "Select all matching conversations saved on this PC, including unloaded rows"}
                 onSelectAll={() => void checkAll()} onClear={clearSelection} onRead={() => void markSelected(true)} onUnread={() => void markSelected(false)}
                 onStop={() => { stopBulk = true; setBulkProgress("Stopping after this batch…"); }}

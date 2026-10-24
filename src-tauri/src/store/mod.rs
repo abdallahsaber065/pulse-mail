@@ -261,7 +261,7 @@ impl Store {
              PRAGMA synchronous = NORMAL;
              PRAGMA foreign_keys = ON;
              PRAGMA temp_store = MEMORY;
-             PRAGMA cache_size = -2000;", // ~2 MB page cache: keep the daemon small
+             PRAGMA cache_size = -8000;", // ~8 MB page cache: FTS scans on big mailboxes stay warm, still small for a daemon
         )?;
         let mut store = Self { conn };
         store.migrate()?;
@@ -1164,13 +1164,36 @@ impl Store {
             return Ok(Vec::new());
         }
         let unread: Option<i64> = q.unread.map(i64::from);
+        // Two phases so the page limit pushes down: `hits` keeps only narrow
+        // columns (account, thread, last match date) grouped over the matches,
+        // so a broad prefix query no longer materializes every matching full
+        // row with window functions before the LIMIT; `lm` then re-applies the
+        // same filters but restricted to the ~50 selected threads.
         let mut stmt = self.conn.prepare_cached(
             "WITH hits AS (
-                SELECT m.*,
-                       ROW_NUMBER() OVER (PARTITION BY m.account_id, m.thread_id ORDER BY m.internal_date DESC) AS rn,
-                       COUNT(*) OVER (PARTITION BY m.account_id, m.thread_id) AS cnt
+                SELECT m.account_id AS acct, m.thread_id AS tid, MAX(m.internal_date) AS last_date
                 FROM messages m
                 WHERE (?1 IS NULL OR m.account_id = ?1)
+                  AND (?2 = '' OR m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?2))
+                  AND (?4 IS NULL OR m.is_unread = ?4)
+                  AND (?5 = 0 OR m.is_starred = 1)
+                  AND (?6 = 0 OR m.has_attachments = 1)
+                  AND NOT EXISTS (SELECT 1 FROM message_labels ml
+                                  WHERE ml.account_id = m.account_id AND ml.message_id = m.id
+                                    AND ml.label_id IN ('SPAM', 'TRASH'))
+                GROUP BY m.account_id, m.thread_id
+                ORDER BY last_date DESC
+                LIMIT ?3 OFFSET ?7
+             ),
+             lm AS (
+                SELECT m.*,
+                       ROW_NUMBER() OVER (PARTITION BY m.account_id, m.thread_id ORDER BY m.internal_date DESC) AS rn,
+                       COUNT(*) OVER (PARTITION BY m.account_id, m.thread_id) AS cnt,
+                       MAX(m.is_unread)  OVER (PARTITION BY m.account_id, m.thread_id) AS any_unread,
+                       MAX(m.is_starred) OVER (PARTITION BY m.account_id, m.thread_id) AS any_starred
+                FROM messages m
+                WHERE (?1 IS NULL OR m.account_id = ?1)
+                  AND m.thread_id IN (SELECT tid FROM hits)
                   AND (?2 = '' OR m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?2))
                   AND (?4 IS NULL OR m.is_unread = ?4)
                   AND (?5 = 0 OR m.is_starred = 1)
@@ -1181,11 +1204,10 @@ impl Store {
              )
              SELECT thread_id, id, subject, from_name, from_email, snippet, internal_date,
                     cnt, is_unread, is_starred, otp_code, account_id,
-                    EXISTS (SELECT 1 FROM message_labels mi WHERE mi.account_id = hits.account_id AND mi.label_id = 'IMPORTANT'
-                       AND mi.message_id IN (SELECT id FROM messages t WHERE t.account_id = hits.account_id AND t.thread_id = hits.thread_id))
-             FROM hits WHERE rn = 1
-             ORDER BY internal_date DESC, account_id, thread_id
-             LIMIT ?3 OFFSET ?7",
+                    EXISTS (SELECT 1 FROM message_labels mi WHERE mi.account_id = lm.account_id AND mi.label_id = 'IMPORTANT'
+                       AND mi.message_id IN (SELECT id FROM messages t WHERE t.account_id = lm.account_id AND t.thread_id = lm.thread_id))
+             FROM lm WHERE rn = 1
+             ORDER BY internal_date DESC, account_id, thread_id",
         )?;
         stmt.query_map(
             params![account_id, q.fts, limit, unread, q.starred, q.attachment, offset],
@@ -1726,6 +1748,37 @@ mod tests {
         s.upsert_message(id, &msg("m1", "t1", 100, &["INBOX"], "Renamed"))
             .unwrap();
         assert!(s.search(Some(id), "invoice", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_pagination_pages_through_threads_consistently() {
+        let (mut s, id) = setup();
+        for (i, (mid, tid)) in [("m1", "t1"), ("m2", "t2"), ("m3", "t3"), ("m4", "t4")]
+            .iter()
+            .enumerate()
+        {
+            s.upsert_message(id, &msg(*mid, *tid, 100 + i as i64, &["INBOX"], "Invoice page test"))
+                .unwrap();
+        }
+        let all = s.search(Some(id), "invoice page", 10).unwrap();
+        assert_eq!(all.len(), 4, "newest first");
+        assert_eq!(all[0].last_message_id, "m4");
+        // Pages must tile the full result without gaps or repeats.
+        let page1 = s.search_page(Some(id), "invoice page", 2, 0).unwrap();
+        let page2 = s.search_page(Some(id), "invoice page", 2, 2).unwrap();
+        let paged: Vec<String> = page1
+            .iter()
+            .chain(page2.iter())
+            .map(|t| t.last_message_id.clone())
+            .collect();
+        assert_eq!(paged, all.iter().map(|t| t.last_message_id.clone()).collect::<Vec<_>>());
+        // An offset past the end is empty, and per-thread message counts survive paging.
+        assert!(s.search_page(Some(id), "invoice page", 2, 4).unwrap().is_empty());
+        s.upsert_message(id, &msg("m5", "t4", 500, &["INBOX"], "Invoice page test two"))
+            .unwrap();
+        let with_cnt = s.search_page(Some(id), "invoice page", 10, 0).unwrap();
+        let t4 = with_cnt.iter().find(|t| t.thread_id == "t4").unwrap();
+        assert_eq!(t4.message_count, 2);
     }
 
     #[test]
