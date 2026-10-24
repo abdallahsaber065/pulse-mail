@@ -157,11 +157,19 @@ export default function App() {
     { initialValue: [] },
   );
   // Infinite scroll: the list grows a page at a time as you near the end.
-  const PAGE = 200;
+  // 50 keeps the first paint of a switch cheap; older pages load on scroll.
+  const PAGE = 50;
   const [limit, setLimit] = createSignal(PAGE);
   const pageContexts = new WeakMap<ThreadRow[], string>();
   /** View (label|query|account|category, without tick) a fetched list belongs to. */
   const viewContexts = new WeakMap<ThreadRow[], string>();
+  /** Recent results per view, so switching back renders instantly (stale-while-revalidate). */
+  const viewCache = new Map<string, ThreadRow[]>();
+  const rememberView = (key: string, rows: ThreadRow[]) => {
+    viewCache.delete(key);
+    viewCache.set(key, rows);
+    if (viewCache.size > 8) viewCache.delete(viewCache.keys().next().value!);
+  };
   const viewKeyNow = () => `${label()}|${debounced().trim()}|${accountView() ?? ""}|${tabsOn() && category() ? category()! : ""}`;
   const [threads] = createResource(
     () =>
@@ -178,7 +186,9 @@ export default function App() {
       const previous = info.value && pageContexts.get(info.value) === context && info.value.length < n ? info.value : [];
       const result = await loadRows((offset, count) => q ? api.search(q, count, a, offset) : api.threads(lbl, count, offset, a, c), n, previous);
       pageContexts.set(result, context);
-      viewContexts.set(result, `${lbl}|${q}|${aStr}|${cStr}`);
+      const vkey = `${lbl}|${q}|${aStr}|${cStr}`;
+      viewContexts.set(result, vkey);
+      rememberView(vkey, result);
       return result;
     },
     { initialValue: [] as ThreadRow[] },
@@ -219,9 +229,11 @@ export default function App() {
   const rows = createMemo(() => {
     const o = overrides();
     // While the fetch for the new view is in flight the resource still holds
-    // the previous view's rows; showing them under the new tab is a glitch,
-    // so render nothing (the list shows its skeleton) until the view matches.
-    const list = viewContexts.get(threads()) === viewKeyNow() ? threads() : [];
+    // the previous view's rows; showing those under the new tab is a glitch.
+    // Show the new view's own cached rows instead (stale-while-revalidate),
+    // or nothing (skeleton) on a first visit.
+    const key = viewKeyNow();
+    const list = viewContexts.get(threads()) === key ? threads() : viewCache.get(key) ?? [];
     const base = searching() ? mergeResults(list, serverHits()) : list;
     const q = debounced().toLowerCase();
     const unreadOnly = label() === "UNREAD" || q.includes("is:unread");
@@ -343,7 +355,9 @@ export default function App() {
     let changed = 0;
     let failed = 0;
     try {
-      if (chosen.all && toChange.length === 0 && rows().length >= 200 && targetRead) {
+      // Bulk folder sweep when the all-selection covers rows that aren't
+      // loaded (page-size independent; one page is 50 rows).
+      if (chosen.all && toChange.length === 0 && chosen.all.total > visibleChosen.length && targetRead) {
         // Bulk folder selection with hundreds of unloaded items
         const all = chosen.all;
         const excluded = [...chosen.exceptions].map(selectionKey);
