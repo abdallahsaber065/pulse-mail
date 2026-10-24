@@ -546,8 +546,10 @@ pub fn list_labels(state: State<'_, AppState>, account_id: Option<i64>) -> CmdRe
 }
 
 /// Threads in a label. `account_id` None = every account (unified inbox).
+// Async + spawn_blocking: sync commands run on the main thread, and this
+// query aggregates whole folders — it must never freeze the UI.
 #[tauri::command]
-pub fn list_threads(
+pub async fn list_threads(
     state: State<'_, AppState>,
     label_id: String,
     limit: i64,
@@ -561,14 +563,19 @@ pub fn list_threads(
     {
         return Err(CmdError::new("Unknown inbox tab."));
     }
-    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
-    Ok(store.list_threads_in(
-        account_id,
-        &label_id,
-        category.as_deref(),
-        limit.clamp(1, 5000),
-        offset.max(0),
-    )?)
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = store.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(store.list_threads_in(
+            account_id,
+            &label_id,
+            category.as_deref(),
+            limit.clamp(1, 5000),
+            offset.max(0),
+        )?)
+    })
+    .await
+    .map_err(|_| CmdError::new("The list didn't load. Try again."))?
 }
 
 #[derive(serde::Serialize)]
@@ -581,10 +588,17 @@ pub struct CategoryCount {
 
 /// Gmail inbox tabs (Primary, Promotions, Social, Updates, Forums) with
 /// unread and total thread counts, for one account or all.
+// Async + spawn_blocking: the aggregate scans every message on big
+// mailboxes and must not run on the main thread.
 #[tauri::command]
-pub fn category_counts(state: State<'_, AppState>, account_id: Option<i64>) -> CmdResult<Vec<CategoryCount>> {
-    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
-    let counts = store.category_counts(account_id)?;
+pub async fn category_counts(state: State<'_, AppState>, account_id: Option<i64>) -> CmdResult<Vec<CategoryCount>> {
+    let store = state.store.clone();
+    let counts = tauri::async_runtime::spawn_blocking(move || {
+        let store = store.lock().unwrap_or_else(|e| e.into_inner());
+        store.category_counts(account_id)
+    })
+    .await
+    .map_err(|_| CmdError::new("Counts didn't load. Try again."))??;
     Ok(crate::store::CATEGORIES
         .iter()
         .map(|id| {
@@ -621,8 +635,10 @@ pub fn otp_feedback(
     Ok(())
 }
 
+// Async + spawn_blocking: FTS prefix scans can take a while on big
+// mailboxes; sync commands run on the main thread and would freeze the UI.
 #[tauri::command]
-pub fn search(
+pub async fn search(
     state: State<'_, AppState>,
     query: String,
     limit: i64,
@@ -630,8 +646,13 @@ pub fn search(
     offset: Option<i64>,
 ) -> CmdResult<Vec<ThreadRow>> {
     validate::text(&query, 500)?;
-    let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
-    Ok(store.search_page(account_id, &query, limit.clamp(1, 200), offset.unwrap_or(0).max(0))?)
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = store.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(store.search_page(account_id, &query, limit.clamp(1, 200), offset.unwrap_or(0).max(0))?)
+    })
+    .await
+    .map_err(|_| CmdError::new("The search didn't finish. Try again."))?
 }
 
 /// Search Gmail itself (all mail, every operator) for one account or all,

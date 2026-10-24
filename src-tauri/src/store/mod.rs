@@ -261,7 +261,7 @@ impl Store {
              PRAGMA synchronous = NORMAL;
              PRAGMA foreign_keys = ON;
              PRAGMA temp_store = MEMORY;
-             PRAGMA cache_size = -8000;", // ~8 MB page cache: FTS scans on big mailboxes stay warm, still small for a daemon
+             PRAGMA cache_size = -20000;", // ~20 MB page cache: FTS scans on big mailboxes stay warm (tray-only RAM target relaxed to 50 MB to fit)
         )?;
         let mut store = Self { conn };
         store.migrate()?;
