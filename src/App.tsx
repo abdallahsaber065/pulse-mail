@@ -753,10 +753,11 @@ export default function App() {
       if (ok) snack(next ? "Marked as important" : "Marked as not important");
     });
   };
-  const setRead = (t: ThreadRef, read: boolean) => {
+  /** `quiet`: an implicit read-on-open (row click, toast, deep link) — no snackbar. */
+  const setRead = (t: ThreadRef, read: boolean, quiet = false) => {
     if (!read && selected() === t.threadId) setSelected(null); // Gmail closes on "mark unread"
     void modify(t, { unread: !read }, read ? [] : ["UNREAD"], read ? ["UNREAD"] : []).then((ok) => {
-      if (ok) snack(read ? "Marked as read" : "Marked as unread");
+      if (ok && !quiet) snack(read ? "Marked as read" : "Marked as unread");
     });
   };
   const toggleStar = (t: ThreadRef) => {
@@ -817,7 +818,7 @@ export default function App() {
       setSelectedAccount(t.accountId);
       setSelected(t.threadId);
     });
-    if (t.unread) setRead(t, true);
+    if (t.unread) setRead(t, true, true);
   };
 
   /** Opening a thread from a toast click or deep link marks it read, like a
@@ -826,7 +827,7 @@ export default function App() {
   const markOpenedRead = (threadId: string, accountId: number | null) => {
     const row = rows().find((r) => r.threadId === threadId && (accountId == null || r.accountId === accountId));
     if (row?.unread) {
-      setRead(row, true);
+      setRead(row, true, true);
       return;
     }
     void api
