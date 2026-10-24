@@ -49,7 +49,8 @@ view switches, honest dark mode, and an unsubscribe shortcut.
   passes that changed something, keeping search fast on long uptimes.
 - CI is a single Windows job (matching the shipping platform) with
   `cargo fmt --check` and `pnpm audit` gates; the release pipeline builds
-  the Windows NSIS installer. macOS/Linux build from source.
+  the Windows NSIS installer. Native macOS/Linux support is not implemented
+  yet (planned next).
 
 ### Fixed
 

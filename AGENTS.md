@@ -142,5 +142,30 @@ phase done. Never mark work done on a failing build or test.
 - **Branch Protection**: The `main` branch is protected on GitHub. All additions and changes merge via Pull Requests with code reviews.
 - **Branches**: Create focused feature or fix branches (`feat/<topic>`, `fix/<issue>`, `chore/<task>`).
 - **Commits**: Small, focused commits with imperative subjects following [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `refactor:`, `docs:`, `chore:`).
-- **PR Gates**: Run all quality gates (`pnpm test`, `cargo test`, `pnpm build`) and ensure 0 type errors before submitting PRs.
+- **PR Gates**: Run all quality gates (`pnpm test`, `cargo test`, `pnpm build`) and ensure 0 type errors before submitting PRs. Include `cargo clippy --all-targets` — CI enforces it with `-D warnings` even when everything else passes.
 - **Secrets**: Never commit tokens, OAuth JSON keys, or `.env` files. Head branches are automatically deleted after merge.
+
+## Releases
+
+- The version lives in three places and must stay identical: `package.json`,
+  `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` (then refresh
+  `Cargo.lock` with a quick `cargo check`).
+- Every release updates `CHANGELOG.md` (Keep a Changelog format) with a
+  user-facing summary — what changed for the user, never a commit log.
+- **A release is not finished when the tag is pushed — it is finished when
+  the GitHub Release has proper notes.** The pipeline publishes the draft
+  automatically with an empty body; whoever cuts the release (agent or
+  human) must then write the notes with
+  `gh release edit vX.Y.Z --title "Pulse Mail vX.Y.Z" --notes-file <file>`:
+  - a one-line hook at the top;
+  - "What's new" grouped by user value, friendly and non-technical
+    (rule 5 applies: no module names, no commit subjects);
+  - an Install section naming the actual assets of that release;
+  - platform availability stated honestly (Windows ships; macOS/Linux are
+    **not implemented yet** — see the release table in README.md);
+  - links to `CHANGELOG.md` and `docs/VERIFY-LIVE.md`.
+  Never claim an untested-live path works — point at VERIFY-LIVE.md instead.
+- Tag on `main` after the release PR merges: `git tag -a vX.Y.Z` (annotated;
+  the repo rejects lightweight tags) and `git push origin vX.Y.Z`. The
+  pipeline builds the Windows installer into a draft release and publishes
+  it on success.
