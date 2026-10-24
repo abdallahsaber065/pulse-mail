@@ -70,12 +70,13 @@ and where pre-built binaries ship:
 | Platform | Availability | Details |
 | :--- | :--- | :--- |
 | **Windows** | ✅ **Installer on [Releases](https://github.com/abdallahsaber065/pulse-mail/releases)** (x86_64, Windows 10/11) | NSIS per-user installer; deep tray integration, native WinRT notifications, Credential Manager vault |
-| **macOS** | 🔧 Build from source (`pnpm tauri build`) | The Rust core compiles with Keychain/menubar fallbacks; toast UX is Windows-grade only today |
-| **Linux** | 🔧 Build from source (`pnpm tauri build`) | WebKitGTK 4.1; secret-service vault fallback; tray via appindicator |
+| **macOS** | ❌ **Not implemented yet — planned next** | The Rust core compiles cross-platform today, but the native toast/tray/vault experience is not built; packaging comes first |
+| **Linux** | ❌ **Not implemented yet — planned next** | Core compiles (WebKitGTK 4.1); native toast/tray/vault experience and packaging not built yet |
 
-The code keeps cross-platform fallbacks and CI compiles every PR, but the
-polished, tested, signed-off experience is Windows. First-class macOS/Linux
-packaging is a welcome contribution — see [ROADMAP.md](docs/ROADMAP.md).
+Native macOS/Linux support is the next milestone after Windows polish — the
+code base keeps cross-platform fallbacks and CI compiles every PR, but the
+toast, tray and credential-vault experience there is not implemented yet, so
+no installers ship for those platforms. See [ROADMAP.md](docs/ROADMAP.md).
 
 ---
 
