@@ -138,6 +138,35 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-24 (v0.3.0 release prep):** Version bumped to 0.3.0 across
+  package.json / tauri.conf.json / Cargo.toml; CHANGELOG.md added (Keep a
+  Changelog format) covering everything since v0.2.1; README refreshed —
+  honest release table (Windows installer ships; macOS/Linux build from
+  source), v0.3.0 + 139-test badges, CHANGELOG in the docs index. Project
+  positioning updated for the open-source direction (AGENTS.md "What this
+  is"; MIT + contributing + sponsor were already in place). Final gates:
+  139 Rust tests, 47 vitest, tsc, fmt. Release steps for the author: push
+  the branch, merge the PR to main, tag `v0.3.0` on main — the release
+  pipeline builds the Windows NSIS installer into a draft release.
+
+- **2026-10-24 (perf, `8d0bd8c`):** Faster view switches: first page 50
+  rows (was 200; older rows still append on scroll) and the last 8 view
+  results cached per view (stale-while-revalidate) so revisiting a
+  category/label/account renders instantly while a background refresh
+  updates unread flags; optimistic overrides apply on top of cached rows.
+  Bulk select-all sweep and the infinite-scroll trigger made page-size
+  independent (selection-total based). tsc + 47 vitest; browser mock
+  verified instant revisit.
+
+- **2026-10-24 (dark-mode fix, `0ea8ffc`):** Smart dark: the html canvas
+  is painted by Chromium outside the invert filter, so it showed the
+  pre-inverted LIGHT background with inverted (light) text — washed out.
+  Canvas now gets the final dark color; body carries the pre-inverted
+  light one. Original colors: the iframe element's `color-scheme: dark`
+  fought the light document; removed, and white is forced on html+body so
+  white mail renders as a white card. Test pins all four mode
+  combinations. 139 Rust tests, tsc.
+
 - **2026-10-24 (toast-open marks read, `93ba60a`):** User reported that
   opening a mail from a notification never changed its read status. The
   row-click path marked read, but the toast path (`openTarget`) and the

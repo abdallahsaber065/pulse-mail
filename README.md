@@ -10,10 +10,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v0.2.1-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-v0.3.0-blue.svg?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-brightgreen.svg?style=flat-square" alt="Platforms" />
   <img src="https://img.shields.io/badge/stack-Tauri%20v2%20%7C%20Rust%202024%20%7C%20SolidJS-orange.svg?style=flat-square" alt="Stack" />
-  <img src="https://img.shields.io/badge/tests-132%20Rust%20%7C%2047%20Vitest%20passing-success.svg?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-139%20Rust%20%7C%2047%20Vitest%20passing-success.svg?style=flat-square" alt="Tests" />
   <a href="https://github.com/sponsors/abdallahsaber065"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa.svg?style=flat-square&logo=githubsponsors" alt="Sponsor" /></a>
   <img src="https://img.shields.io/badge/license-MIT-informational.svg?style=flat-square" alt="License" />
 </p>
@@ -62,17 +62,20 @@ Everything runs directly on your machine: your own Google OAuth client, tokens k
 
 ---
 
-## Cross-Platform Releases
+## Releases
 
-Pulse Mail is engineered to run natively across all major desktop operating systems:
+Pulse Mail is developed Windows-first — that is where it is a daily driver,
+and where pre-built binaries ship:
 
-| Platform          | Target Architecture                              | Package Format                       | Details                                                                             |
-| :---------------- | :----------------------------------------------- | :----------------------------------- | :---------------------------------------------------------------------------------- |
-| **Windows** | x86_64 (Windows 10, 11)                          | `.exe` (NSIS Installer) / `.msi` | Deep Windows tray integration, native WinRT notifications, Credential Manager vault |
-| **macOS**   | Apple Silicon M-Series (`aarch64`)               | `.dmg`                               | Menu bar extra, native dock count, macOS Keychain integration                        |
-| **Linux**   | x86_64                                           | `.deb` / `.AppImage`             | WebKitGTK 4.1 runtime, libsecret vault, AppIndicator tray support                   |
+| Platform | Availability | Details |
+| :--- | :--- | :--- |
+| **Windows** | ✅ **Installer on [Releases](https://github.com/abdallahsaber065/pulse-mail/releases)** (x86_64, Windows 10/11) | NSIS per-user installer; deep tray integration, native WinRT notifications, Credential Manager vault |
+| **macOS** | 🔧 Build from source (`pnpm tauri build`) | The Rust core compiles with Keychain/menubar fallbacks; toast UX is Windows-grade only today |
+| **Linux** | 🔧 Build from source (`pnpm tauri build`) | WebKitGTK 4.1; secret-service vault fallback; tray via appindicator |
 
-Automated multi-platform binaries are compiled on every tagged release via GitHub Actions.
+The code keeps cross-platform fallbacks and CI compiles every PR, but the
+polished, tested, signed-off experience is Windows. First-class macOS/Linux
+packaging is a welcome contribution — see [ROADMAP.md](docs/ROADMAP.md).
 
 ---
 
@@ -196,7 +199,7 @@ Pulse Mail adheres to strict deterministic test gates before any release:
 # Run frontend unit tests (47 tests across 11 suites)
 pnpm test
 
-# Run Rust unit test suite (132 offline unit tests)
+# Run Rust unit test suite (139 offline unit tests)
 cargo test --manifest-path src-tauri/Cargo.toml
 
 # Strict static analysis & linter checks
@@ -212,6 +215,7 @@ pnpm build
 
 Detailed architectural specs and design records can be found in `docs/`:
 
+- [CHANGELOG.md](CHANGELOG.md) — Every release, newest first
 - [AGENTS.md](AGENTS.md) — Architectural rules, patterns, and conventions for development
 - [docs/STATUS.md](docs/STATUS.md) — Real-time progress log, benchmark metrics, and shipped feature status
 - [docs/PLAN.md](docs/PLAN.md) — Product phases, acceptance criteria, and performance targets

@@ -1,7 +1,28 @@
 # Status: what works today
 
-## Current Release: v0.2.1 (2026-10-24)
+## Current Release: v0.3.0 (2026-10-24)
 
+Release highlights since v0.2.1 (full list in [CHANGELOG.md](../CHANGELOG.md)):
+quiet hours, sleep/resume catch-up, local crash logs with "Open logs folder",
+an Unsubscribe button on mail that offers one, faster view switches (50-row
+first page + per-view cache), readable dark-mode mail in both smart and
+original modes, toast-open-marks-read, and the xlsx security upgrade. The
+project is developed in the open (MIT) — Windows-first today, with
+macOS/Linux buildable from source; see the release table in
+[README.md](../README.md).
+
+- **Dark-mode mail rendering fix (2026-10-24, `0ea8ffc`):** smart dark no
+  longer renders washed-out light text on a light canvas (Chromium paints
+  the root background outside the invert filter — the canvas now gets the
+  final dark color directly and the pre-inverted background lives on
+  body), and "original colors" renders white mail as a white card (white
+  forced on html+body; the iframe element no longer sets a competing
+  `color-scheme`). New test pins all four mode combinations.
+- **Faster view switches (2026-10-24, `8d0bd8c`):** first page is 50 rows
+  (older pages still append on scroll) and the last 8 view results are
+  cached per view, so revisiting a category/label/account renders instantly
+  while a background refresh updates unread flags; the bulk select-all
+  sweep and infinite-scroll trigger are page-size independent.
 - **Unsubscribe helper (2026-10-24, T7 link variant):** messages carrying a
   `List-Unsubscribe` header (fetched in metadata batches and parsed from
   full MIME — mail-parser types it as an address list, which is handled)

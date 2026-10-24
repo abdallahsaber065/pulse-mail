@@ -5,10 +5,14 @@ on purpose: no rules here depend on a specific agent, IDE or harness.
 
 ## What this is
 
-Pulse Mail: a personal, always-on Gmail client for Windows. It lives in the
-tray 24/7, shows a toast within seconds of new mail, pulls one-time codes out
-of verification emails ("Copy code" right on the toast), and opens any message
-instantly from a local cache. Single user, single PC, never published.
+Pulse Mail: an always-on Gmail client for Windows, developed in the open
+(MIT, planned to grow as an open-source project). Today it is the author's
+daily driver on one PC: it lives in the tray 24/7, shows a toast within
+seconds of new mail, pulls one-time codes out of verification emails
+("Copy code" right on the toast), and opens any message instantly from a
+local cache. The codebase is written for publication: no secrets ever enter
+the repo, and everything a contributor needs (docs, ADRs, offline tests,
+browser-mock mode) lives here.
 
 Read before larger changes:
 - `docs/STATUS.md`: what works today (keep it true to `HEAD`)

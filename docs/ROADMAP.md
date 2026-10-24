@@ -62,6 +62,13 @@ into modules; 3–5 Playwright smoke flows against the browser mock (M3,
 catches IPC-contract drift the unit tests can't); VACUUM + integrity check
 (H3 remainder); body eviction above the storage budget (ADR 0014).
 
+**Open-source contributor targets** (the project is now developed in the
+open, MIT): first-class macOS/Linux packaging in the release pipeline
+(the code already compiles cross-platform with fallbacks; toasts, tray and
+vault UX need native polish per platform — W1-style identity work);
+RFC 8058 one-click unsubscribe POST (needs the maintainer's explicit sign-off
+first, rule 8); i18n/RTL UI (U2); app lock (V3).
+
 ---
 
 ## H. History and storage

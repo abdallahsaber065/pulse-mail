@@ -1,6 +1,6 @@
 {
   "name": "pulse-mail",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Pulse Mail: a light, always-on Gmail client for Windows",
   "type": "module",
   "scripts": {
