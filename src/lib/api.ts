@@ -9,6 +9,7 @@ import type {
   AttachmentData,
   ComposeInit,
   ComposeMode,
+  UpdateAvail,
   ContactSuggestion,
   Draft,
   Sending,
@@ -122,13 +123,17 @@ export const api = {
   openExternal: (url: string) => call<void>("open_external", { url }),
   /** Reveal the local logs folder in Explorer (Settings → About). */
   openLogsDir: () => call<void>("open_logs_dir"),
+  /** Check GitHub Releases for a newer version (null = up to date). */
+  updateCheck: () => call<UpdateAvail | null>("update_check"),
+  /** Install the pending update: background bytes when present, else download + install. */
+  updateInstall: () => call<void>("update_install"),
   setDestroyOnClose: (enabled: boolean) => call<void>("set_destroy_on_close", { enabled }),
   setAutostart: (enabled: boolean) => call<boolean>("set_autostart", { enabled }),
 };
 
 type Unlisten = () => void;
 
-export async function onEvent<T>(name: "mail-updated" | "sync-status" | "sync-activity" | "open-thread" | "send-result" | "accounts-changed", cb: (payload: T) => void): Promise<Unlisten> {
+export async function onEvent<T>(name: "mail-updated" | "sync-status" | "sync-activity" | "open-thread" | "send-result" | "accounts-changed" | "update-available" | "update-downloading" | "update-ready", cb: (payload: T) => void): Promise<Unlisten> {
   if (!inTauri) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen<T>(name, (e) => cb(e.payload));

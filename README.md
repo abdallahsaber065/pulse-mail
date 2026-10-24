@@ -59,6 +59,7 @@ Everything runs directly on your machine: sign-in tokens stay in native OS crede
 - 🔍 **Hybrid Search (SQLite FTS5 + Gmail Server)**: Sub-millisecond local search across cached mail using SQLite Full-Text Search (FTS5), with automatic fallback to Gmail server search for older archived correspondence.
 - ⌨️ **Keyboard-Driven Workflow**: Full Gmail-standard keyboard navigation (<kbd>j</kbd>/<kbd>k</kbd>, <kbd>e</kbd>, <kbd>#</kbd>, <kbd>s</kbd>, <kbd>r</kbd>, <kbd>a</kbd>, <kbd>f</kbd>) and Command Palette (<kbd>Ctrl</kbd>+<kbd>k</kbd>).
 - 🌓 **Native Dark & Light Themes**: Cohesive themes respecting system appearance or manual toggle, with full dark-mode email frame color scheme support.
+- 🔄 **Self-Update with Signature Verification**: Pulse Mail checks its own GitHub Releases for new versions (once at launch or on demand), can download them in the background, and asks before installing — both behaviors are configurable in Settings.
 
 ---
 
@@ -72,7 +73,10 @@ Everything runs directly on your machine: sign-in tokens stay in native OS crede
 
 Notes: notification action buttons and hiding codes on the lock screen are
 Windows-only features. Apple Intel (x86_64 Mac) builds are not provided.
-Windows remains the most complete and most tested platform.
+Windows remains the most complete and most tested platform. From v0.4.0 on,
+installed apps can update themselves from these Releases (signature-checked;
+on Linux this covers the AppImage build — `.deb`/`.rpm` update by installing
+the new package).
 
 ---
 

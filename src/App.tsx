@@ -990,6 +990,21 @@ export default function App() {
         void api.takePendingOpen();
         openTarget(t);
       }),
+      onEvent<{ version: string }>("update-available", (u) => {
+        snack(`Pulse Mail ${u.version} is available`, {
+          duration: 8000,
+          action: { label: "Install", run: () => void api.updateInstall().catch((e: Error) => snack(e.message)) },
+        });
+      }),
+      onEvent<{ version: string }>("update-downloading", () => {
+        snack("Downloading the update in the background…", { duration: 4000 });
+      }),
+      onEvent<{ version: string }>("update-ready", (u) => {
+        snack(`Update to ${u.version} downloaded — restart to install`, {
+          duration: 15000,
+          action: { label: "Restart", run: () => void api.updateInstall().catch((e: Error) => snack(e.message)) },
+        });
+      }),
     ]).then((u) => {
       if (disposed) u.forEach((f) => f());
       else unlisteners = u;

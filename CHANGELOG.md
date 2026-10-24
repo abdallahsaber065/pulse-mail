@@ -9,6 +9,12 @@ the 1.0 hardening milestone. Released binaries are on
 
 ### Added
 
+- **Self-update** (Settings → About): Pulse Mail checks GitHub Releases for
+  a newer version once after launch (or on demand), can download it in the
+  background, and notifies you — installing always waits for your click.
+  Artifacts are signature-verified. Both behaviors are configurable, and
+  the only server contacted is this project's own GitHub Releases (ADR 0027).
+
 - **Linux and macOS (Apple Silicon) support**: the app now builds, tests and
   ships for all three platforms on every release. Linux gets freedesktop
   notifications with "Copy code" / "Open" actions (pure-Rust zbus, no

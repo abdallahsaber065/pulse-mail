@@ -82,6 +82,18 @@ pub const PREFS: &[Pref] = &[
         default: "1",
         allowed: &["0", "1"],
     },
+    // One quiet update check after launch (never a polling loop).
+    Pref {
+        key: "update_check",
+        default: "1",
+        allowed: &["0", "1"],
+    },
+    // New versions download in the background; installing always asks.
+    Pref {
+        key: "update_auto_download",
+        default: "1",
+        allowed: &["0", "1"],
+    },
 ];
 
 pub fn find(key: &str) -> Option<&'static Pref> {

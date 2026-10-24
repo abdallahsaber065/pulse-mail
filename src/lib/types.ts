@@ -143,6 +143,16 @@ export interface Prefs {
   quiet_end: string;
   /** Verification codes may still toast during quiet hours. */
   quiet_allow_otp: "0" | "1";
+  /** One quiet update check after launch. */
+  update_check: "0" | "1";
+  /** New versions download in the background; installing still asks. */
+  update_auto_download: "0" | "1";
+}
+
+/** An update announced by the updater (GitHub Releases manifest). */
+export interface UpdateAvail {
+  version: string;
+  notes: string;
 }
 
 export type PrefKey = keyof Prefs;

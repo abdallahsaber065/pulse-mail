@@ -64,6 +64,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -86,6 +87,17 @@
     "linux": {
       "deb": {
         "depends": []
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMxQjg3NEQ0QkVGNkRCQUQKUldTdDIvYSsxSFM0d2RTbGs4MGNSbmFMQjhVL0RrSDFDMnZlN3pzU0xucitURXF6bHkvMVlYSWQK",
+      "endpoints": [
+        "https://github.com/abdallahsaber065/pulse-mail/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

@@ -164,6 +164,8 @@ const status: AppStatus = {
     quiet_start: "off",
     quiet_end: "off",
     quiet_allow_otp: "1",
+    update_check: "1",
+    update_auto_download: "1",
   },
 };
 
@@ -346,6 +348,10 @@ export async function handle(cmd: string, args?: Record<string, unknown>): Promi
       return;
     case "open_logs_dir":
       console.info("[mock] would open the logs folder");
+      return;
+    case "update_check":
+      return null;
+    case "update_install":
       return;
     case "sign_in": {
       const reconnectId = args?.accountId;

@@ -47,6 +47,8 @@ const COMMANDS: &[&str] = &[
     "save_attachment",
     "search_contacts",
     "get_attachment_data",
+    "update_check",
+    "update_install",
 ];
 
 fn main() {
