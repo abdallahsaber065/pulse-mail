@@ -179,7 +179,8 @@ fn local_utc_offset_minutes() -> u64 {
         .unwrap_or(0);
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     unsafe { libc::localtime_r(&secs, &mut tm) };
-    (i64::from(tm.tm_gmtoff) / 60).rem_euclid(1440) as u64
+    // tm_gmtoff is a long (i64 on both linux and macOS): seconds east of UTC.
+    (tm.tm_gmtoff / 60).rem_euclid(1440) as u64
 }
 
 #[cfg(all(not(windows), not(unix)))]
