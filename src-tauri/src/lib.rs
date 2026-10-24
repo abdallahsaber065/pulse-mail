@@ -193,7 +193,7 @@ async fn resume_watch(app: AppHandle) {
             "clock jumped; catching up after sleep"
         );
         if let Some(state) = app.try_state::<AppState>() {
-            for (_, c) in state.syncs.lock().await.iter() {
+            for c in state.syncs.lock().await.values() {
                 c.sync_now(false);
             }
         }
