@@ -133,7 +133,12 @@ pub async fn update_install(app: AppHandle) -> CmdResult<()> {
         ));
     }
     // Windows: the installer exits the app itself. macOS/Linux: swap and restart.
+    #[cfg(windows)]
+    {
+        Ok(())
+    }
     #[cfg(not(windows))]
-    app.restart();
-    Ok(())
+    {
+        app.restart()
+    }
 }
