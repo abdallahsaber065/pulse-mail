@@ -249,3 +249,58 @@ fn rtl_and_huge_input_do_not_panic() {
     let nested = "<div>".repeat(5000) + "x" + &"</div>".repeat(5000);
     let _ = render_html(&nested, Resources::default(), RenderOptions::default());
 }
+
+#[test]
+fn dark_theme_backgrounds_are_readable() {
+    // Smart dark: the canvas (html) must already be the final dark color —
+    // Chromium paints it outside the invert filter — and the pre-inverted
+    // light background goes on body, which the filter darkens.
+    let smart = render_html(
+        "<p>hi</p>",
+        Resources::default(),
+        RenderOptions {
+            dark: true,
+            original_colors: false,
+        },
+    );
+    assert!(smart.srcdoc.contains("html{background:#1b1d22"), "{}", smart.srcdoc);
+    assert!(smart.srcdoc.contains("background:#e4e2dd"), "{}", smart.srcdoc);
+    assert!(smart.srcdoc.contains("filter:invert(1)"));
+    // Original colors in dark UI: white canvas and white body (most mail
+    // assumes white; a transparent canvas would put dark text on the dark
+    // app surface), no filter.
+    let original = render_html(
+        "<p>hi</p>",
+        Resources::default(),
+        RenderOptions {
+            dark: true,
+            original_colors: true,
+        },
+    );
+    assert!(
+        original.srcdoc.contains("html{background:#ffffff"),
+        "{}",
+        original.srcdoc
+    );
+    assert_eq!(
+        original.srcdoc.matches("background:#ffffff").count(),
+        2,
+        "html and body"
+    );
+    assert!(!original.srcdoc.contains("filter:invert(1)"));
+    // Plain text in dark stays on the app surface (transparent) with light text.
+    let text = render_text(
+        "hi",
+        RenderOptions {
+            dark: true,
+            original_colors: false,
+        },
+    );
+    assert!(text.srcdoc.contains("html{background:transparent"));
+    assert!(text.srcdoc.contains("color:#e3e3e3"));
+    // Light theme: transparent everywhere, dark text.
+    let light = render_html("<p>hi</p>", Resources::default(), RenderOptions::default());
+    assert!(light.srcdoc.contains("html{background:transparent"));
+    assert!(light.srcdoc.contains("background:transparent"));
+    assert!(light.srcdoc.contains("color:#1f1f1f"));
+}

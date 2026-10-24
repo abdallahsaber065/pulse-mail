@@ -437,15 +437,20 @@ pub fn document(body: &str, stylesheet: &str, opts: RenderOptions, plain: bool) 
     } else {
         ("#1f1f1f", "#0b57d0", "#c4c7c5")
     };
-    let bg = if opts.dark && plain {
-        "transparent"
+    // The html background propagates to the canvas, which Chromium paints
+    // OUTSIDE the invert filter — so the canvas must already be the final
+    // color, and any color the filter should darken lives on `body`
+    // (pre-inverted, so it lands on the same dark).
+    let (html_bg, body_bg) = if opts.dark && plain {
+        ("transparent", "transparent")
     } else if smart_dark {
-        // Inverted below, this becomes the app's dark surface.
-        "#e4e2dd"
+        // #e4e2dd under invert(1) hue-rotate(180deg) ≈ #1b1d22.
+        ("#1b1d22", "#e4e2dd")
     } else if opts.dark {
-        "#ffffff"
+        // Original colors in dark UI: mail without its own background assumes white.
+        ("#ffffff", "#ffffff")
     } else {
-        "transparent"
+        ("transparent", "transparent")
     };
     let dark_css = if smart_dark {
         "html{filter:invert(1) hue-rotate(180deg)}\
@@ -460,8 +465,8 @@ pub fn document(body: &str, stylesheet: &str, opts: RenderOptions, plain: bool) 
 <meta name=\"color-scheme\" content=\"{scheme}\">\
 <style>{stylesheet}</style>\
 <style>\
-html{{background:{bg};color-scheme:{scheme}}}\
-body{{margin:0;padding:{pad};font:14px/1.5 \"Segoe UI\",system-ui,sans-serif;color:{fg};overflow-wrap:anywhere;overflow-y:hidden}}\
+html{{background:{html_bg};color-scheme:{scheme}}}\
+body{{margin:0;padding:{pad};background:{body_bg};font:14px/1.5 \"Segoe UI\",system-ui,sans-serif;color:{fg};overflow-wrap:anywhere;overflow-y:hidden}}\
 a{{color:{link}}}\
 img{{max-width:100%;height:auto}}\
 img[src^=\"{blank}\"]{{height:revert-layer;background:rgba(127,127,127,.08)}}\
@@ -476,7 +481,7 @@ blockquote.pm-quote{{margin:4px 0 4px 4px;border-inline-start:2px solid {quote_b
 font:700 12px/14px sans-serif;letter-spacing:1px;cursor:pointer;margin:8px 0}}\
 .pm-qt:hover{{background:#dadce0}}\
 {dark_css}\
-@media print{{html{{filter:none!important;background:#fff!important}}img{{filter:none!important}}.pm-qt{{display:none}}.pm-q{{display:block!important}}}}\
+@media print{{html{{filter:none!important;background:#fff!important}}body{{background:#fff!important}}img{{filter:none!important}}.pm-qt{{display:none}}.pm-q{{display:block!important}}}}\
 </style></head><body dir=\"auto\">{body}<script>{script}</script></body></html>",
         csp = frame_csp(),
         scheme = if opts.dark && plain { "dark" } else { "light" },
