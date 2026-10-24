@@ -138,6 +138,15 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-24 (toast-open marks read, `93ba60a`):** User reported that
+  opening a mail from a notification never changed its read status. The
+  row-click path marked read, but the toast path (`openTarget`) and the
+  `?thread=` deep link didn't — both now share `markOpenedRead` (optimistic
+  when the row is visible, idempotent modify + refresh otherwise). Removing
+  the dead deep-link effect also fixed a latent bug: closing a deep-linked
+  thread re-opened it, because the effect re-ran when selected became null.
+  Verified in the browser mock (bold cleared, Back closes).
+
 - **2026-10-24 (unsubscribe helper, T7 link variant):** `List-Unsubscribe`
   added to the metadata batch query and parsed on both fetch paths
   (mail-parser types the header as an address list — `<https://…>` looks
