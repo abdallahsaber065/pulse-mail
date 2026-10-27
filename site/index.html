@@ -6,6 +6,8 @@
   <title>Pulse Mail — a Gmail client that lives in the tray</title>
   <meta name="description" content="Pulse Mail is an always-on desktop Gmail client. It lives in the tray, toasts new mail in seconds, and puts verification codes on the notification. Mail stays on your computer — there is no Pulse Mail server." />
   <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#0b57d0" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#111317" media="(prefers-color-scheme: dark)" />
   <link rel="canonical" href="https://abdallahsaber065.github.io/pulse-mail/" />
   <link rel="icon" href="assets/logo.png" type="image/png" />
   <link rel="apple-touch-icon" href="assets/logo.png" />
@@ -37,6 +39,7 @@
       </a>
       <nav class="nav-links" aria-label="Site">
         <a class="nav-optional" href="#features">Features</a>
+        <a class="nav-optional" href="#screenshots">Screenshots</a>
         <a class="nav-optional" href="#why-gmail">Why Gmail access</a>
         <a href="privacy/">Privacy</a>
         <a href="terms/">Terms</a>
@@ -47,20 +50,26 @@
   </header>
 
   <main id="main">
-    <div class="wrap hero">
-      <div>
-        <p class="kicker">Desktop Gmail · Windows daily driver</p>
-        <h1>Pulse Mail</h1>
-        <p class="lede">A Gmail client that lives in the tray, not in a browser tab. Stays running, toasts new mail in seconds, and puts 2FA codes on the notification so you can copy them without hunting the inbox.</p>
-        <div class="cta-row">
-          <a class="btn btn-primary" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">Download latest release</a>
-          <a class="btn btn-ghost" href="https://github.com/abdallahsaber065/pulse-mail">View source</a>
+    <div class="hero-band">
+      <div class="wrap hero">
+        <div>
+          <p class="kicker">Desktop Gmail · Windows daily driver</p>
+          <h1>Pulse Mail</h1>
+          <p class="lede">A Gmail client that lives in the tray, not in a browser tab. Stays running, toasts new mail in seconds, and puts 2FA codes on the notification so you can copy them without hunting the inbox.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">Download latest release</a>
+            <a class="btn btn-ghost" href="https://github.com/abdallahsaber065/pulse-mail">View source</a>
+          </div>
+          <p class="fine">Free, MIT. Windows 10/11 is the one that’s been lived in. macOS (Apple Silicon) and Linux ship experimental builds. Google still shows an “unverified app” warning until verification finishes — expected, and capped at about 100 users until then.</p>
         </div>
-        <p class="fine">Free, MIT. Windows 10/11 is the one that’s been lived in. macOS (Apple Silicon) and Linux ship experimental builds. Google still shows an “unverified app” warning until verification finishes — expected, and capped at about 100 users until then.</p>
+        <figure class="window" aria-label="Product demo">
+          <div class="window-bar">
+            <span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="window-title">Pulse Mail</span>
+          </div>
+          <img src="assets/demo.gif" width="1100" height="700" alt="Pulse Mail opening the inbox, reading a thread, and copying a verification code from a notification" />
+        </figure>
       </div>
-      <figure class="shot-frame" aria-label="Product demo">
-        <img class="demo-gif" src="assets/demo.gif" width="1100" alt="Pulse Mail opening the inbox, reading a thread, and copying a verification code from a notification" />
-      </figure>
     </div>
 
     <section id="features">
@@ -69,26 +78,44 @@
         <p class="section-lead">Claims below match the current app. Windows is the daily driver; the other platforms compile and ship.</p>
         <div class="features">
           <article class="card">
+            <div class="icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16v12H4z"/><path d="M4 8l8 6 8-6"/></svg>
+            </div>
             <h3>Tray + push</h3>
             <p>Stays in the tray. IMAP IDLE is the doorbell, then a cheap Gmail history sync. Not a 60-second poll loop.</p>
           </article>
           <article class="card">
+            <div class="icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>
+            </div>
             <h3>Codes on the toast</h3>
             <p>Verification codes and magic links are pulled out of the mail. Copy from the notification, the row chip, the reader, or Shift+C.</p>
           </article>
           <article class="card">
+            <div class="icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="7" rx="7" ry="3"/><path d="M5 7v10c0 1.7 3.1 3 7 3s7-1.3 7-3V7"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>
+            </div>
             <h3>Local cache</h3>
             <p>SQLite + FTS5 on this computer. Search hits the cache first; Gmail server search fills in older mail.</p>
           </article>
           <article class="card">
+            <div class="icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 5v14"/></svg>
+            </div>
             <h3>Hostile HTML stays in a box</h3>
             <p>Sanitized in Rust, rendered in a sandboxed iframe. Remote images off until you click. Links open in your system browser.</p>
           </article>
           <article class="card">
+            <div class="icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            </div>
             <h3>Undo send</h3>
             <p>A 5–10 second grace window before Gmail actually sends. Compose, reply, and labels work like Gmail’s shortcuts.</p>
           </article>
           <article class="card">
+            <div class="icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="3"/><circle cx="16" cy="9" r="2.5"/><path d="M3 19c.5-3 2.8-5 5-5s4.5 2 5 5"/><path d="M14 16.5c.4-1.6 1.8-2.5 3.2-2.5 1.8 0 3.4 1.3 3.8 3.5"/></svg>
+            </div>
             <h3>Several accounts</h3>
             <p>Per-account inboxes plus “All inboxes”. Tokens live in the OS keychain, one entry per account.</p>
           </article>
@@ -98,21 +125,119 @@
 
     <section id="screenshots">
       <div class="wrap">
-        <h2 class="section-title">Inbox, thread, code</h2>
-        <p class="section-lead">From the in-app demo mailbox — fictional senders, one Northwind OTP thread.</p>
-        <div class="shots">
-          <figure>
-            <div class="shot-frame"><img src="assets/inbox.png" width="1180" alt="Pulse Mail inbox with unread rows, a green 482917 verification-code chip, and Gmail-style sidebar labels" /></div>
-            <figcaption>Inbox — unread in bold, OTP chip on the row, Gmail-style labels.</figcaption>
-          </figure>
-          <div class="stack">
-            <figure>
-              <div class="shot-frame"><img src="assets/thread.png" width="1180" alt="Reading a verification-code email with a Copy button on a green banner" /></div>
-              <figcaption>Thread — copy the code from the banner.</figcaption>
+        <h2 class="section-title">The app, not a crop</h2>
+        <p class="section-lead">Full window from the demo mailbox — fictional senders, one Northwind OTP thread. Pick a view.</p>
+        <div class="gallery">
+          <input type="radio" name="g" id="g-inbox" checked />
+          <input type="radio" name="g" id="g-thread" />
+          <input type="radio" name="g" id="g-compose" />
+          <input type="radio" name="g" id="g-settings" />
+          <input type="radio" name="g" id="g-account" />
+          <input type="radio" name="g" id="g-search" />
+          <input type="radio" name="g" id="g-labels" />
+          <input type="radio" name="g" id="g-otp" />
+          <input type="radio" name="g" id="g-dark" />
+          <div class="tabs" role="tablist" aria-label="Product screenshots">
+            <label for="g-inbox">Inbox</label>
+            <label for="g-thread">Reading</label>
+            <label for="g-compose">Compose</label>
+            <label for="g-settings">Settings</label>
+            <label for="g-account">Account</label>
+            <label for="g-search">Search</label>
+            <label for="g-labels">Labels</label>
+            <label for="g-otp">Toast</label>
+            <label for="g-dark">Dark</label>
+          </div>
+          <div class="stage">
+            <figure class="p-inbox">
+              <div class="window">
+                <div class="window-bar"><span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">Inbox</span></div>
+                <picture>
+                  <source type="image/webp" srcset="assets/inbox.webp" />
+                  <img src="assets/inbox.png" width="1440" height="900" alt="Pulse Mail inbox with unread rows, a green 482917 verification-code chip, and Gmail-style sidebar labels" />
+                </picture>
+              </div>
+              <figcaption>Inbox — unread in bold, OTP chip on the row, Gmail-style labels.</figcaption>
             </figure>
-            <figure>
-              <div class="shot-frame"><img src="assets/otp.png" width="1180" alt="A notification offering Copy code for a six-digit sign-in code" /></div>
-              <figcaption>Toast — Copy code without opening the window.</figcaption>
+            <figure class="p-thread">
+              <div class="window">
+                <div class="window-bar"><span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">Thread</span></div>
+                <picture>
+                  <source type="image/webp" srcset="assets/thread.webp" />
+                  <img src="assets/thread.png" width="1440" height="900" alt="Full Pulse Mail window with the Northwind verification email open in the reading pane, including a Copy button for 482917" />
+                </picture>
+              </div>
+              <figcaption>Reading pane — list stays on the left, code sits on a banner in the mail.</figcaption>
+            </figure>
+            <figure class="p-compose">
+              <div class="window">
+                <div class="window-bar"><span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">New message</span></div>
+                <picture>
+                  <source type="image/webp" srcset="assets/compose.webp" />
+                  <img src="assets/compose.png" width="1440" height="900" alt="Compose window with a fictional draft to mira@lumenforge.example and a density-notes.txt attachment" />
+                </picture>
+              </div>
+              <figcaption>Compose — fictional draft, autosaved, one attachment.</figcaption>
+            </figure>
+            <figure class="p-settings">
+              <div class="window">
+                <div class="window-bar"><span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">Settings</span></div>
+                <picture>
+                  <source type="image/webp" srcset="assets/settings.webp" />
+                  <img src="assets/settings.png" width="1440" height="900" alt="Settings sheet showing theme, density, close-to-tray, and storage budget" />
+                </picture>
+              </div>
+              <figcaption>Settings — storage, tray, theme, density. Accounts live at the top of the sheet.</figcaption>
+            </figure>
+            <figure class="p-account">
+              <div class="window">
+                <div class="window-bar"><span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">Account</span></div>
+                <picture>
+                  <source type="image/webp" srcset="assets/settings-account.webp" />
+                  <img src="assets/settings-account.png" width="1440" height="900" alt="Account settings for Alex Rivera showing notifications, signature, and Google reconnect" />
+                </picture>
+              </div>
+              <figcaption>Account — notifications, signature, color. Fictional Alex Rivera mailbox.</figcaption>
+            </figure>
+            <figure class="p-search">
+              <div class="window">
+                <div class="window-bar"><span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">Search</span></div>
+                <picture>
+                  <source type="image/webp" srcset="assets/search.webp" />
+                  <img src="assets/search.png" width="1440" height="900" alt="Search for northwind highlighting the OTP thread from the local cache and Gmail" />
+                </picture>
+              </div>
+              <figcaption>Search — cache first, then Gmail. Query is in the pill.</figcaption>
+            </figure>
+            <figure class="p-labels">
+              <div class="window">
+                <div class="window-bar"><span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">Clients</span></div>
+                <picture>
+                  <source type="image/webp" srcset="assets/labels.webp" />
+                  <img src="assets/labels.png" width="1440" height="900" alt="Clients label selected in the sidebar showing two conversations" />
+                </picture>
+              </div>
+              <figcaption>Labels — Clients and Receipts are demo user labels.</figcaption>
+            </figure>
+            <figure class="p-otp">
+              <div class="window">
+                <div class="window-bar"><span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">Notification</span></div>
+                <picture>
+                  <source type="image/webp" srcset="assets/otp.webp" />
+                  <img src="assets/otp.png" width="1440" height="900" alt="Inbox with a Pulse Mail notification offering Copy code for 482917" />
+                </picture>
+              </div>
+              <figcaption>Toast — Copy code without opening the window. Demo stand-in for the native notification.</figcaption>
+            </figure>
+            <figure class="p-dark">
+              <div class="window">
+                <div class="window-bar"><span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">Dark · reading</span></div>
+                <picture>
+                  <source type="image/webp" srcset="assets/thread-dark.webp" />
+                  <img src="assets/thread-dark.png" width="1440" height="900" alt="Dark theme Pulse Mail window with the Northwind verification email open" />
+                </picture>
+              </div>
+              <figcaption>Dark theme — same window, system/light/dark in Settings.</figcaption>
             </figure>
           </div>
         </div>
@@ -145,24 +270,33 @@
             <h3>Windows 10/11 (x64)</h3>
             <p class="note"><code>Pulse.Mail_*_x64-setup.exe</code> (per-user) or the <code>.msi</code>.</p>
             <p class="note">SmartScreen may warn once — the installer isn’t Authenticode-signed yet. More info → Run anyway.</p>
-            <a class="btn btn-primary" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">Get Windows build</a>
+            <a class="btn btn-primary" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 3h8.4v8.4H3V3zm9.6 0H21v8.4h-8.4V3zM3 12.6h8.4V21H3v-8.4zm9.6 0H21V21h-8.4v-8.4z"/></svg>
+              Get Windows
+            </a>
           </article>
           <article class="card os">
             <span class="badge">Experimental</span>
             <h3>macOS (Apple Silicon)</h3>
             <p class="note"><code>Pulse.Mail_*_aarch64.dmg</code>. Intel Macs are not built.</p>
             <p class="note">Unsigned. After dragging to Applications: right-click → Open the first time.</p>
-            <a class="btn btn-ghost" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">Get macOS build</a>
+            <a class="btn btn-secondary" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>
+              Get macOS
+            </a>
           </article>
           <article class="card os">
             <span class="badge">Experimental</span>
             <h3>Linux (x64)</h3>
             <p class="note"><code>.AppImage</code> (self-updates), <code>.deb</code>, or <code>.rpm</code>.</p>
             <p class="note">Tray needs an appindicator; notification buttons work on GNOME/KDE.</p>
-            <a class="btn btn-ghost" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">Get Linux build</a>
+            <a class="btn btn-secondary" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.533a.985.985 0 01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.27.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.018.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.255.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.566 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.512-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.358 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.064.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.646 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.537v-.043c-.06-.003-.12 0-.18 0h-.016c.151-.467-.182-.825-1.065-1.224-.915-.4-1.646-.336-1.77.465-.008.043-.013.066-.018.135-.068.023-.139.053-.209.064-.43.268-.662.669-.793 1.187-.13.533-.17 1.156-.205 1.869v.003c-.02.334-.17.838-.319 1.35-1.5 1.072-3.58 1.538-5.348.334a2.645 2.645 0 00-.402-.533 1.45 1.45 0 00-.275-.333c.182 0 .338-.03.465-.067a.615.615 0 00.314-.334c.108-.267 0-.697-.345-1.163-.345-.467-.931-.995-1.788-1.521-.63-.4-.986-.87-1.15-1.396-.165-.534-.143-1.085-.015-1.645.245-1.07.873-2.11 1.274-2.763.107-.065.037.135-.408.974-.396.751-1.14 2.497-.122 3.854a8.123 8.123 0 01.647-2.876c.564-1.278 1.743-3.504 1.836-5.268.048.036.217.135.289.202.218.133.38.333.59.465.21.201.477.335.876.335.039.003.075.006.11.006.412 0 .73-.134.997-.268.29-.134.52-.334.74-.4h.005c.467-.135.835-.402 1.044-.7zm2.185 8.958c.037.6.343 1.245.882 1.377.588.134 1.434-.333 1.791-.765l.211-.01c.315-.007.577.01.847.268l.003.003c.208.199.305.53.391.876.085.4.154.78.409 1.066.486.527.645.906.636 1.14l.003-.007v.018l-.003-.012c-.015.262-.185.396-.498.595-.63.401-1.746.712-2.457 1.57-.618.737-1.37 1.14-2.036 1.191-.664.053-1.237-.2-1.574-.898l-.005-.003c-.21-.4-.12-1.025.056-1.69.176-.668.428-1.344.463-1.897.037-.714.076-1.335.195-1.814.12-.465.308-.797.641-.984l.045-.022zm-10.814.049h.01c.053 0 .105.005.157.014.376.055.706.333 1.023.752l.91 1.664.003.003c.243.533.754 1.064 1.189 1.637.434.598.77 1.131.729 1.57v.006c-.057.744-.48 1.148-1.125 1.294-.645.135-1.52.002-2.395-.464-.968-.536-2.118-.469-2.857-.602-.369-.066-.61-.2-.723-.4-.11-.2-.113-.602.123-1.23v-.004l.002-.003c.117-.334.03-.752-.027-1.118-.055-.401-.083-.71.043-.94.16-.334.396-.4.69-.533.294-.135.64-.202.915-.47h.002v-.002c.256-.268.445-.601.668-.838.19-.201.38-.336.663-.336zm7.159-9.074c-.435.201-.945.535-1.488.535-.542 0-.97-.267-1.28-.466-.154-.134-.28-.268-.373-.335-.164-.134-.144-.333-.074-.333.109.016.129.134.199.2.096.066.215.2.36.333.292.2.68.467 1.167.467.485 0 1.053-.267 1.398-.466.195-.135.445-.334.648-.467.156-.136.149-.267.279-.267.128.016.034.134-.147.332a8.097 8.097 0 01-.69.468zm-1.082-1.583V5.64c-.006-.02.013-.042.029-.05.074-.043.18-.027.26.004.063 0 .16.067.15.135-.006.049-.085.066-.135.066-.055 0-.092-.043-.141-.068-.052-.018-.146-.008-.163-.065zm-.551 0c-.02.058-.113.049-.166.066-.047.025-.086.068-.14.068-.05 0-.13-.02-.136-.068-.01-.066.088-.133.15-.133.08-.031.184-.047.259-.005.019.009.036.03.03.05v.02h.003z"/></svg>
+              Get Linux
+            </a>
           </article>
         </div>
-        <p class="fine" style="margin-top:20px">After install: open the app → Sign in with Google. Google will say it hasn’t verified this app. That’s the same ~100-user cap as any unverified Gmail client. Building from source uses your own Cloud desktop client — see the repo README.</p>
+        <p class="fine" style="margin-top:24px">After install: open the app → Sign in with Google. Google will say it hasn’t verified this app. That’s the same ~100-user cap as any unverified Gmail client. Building from source uses your own Cloud desktop client — see the repo README.</p>
       </div>
     </section>
 
@@ -183,7 +317,7 @@
             <p>Sign out in the app, or remove Pulse Mail at <a href="https://myaccount.google.com/permissions">Google Account permissions</a>. That also deletes the local cache for that account.</p>
           </article>
         </div>
-        <p style="margin-top:20px"><a href="privacy/">Full privacy policy</a> · <a href="terms/">Terms of service</a> · MIT license</p>
+        <p style="margin-top:24px"><a href="privacy/">Full privacy policy</a> · <a href="terms/">Terms of service</a> · MIT license</p>
       </div>
     </section>
   </main>

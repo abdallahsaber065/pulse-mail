@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEMO, handle } from "./mock";
+import { DEMO, DEMO_COMPOSE, handle } from "./mock";
 import type { Label, ThreadRow } from "./types";
 
 describe("demo mailbox", () => {
@@ -23,5 +23,11 @@ describe("demo mailbox", () => {
   it("finds the OTP mail with local search", async () => {
     const rows = (await handle("search", { query: "northwind" })) as ThreadRow[];
     expect(rows.some((t) => t.otpCode === DEMO.otpCode)).toBe(true);
+  });
+
+  it("keeps the compose demo draft on fictional addresses", () => {
+    expect(DEMO_COMPOSE.to).toMatch(/\.example$/);
+    expect(DEMO_COMPOSE.cc).toMatch(/\.example$/);
+    expect(DEMO_COMPOSE.body).toMatch(/mock mailbox/i);
   });
 });

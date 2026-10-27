@@ -27,6 +27,8 @@ interface Props {
   onAccountNotify(accountId: number, mode: NotificationMode): void;
   onPauseHistory(accountId: number, pause: boolean): void;
   onAccountSettings(accountId: number, settings: AccountSettings): void;
+  /** Demo/screenshot: open this account's page immediately. */
+  initialAccountId?: number | null;
 }
 
 export const ACCOUNT_COLORS = ["#c2410c", "#b91c1c", "#be185d", "#7c3aed", "#1d4ed8", "#0e7490", "#047857", "#4d7c0f"];
@@ -367,7 +369,7 @@ const Section = (p: { title: string; children: JSX.Element }) => (
 );
 
 export default function SettingsPanel(p: Props) {
-  const [page, setPage] = createSignal<number | null>(null);
+  const [page, setPage] = createSignal<number | null>(p.initialAccountId ?? null);
   const [checkingUpdate, setCheckingUpdate] = createSignal(false);
   const checkForUpdates = async () => {
     if (checkingUpdate()) return;

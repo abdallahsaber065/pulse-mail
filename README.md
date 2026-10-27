@@ -46,6 +46,15 @@ After install, open the app and **Sign in with Google**. Google will show an "un
 
 Keyboard shortcuts match Gmail (`j`/`k`, `e`, `s`, `c`, <kbd>Ctrl</kbd>+<kbd>K</kbd> palette). Full list further down.
 
+<p>
+  <img src="docs/assets/inbox.png" width="49%" alt="Pulse Mail inbox with unread rows and a verification-code chip" />
+  <img src="docs/assets/thread.png" width="49%" alt="Full window with the Northwind verification email open in the reading pane" />
+</p>
+<p>
+  <img src="docs/assets/compose.png" width="49%" alt="Compose window with a fictional draft and attachment" />
+  <img src="docs/assets/otp.png" width="49%" alt="Inbox with a Copy-code notification for 482917" />
+</p>
+
 ## Privacy & security
 
 There is **no Pulse Mail server**. The app talks to Google (Gmail OAuth, Gmail REST, IMAP) and, for updates, to this repo's GitHub Releases. No telemetry.

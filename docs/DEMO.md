@@ -22,10 +22,18 @@ Useful query flags:
 | `/?toast=1` | Same inbox, then a stand-in OTP notification (Copy code / Open) |
 | `/?shot=1` | Hides the Demo chip, for screenshots and the README GIF |
 | `/?thread=t0` | Opens the Northwind verification-code thread |
+| `/?label=Clients` | Clients label (also `Receipts`, or a raw id like `Label_1`) |
+| `/?q=northwind` | Local search results |
+| `/?compose=1` | Fictional draft (Mira @ lumenforge.example). `compose=max` fills the window |
+| `/?settings=1` | Settings sheet. `settings=account` opens Alex's account page |
+| `/?theme=dark` | Force light/dark/system (also `light`, `system`) |
 | `/?onboarding` | First-run welcome, no account |
 
 Senders use `.example` / invented company names on purpose. Nothing in the
 demo dataset is a real person or a real domain.
+
+Landing and README stills are captured with `scripts/capture-demo-shots.py`
+(Playwright, 1440×900, `?shot=1`). Convert png → webp after a recapture.
 
 ## Native window, still fake data
 
