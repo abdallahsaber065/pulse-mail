@@ -52,6 +52,12 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn main() {
+    // Release builds may bake in the project's OAuth desktop client via these
+    // env vars (`option_env!` in auth/client_config.rs). Rebuild when they
+    // change; never print the values.
+    println!("cargo:rerun-if-env-changed=PULSE_GOOGLE_CLIENT_ID");
+    println!("cargo:rerun-if-env-changed=PULSE_GOOGLE_CLIENT_SECRET");
+
     let mut attrs = tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(COMMANDS));
 
     // Tauri embeds its Common-Controls v6 manifest into the app binary only.

@@ -1,76 +1,70 @@
 # Contributing to Pulse Mail
 
-Thank you for your interest in contributing to Pulse Mail!
+Thanks for wanting to help. Pulse Mail is an always-on Gmail client
+(Tauri v2 + Rust + SolidJS). Windows is the daily-driver platform; macOS
+(Apple Silicon) and Linux are experimental but CI runs on all three.
 
-Pulse Mail is an always-on, privacy-first Gmail client for Windows built with **Tauri v2**, **Rust**, and **SolidJS + TypeScript**.
+## Setup
 
----
+- **Node.js** 22+ and **pnpm**
+- **Rust** stable via `rustup`
+- Compilers:
+  - Windows: Visual Studio Build Tools (C++) and WebView2 (preinstalled on Windows 11)
+  - macOS: Xcode Command Line Tools
+  - Linux: `build-essential`, `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `libssl-dev`
 
-## 🛠️ Development Setup
-
-### Prerequisites
-- **OS**: Windows 10 or 11 (64-bit)
-- **Node.js**: v22+ with **pnpm** (`npm i -g pnpm`)
-- **Rust**: Stable via `rustup` with the MSVC toolchain
-- **Visual Studio Build Tools**: C++ build tools installed
-- **WebView2 Runtime**: Installed natively on Windows 11 / modern Windows 10
-
----
-
-## 🚀 Running the App Locally
-
-### 1. Frontend-Only Mode (Recommended for UI & Design contributions)
-You do **not** need a Google Cloud account or Rust compilation to work on the UI, components, or styles:
-```powershell
+```bash
 pnpm install
+```
+
+## Running it
+
+### UI only (no Google account)
+
+```bash
 pnpm dev
 ```
-Open [http://localhost:1420](http://localhost:1420) in any web browser. The app runs against a built-in mock dataset (`src/lib/mock.ts`) with hot module reloading.
 
-### 2. Full Desktop App (Tauri dev)
-To run the native Windows application with real Gmail integration:
-1. Follow the [Google OAuth Setup Guide](docs/SETUP-GOOGLE-OAUTH.md) to obtain your desktop client ID & secret.
-2. Place the file at `%APPDATA%\com.abdallah.pulsemail\google-oauth-client.json`.
-3. Launch the desktop app:
-```powershell
-pnpm tauri dev
-```
+Open [http://localhost:1420](http://localhost:1420). The app uses a
+fictional demo mailbox (`src/lib/mock.ts`). See [docs/DEMO.md](docs/DEMO.md)
+for `?toast=1`, `?shot=1`, and the optional `PULSE_MAIL_DEMO=1` Tauri path.
 
----
+### Full desktop app
 
-## 📐 Architecture & Principles
+1. Follow [docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md) and put
+   `google-oauth-client.json` in the repo root or the app config dir.
+2. `pnpm tauri dev`
 
-- **Rust owns all state**: SQLite cache (`rusqlite`, FTS5), sync engine (IMAP IDLE + Gmail REST API), OAuth loopback, and token storage in Windows Credential Manager.
-- **Stateless UI**: SolidJS + TypeScript calling `#[tauri::command]`s in `src-tauri/src/commands/` via `src/lib/api.ts`.
-- **Security First**:
-  - Tokens never leave memory or Windows Credential Manager.
-  - Email HTML is rendered strictly inside a sandboxed iframe ([`EmailFrame.tsx`](src/components/EmailFrame.tsx)) with remote images blocked by default.
-  - No analytics, telemetry, or external third-party network calls.
+## How the code is split
 
----
+- **Rust owns state:** SQLite cache, sync (IMAP IDLE + Gmail REST), OAuth,
+  tokens in the OS credential store.
+- **SolidJS is a renderer:** it calls `#[tauri::command]`s through
+  [`src/lib/api.ts`](src/lib/api.ts).
+- Email HTML only renders in [`EmailFrame.tsx`](src/components/EmailFrame.tsx)
+  (sandboxed iframe, remote images off until you click).
 
-## 🧪 Verification & Quality Gates
+Rules that actually bite: [AGENTS.md](AGENTS.md). Architecture:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-Before submitting a PR, make sure all tests pass and formatting is clean:
+## Before you open a PR
 
-```powershell
-# Frontend tests & typecheck
+```bash
 pnpm test
 pnpm build
-
-# Rust tests & linter
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
+cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
 ```
 
----
+CI also runs `pnpm audit --audit-level high` and clippy with `-D warnings`.
 
-## 📋 Pull Request Guidelines
+- One fix or feature per PR, conventional commits (`feat:`, `fix:`, `docs:`).
+- Tests next to the code (`*.test.ts` / `#[cfg(test)]`) for anything pure.
+- Never commit OAuth JSON, `.env`, or `*.db`.
 
-1. **Keep it focused**: One bug fix or feature per pull request.
-2. **Commit Messages**: Use [Conventional Commits](https://www.conventionalcommits.org/) format (e.g. `feat(search): add syntax autocomplete`, `fix(sync): smooth raw download rate limits`).
-3. **Tests**: If adding business logic or UI state helpers, add a unit test alongside the code (`*.test.ts` or `#[cfg(test)]` in Rust).
-4. **Never Commit Credentials**: Never include `.json` OAuth keys, `.env` files, or `.db` databases.
+New `#[tauri::command]`s need three registrations (handler, `build.rs`
+`COMMANDS`, `capabilities/default.json`). The test
+`security::tests::command_allowlist_in_sync` fails if you miss one.
 
-Thank you for making Pulse Mail better!
-
+Cutting a GitHub Release (OAuth secrets, tags, notes): [docs/RELEASING.md](docs/RELEASING.md).

@@ -13,7 +13,7 @@ reconnects; no silent consent upgrade or sign-out.
 | --- | --- | --- |
 | Refresh token | Windows Credential Manager, service `com.abdallah.pulsemail`, user `refresh-token:<email>` (via `keyring`) | files, SQLite, logs, UI, git |
 | Access token (1 h) | process memory only (`TokenManager`, `Secret`) | anywhere persistent |
-| OAuth client id/secret | `%APPDATA%\com.abdallah.pulsemail\google-oauth-client.json` (or `PULSE_MAIL_OAUTH_CLIENT`) | the repo (`.gitignore` blocks `google-oauth-client*.json`, `client_secret*.json`) |
+| OAuth client id/secret | Local `google-oauth-client.json` (app config dir, repo root, or `PULSE_MAIL_OAUTH_CLIENT`) if present; otherwise the compile-time `PULSE_GOOGLE_CLIENT_ID` / `PULSE_GOOGLE_CLIENT_SECRET` baked into published installers | the repo (`.gitignore` blocks `google-oauth-client*.json`, `client_secret*.json`); logs; CI on pull requests |
 | Cached mail | `%APPDATA%\com.abdallah.pulsemail\pulse-mail.db` (user profile, NTFS ACL) | git (`*.db` ignored) |
 
 For Desktop-app clients Google treats the client secret as non-confidential

@@ -138,6 +138,22 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-27 (release OAuth embed):** `release.yml` passes
+  `PULSE_GOOGLE_CLIENT_ID` / `PULSE_GOOGLE_CLIENT_SECRET` into the Tauri
+  build (`option_env!`). Official-repo releases fail if they're missing;
+  forks warn and still build. Local JSON still overrides. Docs:
+  [RELEASING.md](RELEASING.md), [SETUP-GOOGLE-OAUTH.md](SETUP-GOOGLE-OAUTH.md).
+
+- **2026-10-27 (launch docs + demo mailbox):** README overhauled for the
+  public launch (v0.4.0 badge, download links, privacy/OAuth cap, demo GIF).
+  Browser mock (`pnpm dev`) now seeds fictional mail only — no real brands
+  or people — with Clients/Receipts labels and a Northwind OTP thread.
+  `?toast=1` shows a demo-only OTP notification card; `PULSE_MAIL_DEMO=1`
+  gates the same mock in a Tauri *dev* window. Release builds stay on the
+  real IPC path. See [DEMO.md](DEMO.md).
+
+
+
 - **2026-10-24 (v0.3.0 release prep):** Version bumped to 0.3.0 across
   package.json / tauri.conf.json / Cargo.toml; CHANGELOG.md added (Keep a
   Changelog format) covering everything since v0.2.1; README refreshed —

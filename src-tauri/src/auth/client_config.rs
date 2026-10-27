@@ -1,5 +1,8 @@
-//! Loads the user's own Google OAuth "Desktop app" client from a local file
-//! that is never committed. See docs/SETUP-GOOGLE-OAUTH.md.
+//! Loads the Google OAuth "Desktop app" client.
+//!
+//! Order: a local JSON file (never committed; see docs/SETUP-GOOGLE-OAUTH.md),
+//! then a compile-time fallback (`PULSE_GOOGLE_CLIENT_ID` /
+//! `PULSE_GOOGLE_CLIENT_SECRET`) used by published installers.
 //!
 //! Accepted formats:
 //! - the JSON Google Cloud lets you download (`{"installed": {...}}`)
@@ -39,6 +42,9 @@ pub enum ConfigError {
 /// 2. Current working directory / project root (`./google-oauth-client.json`)
 /// 3. Source directory (`./src-tauri/google-oauth-client.json`)
 /// 4. User app config directory (`<app config dir>/google-oauth-client.json`)
+///
+/// `load` then falls back to compile-time `PULSE_GOOGLE_CLIENT_ID` /
+/// `PULSE_GOOGLE_CLIENT_SECRET` when no file is present (published installers).
 pub fn resolve_path(app_config_dir: &Path) -> PathBuf {
     if let Some(p) = std::env::var_os(ENV_OVERRIDE).filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
@@ -120,9 +126,17 @@ mod tests {
 
     #[test]
     fn missing_file_is_reported() {
-        assert!(matches!(
-            load(Path::new("Z:/definitely/missing.json")),
-            Err(ConfigError::Missing(_))
-        ));
+        let result = load(Path::new("Z:/definitely/missing.json"));
+        match (
+            option_env!("PULSE_GOOGLE_CLIENT_ID"),
+            option_env!("PULSE_GOOGLE_CLIENT_SECRET"),
+        ) {
+            (Some(id), Some(secret)) if !id.is_empty() && !secret.is_empty() => {
+                assert!(result.is_ok(), "compile-time client is the fallback");
+            }
+            _ => {
+                assert!(matches!(result, Err(ConfigError::Missing(_))));
+            }
+        }
     }
 }

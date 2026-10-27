@@ -244,8 +244,9 @@ The webview capability is `core:default` only; plugins are used from Rust.
   (promise-based, `ui/dialog.tsx`), `snack()` queue (`Snackbar.tsx`). Hosts are
   mounted once in `App`.
 - **Status chip logic** is a pure function (`lib/sync-view.ts::chipView`) with tests.
-- **Browser mock:** outside Tauri, `api.ts` routes to `mock.ts` so the UI runs
-  with `pnpm dev`.
+- **Demo mailbox:** outside Tauri, `api.ts` routes to `mock.ts` so the UI runs
+  with `pnpm dev`. A Tauri *dev* build can opt in with `PULSE_MAIL_DEMO=1`
+  (`import.meta.env.DEV` is also required). See [DEMO.md](DEMO.md).
 
 ## Process and window lifecycle
 

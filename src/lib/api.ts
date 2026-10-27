@@ -1,5 +1,6 @@
 // Thin typed wrapper over Tauri IPC. Outside Tauri (plain `pnpm dev` in a
-// browser) it falls back to mock data so the UI can be designed quickly.
+// browser) it falls back to the demo mailbox. A Tauri *dev* build can opt
+// in with `PULSE_MAIL_DEMO=1`; release builds never take that path.
 import type {
   Category,
   CategoryCount,
@@ -34,8 +35,12 @@ import type { SelectionInfo, SelectionSource, ThreadKey, ReadBatch } from "./sel
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+/** Browser `pnpm dev`, or `PULSE_MAIL_DEMO=1` during `pnpm tauri dev`. Always false in release. */
+export const isDemo =
+  !inTauri || (import.meta.env.DEV === true && import.meta.env.VITE_PULSE_MAIL_DEMO === "1");
+
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!inTauri) return mock.handle(cmd, args) as Promise<T>;
+  if (isDemo) return mock.handle(cmd, args) as Promise<T>;
   const { invoke } = await import("@tauri-apps/api/core");
   try {
     return await invoke<T>(cmd, args);
@@ -63,7 +68,7 @@ export const api = {
   accountStorage: (accountId: number) => call<AccountStorage>("account_storage", { accountId }),
   /** Upload one file for compose as a raw IPC body (no base64). */
   stageAttachment: async (file: File): Promise<StagedRef> => {
-    if (!inTauri) return mock.handle("stage_attachment", { name: file.name, mime: file.type, size: file.size }) as Promise<StagedRef>;
+    if (isDemo) return mock.handle("stage_attachment", { name: file.name, mime: file.type, size: file.size }) as Promise<StagedRef>;
     const { invoke } = await import("@tauri-apps/api/core");
     const bytes = new Uint8Array(await file.arrayBuffer());
     try {
@@ -134,7 +139,7 @@ export const api = {
 type Unlisten = () => void;
 
 export async function onEvent<T>(name: "mail-updated" | "sync-status" | "sync-activity" | "open-thread" | "send-result" | "accounts-changed" | "update-available" | "update-downloading" | "update-ready", cb: (payload: T) => void): Promise<Unlisten> {
-  if (!inTauri) return () => {};
+  if (isDemo) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen<T>(name, (e) => cb(e.payload));
 }

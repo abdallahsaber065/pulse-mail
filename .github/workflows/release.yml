@@ -20,6 +20,12 @@ jobs:
     needs: []
     permissions:
       contents: write
+    env:
+      # Compile-time (`option_env!` in auth/client_config.rs). Empty on forks
+      # that haven't copied the secrets — the binary then needs a local JSON.
+      # Never echo these; Actions also masks registered secret values in logs.
+      PULSE_GOOGLE_CLIENT_ID: ${{ secrets.PULSE_GOOGLE_CLIENT_ID }}
+      PULSE_GOOGLE_CLIENT_SECRET: ${{ secrets.PULSE_GOOGLE_CLIENT_SECRET }}
     strategy:
       fail-fast: false
       matrix:
@@ -56,11 +62,34 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
 
+      - name: Check embedded OAuth client
+        id: oauth
+        shell: bash
+        env:
+          IS_FORK: ${{ github.event.repository.fork }}
+        run: |
+          set +x
+          if [ -n "${PULSE_GOOGLE_CLIENT_ID}" ] && [ -n "${PULSE_GOOGLE_CLIENT_SECRET}" ]; then
+            echo "embedded=yes" >> "$GITHUB_OUTPUT"
+            echo "OAuth desktop client will be compiled into this binary."
+          else
+            echo "embedded=no" >> "$GITHUB_OUTPUT"
+            msg="Repository secrets PULSE_GOOGLE_CLIENT_ID and PULSE_GOOGLE_CLIENT_SECRET are not set. This binary will require google-oauth-client.json at runtime."
+            if [ "$IS_FORK" = "true" ]; then
+              echo "::warning::$msg"
+            else
+              echo "::error::$msg Add both at Settings → Secrets and variables → Actions before cutting a release. See docs/RELEASING.md."
+              exit 1
+            fi
+          fi
+
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
           cache-on-failure: true
+          # Keep caches with/without the baked-in client separate (no secret values).
+          prefix-key: v0-rust-oauth-${{ steps.oauth.outputs.embedded }}
 
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -91,6 +120,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          PULSE_GOOGLE_CLIENT_ID: ${{ secrets.PULSE_GOOGLE_CLIENT_ID }}
+          PULSE_GOOGLE_CLIENT_SECRET: ${{ secrets.PULSE_GOOGLE_CLIENT_SECRET }}
         with:
           tagName: ${{ github.ref_name || inputs.tag }}
           releaseName: 'Pulse Mail ${{ github.ref_name || inputs.tag }}'
