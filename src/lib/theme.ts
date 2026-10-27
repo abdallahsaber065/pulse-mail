@@ -3,8 +3,18 @@ import { createSignal } from "solid-js";
 export type ThemePref = "system" | "light" | "dark";
 const KEY = "pulse.theme";
 
+function bootPref(): ThemePref {
+  const fromUrl = new URLSearchParams(window.location.search).get("theme");
+  if (fromUrl === "light" || fromUrl === "dark" || fromUrl === "system") {
+    localStorage.setItem(KEY, fromUrl);
+    return fromUrl;
+  }
+  const stored = localStorage.getItem(KEY);
+  return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+}
+
 const media = window.matchMedia("(prefers-color-scheme: dark)");
-const [pref, setPrefSignal] = createSignal<ThemePref>((localStorage.getItem(KEY) as ThemePref) || "system");
+const [pref, setPrefSignal] = createSignal<ThemePref>(bootPref());
 const [isDark, setIsDark] = createSignal(false);
 
 function apply() {

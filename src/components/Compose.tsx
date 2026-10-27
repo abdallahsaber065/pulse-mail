@@ -24,6 +24,8 @@ interface Props {
   onSend(d: Draft, accountId: number | null): void;
   onClose(d: Draft, accountId: number | null, saved: boolean): void;
   onDiscard(d: Draft, accountId: number | null): void;
+  /** Demo/screenshot: open already maximized. */
+  startMaximized?: boolean;
 }
 
 /** Docked compose sheet (bottom right): autosaves to Gmail Drafts. */
@@ -44,7 +46,7 @@ export default function Compose(p: Props) {
   let picker: HTMLInputElement | undefined;
   const [uploading, setUploading] = createSignal(0);
   const [dragging, setDragging] = createSignal(false);
-  const [maximized, setMaximized] = createSignal(false);
+  const [maximized, setMaximized] = createSignal(!!p.startMaximized);
 
   const schedule = () => {
     setError(null);

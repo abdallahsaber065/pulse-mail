@@ -15,10 +15,11 @@ Windows remains the daily-driver platform; macOS and Linux are experimental
   Tauri window at the same mock. Release builds cannot enable it. See
   [DEMO.md](DEMO.md).
 - **GitHub Pages landing (unreleased):** static site in `site/` (home,
-  `/privacy`, `/terms`) plus `.github/workflows/pages.yml`. Intended URL
-  https://abdallahsaber065.github.io/pulse-mail/ once Pages source is
-  **GitHub Actions**. Privacy policy matches the scopes in
-  `auth/oauth.rs`. Owner steps: [GOOGLE-VERIFICATION.md](GOOGLE-VERIFICATION.md).
+  `/privacy`, `/terms`) plus `.github/workflows/pages.yml`, live at
+  https://abdallahsaber065.github.io/pulse-mail/. Visual identity follows
+  the app tokens (self-hosted Inter, window-framed shots, screenshot
+  gallery). Privacy policy matches the scopes in `auth/oauth.rs`. Owner
+  steps: [GOOGLE-VERIFICATION.md](GOOGLE-VERIFICATION.md).
 
 - **Dark-mode mail rendering fix (2026-10-24, `0ea8ffc`):** smart dark no
   longer renders washed-out light text on a light canvas (Chromium paints

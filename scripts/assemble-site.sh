@@ -11,7 +11,9 @@ rm -rf "$out"
 cp -a site "$out"
 mkdir -p "$out/assets"
 cp -f docs/pulse-mail-logo.png "$out/assets/logo.png"
-cp -f docs/assets/demo.gif docs/assets/inbox.png docs/assets/thread.png docs/assets/otp.png "$out/assets/"
+# Product shots live in docs/assets (png + webp + gif). Overlay onto site/assets.
+shopt -s nullglob
+cp -f docs/assets/*.{png,webp,gif} "$out/assets/"
 rm -f "$out/google-site-verification.content"
 
 token=""

@@ -1,6 +1,6 @@
 // Demo mailbox for UI work (`pnpm dev`) and optional Tauri `PULSE_MAIL_DEMO=1`.
 // Never used in release builds. All senders and companies are fictional.
-import type { Account, Activity, AppStatus, Label, Message, RenderedMessage, SyncStatus, ThreadRow } from "./types";
+import type { Account, Activity, AppStatus, Draft, Label, Message, RenderedMessage, SyncStatus, ThreadRow } from "./types";
 import { threadKey, type SelectionSource, type ThreadKey } from "./selection";
 import { needsServer } from "./search";
 
@@ -10,11 +10,28 @@ const min = 60_000;
 /** Stand-in OTP toast / first inbox row. Fictional sender, RFC 2606 domain. */
 export const DEMO = {
   email: "alex@example.com",
+  displayName: "Alex Rivera",
   otpCode: "482917",
   otpThreadId: "t0",
   otpFrom: "Northwind Auth",
   otpSubject: "Your Northwind sign-in code",
 } as const;
+
+/** Fictional draft opened by `?compose=1` in demo mode. */
+export const DEMO_COMPOSE: Draft = {
+  to: "mira@lumenforge.example",
+  cc: "jules@brightmill.example",
+  bcc: "",
+  subject: "Thursday design review — density notes",
+  body: "Hi Mira,\n\nThursday at 3pm works. I'll bring the density notes (compact 32 / default 40 / comfortable 52) and a couple of screenshots from the mock mailbox.\n\nNothing in this draft is real mail.\n\nAlex",
+  quote: null,
+  inReplyTo: "",
+  references: "",
+  threadId: null,
+  draftId: "r-mock-draft",
+  html: null,
+  attachments: [{ name: "density-notes.txt", mime: "text/plain", size: 2048, staged: "s-demo" }],
+};
 
 type Seed = {
   fromName: string;
@@ -265,10 +282,10 @@ function accountOf(id: number, email: string): Account {
     backfillError: null,
     attachMode: "limit",
     attachMaxMb: 10,
-    displayName: email === DEMO.email ? "Alex" : "",
+    displayName: email === DEMO.email ? DEMO.displayName : "",
     avatarData: null,
     color: "",
-    signature: "",
+    signature: email === DEMO.email ? "Alex Rivera\nLumenforge (demo mailbox)" : "",
     categoryTabs: false,
     sync: syncOf(id, email),
     unread: threads.filter((t) => t.unread && t.accountId === id).length,

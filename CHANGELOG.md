@@ -13,6 +13,8 @@ the 1.0 hardening milestone. Released binaries are on
   dev`) seeds fictional mail — including a Northwind OTP thread — without
   touching Google, the keychain, or the on-disk cache. `?toast=1` shows a
   stand-in verification-code notification. Off in every release build.
+  Demo URL flags can open compose, settings, search, a label, and light/dark
+  for screenshots (`docs/DEMO.md`).
 - Release builds can embed the project's Google OAuth Desktop client from
   repository secrets (`PULSE_GOOGLE_CLIENT_ID` / `PULSE_GOOGLE_CLIENT_SECRET`).
   A local `google-oauth-client.json` still wins. See [docs/RELEASING.md](docs/RELEASING.md).
@@ -26,6 +28,12 @@ the 1.0 hardening milestone. Released binaries are on
   fold, an honest OAuth / ~100-user note, and a short privacy section.
   Prebuilt installers embed the project's Desktop client (unverified);
   source builds and a local JSON still use your own.
+- Landing visual pass: app color tokens, self-hosted Inter, window-framed
+  screenshots, a no-JS gallery (inbox, reading pane, compose, settings,
+  search, labels, toast, dark), and matching privacy/terms pages. New demo
+  stills are full-window 1440×900 (webp + png). Download CTAs keep a deep
+  blue fill and white label in both themes (not the inverted pastel chip),
+  with a high-contrast outline for macOS/Linux and OS icons on the buttons.
 
 ## [0.4.0] — 2026-10-24
 

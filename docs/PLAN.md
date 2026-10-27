@@ -138,6 +138,12 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-27 (landing design pass):** Site restyled from app tokens
+  (self-hosted Inter, 8px spacing, window chrome around shots, radio
+  gallery). Demo mode gained URL flags for compose/settings/search/label/
+  theme so screenshots are full-window fictional mail. Privacy/terms match
+  the home chrome. OG image regenerated. README stills refreshed.
+
 - **2026-10-27 (GitHub Pages landing):** Static site in `site/` (home,
   privacy, terms) deployed by `.github/workflows/pages.yml`
   (`actions/deploy-pages`). Target

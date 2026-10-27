@@ -19,7 +19,7 @@ import { snack, SnackbarHost } from "./components/Snackbar";
 import { confirmDialog, DialogHost } from "./components/ui/dialog";
 import type { IconName } from "./components/Icon";
 import { api, isDemo, onEvent } from "./lib/api";
-import { DEMO } from "./lib/mock";
+import { DEMO, DEMO_COMPOSE } from "./lib/mock";
 import DemoToast from "./components/DemoToast";
 import { labelName } from "./lib/format";
 import { checkLink } from "./lib/links";
@@ -50,6 +50,14 @@ const VIEW_KEY = "pm.accountView";
 // Keep TipTap/ProseMirror out of the inbox startup path.
 const Compose = lazy(() => import("./components/Compose"));
 
+function demoLabel(params: URLSearchParams | null): string {
+  const v = params?.get("label");
+  if (!v) return "INBOX";
+  if (/^clients$/i.test(v)) return "Label_1";
+  if (/^receipts$/i.test(v)) return "Label_2";
+  return v;
+}
+
 /** Optimistic per-thread state shown until the next reload confirms it. */
 interface Override {
   unread?: boolean;
@@ -77,15 +85,15 @@ export default function App() {
   const [onboarding, setOnboarding] = createSignal<{ mode: "first" | "add"; resume?: { accountId: number; email: string } } | null>(null);
   const [activity, setActivity] = createSignal<Activity[]>([]);
   const [online, setOnline] = createSignal(navigator.onLine);
-  const [label, setLabel] = createSignal("INBOX");
-  const [query, setQuery] = createSignal("");
-  const [debounced, setDebounced] = createSignal("");
+  const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const shotMode = urlParams?.has("shot") === true;
+  const [label, setLabel] = createSignal(demoLabel(urlParams));
+  const [query, setQuery] = createSignal(urlParams?.get("q") ?? "");
+  const [debounced, setDebounced] = createSignal(urlParams?.get("q") ?? "");
   /** The query actually searched: blank until it has 2+ characters (a single
    * CJK/Arabic character counts), so the first keystroke never triggers the
    * heaviest FTS scan for the least information. */
   const searchQ = createMemo(() => (searchReady(debounced()) ? debounced().trim() : ""));
-  const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const shotMode = urlParams?.has("shot") === true;
   const [demoToast, setDemoToast] = createSignal(false);
   const [selected, setSelected] = createSignal<string | null>(urlParams?.get("thread") ?? null);
   const [cursor, setCursor] = createSignal(0);
@@ -99,6 +107,7 @@ export default function App() {
     initial: Draft;
     accountId: number | null;
     canPick: boolean;
+    startMaximized?: boolean;
   } | null>(null);
   const [tick, setTick] = createSignal(0); // bump to reload after "mail-updated"
   const [overrides, setOverrides] = createSignal<Record<string, Override>>({});
@@ -954,22 +963,18 @@ export default function App() {
       void loadThread(initThread, true);
       markOpenedRead(initThread, 1);
     }
-    if (urlParams?.has("compose")) {
-      openCompose(
-        {
-          ...emptyDraft(),
-          to: "alex.chen@innovate.io, maya@acme.com",
-          cc: "team@company.com",
-          subject: "Pulse Mail v0.2 Release Architecture & Performance",
-          body: "Hi team,\n\nI've finalized the performance benchmarks and multi-platform packaging for Pulse Mail v0.2.0.\n\n- Zero temp files on disk\n- Client-side Excel & Docx preview\n- 5-10s Undo send grace period\n\nLooking forward to your feedback!\n\nBest,\nAbdallah",
-          attachments: [
-            { name: "v0.2-Benchmarks.xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: 32000, staged: "s1" }
-          ]
-        },
-        "New message",
-        1,
-        true
-      );
+    if (isDemo && urlParams?.has("compose")) {
+      setCompose({
+        key: ++composeKey,
+        title: "New message",
+        initial: { ...emptyDraft(), ...DEMO_COMPOSE, attachments: [...DEMO_COMPOSE.attachments] },
+        accountId: 1,
+        canPick: true,
+        startMaximized: urlParams.get("compose") === "max",
+      });
+    }
+    if (isDemo && urlParams?.has("settings")) {
+      setSettings(true);
     }
     // Register cleanups synchronously (inside the owner), then do async work.
     let disposed = false;
@@ -1531,6 +1536,7 @@ export default function App() {
               accountId={c.accountId}
               accounts={accounts()}
               canPickAccount={c.canPick}
+              startMaximized={c.startMaximized}
               onSend={(d, a) => void sendDraft(d, a)}
               onClose={closeCompose}
               onDiscard={(d, a) => void discardCompose(d, a)}
@@ -1551,6 +1557,7 @@ export default function App() {
       <Show when={settings() && status()}>
         <SettingsPanel
           status={status()!}
+          initialAccountId={isDemo && urlParams?.get("settings") === "account" ? 1 : null}
           onClose={() => setSettings(false)}
           onAutostart={(v) => void updateSetting(() => api.setAutostart(v))}
           onCloseBehavior={(quit) => void updateSetting(() => api.setDestroyOnClose(quit))}
