@@ -5,6 +5,10 @@ import tailwindcss from "@tailwindcss/vite";
 import process from "node:process";
 
 const host = process.env.TAURI_DEV_HOST;
+// Map the unprefixed env var contributors actually set. Vite only exposes VITE_*.
+if (process.env.PULSE_MAIL_DEMO === "1") {
+  process.env.VITE_PULSE_MAIL_DEMO = "1";
+}
 
 // https://vite.dev/config/
 export default defineConfig(() => ({

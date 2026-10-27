@@ -59,7 +59,7 @@ Run from the repo root unless noted.
 | Task | Command |
 | --- | --- |
 | Install JS deps | `pnpm install` |
-| UI only, in a browser with mock data | `pnpm dev` (http://localhost:1420) |
+| UI only, in a browser with the demo mailbox | `pnpm dev` (http://localhost:1420; see `docs/DEMO.md`) |
 | Full app (dev) | `pnpm tauri dev` |
 | UI typecheck + build | `pnpm build` |
 | UI unit tests | `pnpm test` |

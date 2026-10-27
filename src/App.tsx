@@ -18,7 +18,9 @@ import { TopProgress } from "./components/SyncIndicator";
 import { snack, SnackbarHost } from "./components/Snackbar";
 import { confirmDialog, DialogHost } from "./components/ui/dialog";
 import type { IconName } from "./components/Icon";
-import { api, onEvent } from "./lib/api";
+import { api, isDemo, onEvent } from "./lib/api";
+import { DEMO } from "./lib/mock";
+import DemoToast from "./components/DemoToast";
 import { labelName } from "./lib/format";
 import { checkLink } from "./lib/links";
 import { combineSync, windowLabel } from "./lib/accounts";
@@ -83,6 +85,8 @@ export default function App() {
    * heaviest FTS scan for the least information. */
   const searchQ = createMemo(() => (searchReady(debounced()) ? debounced().trim() : ""));
   const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const shotMode = urlParams?.has("shot") === true;
+  const [demoToast, setDemoToast] = createSignal(false);
   const [selected, setSelected] = createSignal<string | null>(urlParams?.get("thread") ?? null);
   const [cursor, setCursor] = createSignal(0);
   const [collapsed, setCollapsed] = createSignal(false);
@@ -937,6 +941,12 @@ export default function App() {
     });
 
   onMount(() => {
+    if (!isDemo || !urlParams?.has("toast")) return;
+    const t = window.setTimeout(() => setDemoToast(true), 700);
+    onCleanup(() => window.clearTimeout(t));
+  });
+
+  onMount(() => {
     const initThread = urlParams?.get("thread");
     if (initThread) {
       setSelectedAccount(1);
@@ -1336,6 +1346,7 @@ export default function App() {
         online={online()}
         activity={activity()}
         searchRef={(el) => (searchInput = el)}
+        demo={isDemo && !shotMode}
       />
       <div class="flex min-h-0 flex-1">
         <Sidebar
@@ -1576,6 +1587,21 @@ export default function App() {
             setOnboarding(null);
             void refetchStatus();
           }}
+        />
+      </Show>
+      <Show when={isDemo && demoToast()}>
+        <DemoToast
+          from={DEMO.otpFrom}
+          code={DEMO.otpCode}
+          subject={DEMO.otpSubject}
+          onCopy={() => void copyCode(DEMO.otpCode)}
+          onOpen={() => {
+            setDemoToast(false);
+            const list = rows();
+            const row = list.find((t) => t.threadId === DEMO.otpThreadId);
+            if (row) void openThread(row, list.indexOf(row));
+          }}
+          onDismiss={() => setDemoToast(false)}
         />
       </Show>
       <DialogHost />

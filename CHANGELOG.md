@@ -5,6 +5,21 @@ All notable changes to Pulse Mail are documented here. The format follows
 the 1.0 hardening milestone. Released binaries are on
 [GitHub Releases](https://github.com/abdallahsaber065/pulse-mail/releases).
 
+## [Unreleased]
+
+### Added
+
+- Demo mailbox for contributors: `pnpm dev` (or `PULSE_MAIL_DEMO=1 pnpm tauri
+  dev`) seeds fictional mail — including a Northwind OTP thread — without
+  touching Google, the keychain, or the on-disk cache. `?toast=1` shows a
+  stand-in verification-code notification. Off in every release build.
+
+### Changed
+
+- README rewritten for the public launch: demo GIF, download links above the
+  fold, an honest OAuth / ~100-user note (your own Cloud client; unverified
+  cap), and a short privacy section.
+
 ## [0.4.0] — 2026-10-24
 
 ### Added

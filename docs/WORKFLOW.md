@@ -67,9 +67,13 @@ Whenever adding or modifying a `#[tauri::command]`:
 - Editing `src-tauri/` while it runs triggers a rebuild and restart of the
   app; editing `src/` hot-reloads the UI. Don't restart or stop the user's
   running app unless the task needs it, and say so when you do.
-- UI only, with mock data in a browser: `pnpm dev` (http://localhost:1420).
-  Handy for layout work and headless screenshots; hover styles need a real
-  mouse (Tailwind v4 wraps `hover:` in `@media (hover: hover)`).
+- UI only, with the demo mailbox in a browser: `pnpm dev`
+  (http://localhost:1420). Fictional senders, no Google credentials. See
+  [DEMO.md](DEMO.md). Handy for layout work and screenshots; hover styles
+  need a real mouse (Tailwind v4 wraps `hover:` in `@media (hover: hover)`).
+  `?toast=1` shows the stand-in OTP notification; `?shot=1` hides the Demo
+  chip. `PULSE_MAIL_DEMO=1 pnpm tauri dev` uses the same mailbox in a native
+  window (dev builds only).
 - Log level: `PULSE_MAIL_LOG=debug` (default `pulse_mail_lib=info,warn`).
   Useful lines: `first page ready count=… ms=…`, `backfill done`, `imap idle
   connected`, `sync failed`, `sync pass panicked`.

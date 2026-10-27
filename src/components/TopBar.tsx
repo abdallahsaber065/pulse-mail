@@ -25,6 +25,8 @@ interface Props {
   online: boolean;
   activity: Activity[];
   searchRef(el: HTMLInputElement): void;
+  /** Tiny "Demo" chip; omitted from screenshot/GIF captures (`?shot=1`). */
+  demo?: boolean;
 }
 
 export default function TopBar(p: Props) {
@@ -104,6 +106,9 @@ export default function TopBar(p: Props) {
         <div class="flex items-center gap-2 pl-1 select-none">
           <img src="/icon.png" alt="Pulse Mail logo" class="size-8 rounded-lg shadow-xs select-none object-contain" />
           <span class="font-display text-[22px] text-muted">Pulse</span>
+          <Show when={p.demo}>
+            <span class="rounded-full bg-otp-container px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-otp">Demo</span>
+          </Show>
         </div>
       </div>
 

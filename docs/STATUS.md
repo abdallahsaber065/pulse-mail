@@ -1,15 +1,19 @@
 # Status: what works today
 
-## Current Release: v0.3.0 (2026-10-24)
+## Current Release: v0.4.0 (2026-10-24)
 
-Release highlights since v0.2.1 (full list in [CHANGELOG.md](../CHANGELOG.md)):
-quiet hours, sleep/resume catch-up, local crash logs with "Open logs folder",
-an Unsubscribe button on mail that offers one, faster view switches (50-row
-first page + per-view cache), readable dark-mode mail in both smart and
-original modes, toast-open-marks-read, and the xlsx security upgrade. The
-project is developed in the open (MIT) — Windows-first today, with
-macOS/Linux buildable from source; see the release table in
-[README.md](../README.md).
+Release highlights since v0.3.0 (full list in [CHANGELOG.md](../CHANGELOG.md)):
+self-update from GitHub Releases (signature-checked), Linux and macOS
+(Apple Silicon) installers, and search/list work moved off the UI thread.
+Windows remains the daily-driver platform; macOS and Linux are experimental
+(see the release table in [README.md](../README.md)).
+
+- **Launch docs + demo mailbox (unreleased):** README is conversion-oriented
+  (GIF, downloads, OAuth user-cap). `pnpm dev` still uses the in-process
+  mock; the dataset is now fictional (`.example` senders, a Northwind OTP
+  thread, Clients/Receipts labels). `PULSE_MAIL_DEMO=1` can point a *dev*
+  Tauri window at the same mock. Release builds cannot enable it. See
+  [DEMO.md](DEMO.md).
 
 - **Dark-mode mail rendering fix (2026-10-24, `0ea8ffc`):** smart dark no
   longer renders washed-out light text on a light canvas (Chromium paints
@@ -194,7 +198,8 @@ yet exercised against the real account.
 | App icon | Done | Full brand icon suite (tray, taskbar, installer, toast) since `6555d4b` |
 | Installer (NSIS, per-user) | Partial | Configured, never installed on the PC |
 | Tray unread badge | Done | Taskbar overlay with the unread count ("9+" above nine), a dot on the tray icon, per-account tooltip; updates 400 ms after mail changes | `badge.rs`, `tray.rs` |
-| Auto-update, code signing | Not started | |
+| Auto-update | Done | GitHub Releases + minisign (`update.rs`, ADR 0027). Check once after launch; install waits for a click. |
+| Code signing (Authenticode / Apple notarization) | Not started | Updater signatures exist; OS SmartScreen / Gatekeeper still warn. |
 
 ### Platforms
 
@@ -213,12 +218,12 @@ VERIFY-LIVE.md §7). Local time for quiet hours comes from
 
 | Item | State | Notes |
 | --- | --- | --- |
-| Rust unit tests | Done | 133 tests, offline (current working tree) |
-| UI unit tests | Done | 47 tests (vitest; current working tree) |
+| Rust unit tests | Done | Offline, deterministic (see CI) |
+| UI unit tests | Done | vitest (`pnpm test`) |
 | Clippy / fmt | Done | All-target Clippy with `-D warnings` passes; rustfmt clean and gated in CI |
 | Security invariant tests | Done | IPC allowlist in sync, devtools off in release, log calls never format secrets (`security.rs`) |
 | Dependency audit | Done | `cargo audit`: no vulnerabilities; 5 allowed warnings, all Linux-only GTK/zbus crates not built on Windows. `pnpm audit`: clean since the `xlsx` 0.20.3 upgrade (2026-10-24) |
-| CI | Done | GitHub Actions: one Windows job per PR/push to main running pnpm test, typecheck + build, `pnpm audit`, `cargo fmt --check`, check, test, clippy `-D warnings`; the release pipeline builds only the Windows NSIS installer into a draft release |
+| CI | Done | GitHub Actions on Windows, macOS (Apple Silicon), and Linux for every PR: pnpm test, typecheck + build, `pnpm audit`, `cargo fmt --check`, check, test, clippy `-D warnings`. The release pipeline publishes Win/macOS/Linux installers plus updater signatures. |
 
 ## Measured numbers
 
