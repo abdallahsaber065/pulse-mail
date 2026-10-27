@@ -305,7 +305,7 @@ const status: AppStatus = {
   autostart: true,
   notifications: "all",
   dataDir: "%APPDATA%\\com.abdallah.pulsemail",
-  version: "0.4.0",
+  version: "0.4.1",
   prefs: {
     images: "ask",
     email_dark: "smart",

@@ -7,33 +7,33 @@ the 1.0 hardening milestone. Released binaries are on
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-10-27
+
+Install from GitHub, sign in with Google — no Cloud project of your own.
+v0.4.0 installers did not include that client.
+
 ### Added
 
-- Demo mailbox for contributors: `pnpm dev` (or `PULSE_MAIL_DEMO=1 pnpm tauri
-  dev`) seeds fictional mail — including a Northwind OTP thread — without
-  touching Google, the keychain, or the on-disk cache. `?toast=1` shows a
-  stand-in verification-code notification. Off in every release build.
-  Demo URL flags can open compose, settings, search, a label, and light/dark
-  for screenshots (`docs/DEMO.md`).
-- Release builds can embed the project's Google OAuth Desktop client from
-  repository secrets (`PULSE_GOOGLE_CLIENT_ID` / `PULSE_GOOGLE_CLIENT_SECRET`).
-  A local `google-oauth-client.json` still wins. See [docs/RELEASING.md](docs/RELEASING.md).
-- Public landing site (GitHub Pages): home, privacy policy, and terms at
-  https://abdallahsaber065.github.io/pulse-mail/ — no cookies or analytics.
-  Owner checklist: [docs/GOOGLE-VERIFICATION.md](docs/GOOGLE-VERIFICATION.md).
+- **Sign-in from the installer.** Official GitHub builds (Windows, macOS
+  Apple Silicon, Linux) now include this project's Google Desktop client, so
+  **Sign in with Google** works without creating a Cloud project. Google
+  still shows an “unverified app” warning — expected, and capped at about
+  100 users until verification finishes. A `google-oauth-client.json` in
+  the app config dir still overrides the baked-in client. Source builds
+  still need your own client.
+- **Website.** Home, privacy policy, and terms at
+  https://abdallahsaber065.github.io/pulse-mail/ — static files, no cookies
+  or analytics.
+- **Demo mailbox for contributors.** `pnpm dev` (or `PULSE_MAIL_DEMO=1 pnpm
+  tauri dev`) runs the UI against invented mail, including a Northwind
+  verification-code thread. Off in every release build.
 
 ### Changed
 
-- README rewritten for the public launch: demo GIF, download links above the
-  fold, an honest OAuth / ~100-user note, and a short privacy section.
-  Prebuilt installers embed the project's Desktop client (unverified);
-  source builds and a local JSON still use your own.
-- Landing visual pass: app color tokens, self-hosted Inter, window-framed
-  screenshots, a no-JS gallery (inbox, reading pane, compose, settings,
-  search, labels, toast, dark), and matching privacy/terms pages. New demo
-  stills are full-window 1440×900 (webp + png). Download CTAs keep a deep
-  blue fill and white label in both themes (not the inverted pastel chip),
-  with a high-contrast outline for macOS/Linux and OS icons on the buttons.
+- README rewritten for people downloading the app: demo GIF, download table,
+  honest OAuth / ~100-user note, and a short privacy section.
+- Landing page restyled to match the app (window-framed screenshots, a
+  screenshot gallery, download buttons that stay readable in light and dark).
 
 ## [0.4.0] — 2026-10-24
 

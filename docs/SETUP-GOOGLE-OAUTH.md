@@ -5,7 +5,7 @@ no Pulse Mail server in the middle.
 
 ## Prebuilt releases (GitHub installers)
 
-From v0.4.0 onward, **published installers embed this project's Google Cloud
+From v0.4.1 onward, **published installers embed this project's Google Cloud
 Desktop client** at compile time. You do **not** need to create a Cloud
 project to try the app:
 
