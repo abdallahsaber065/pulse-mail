@@ -1,0 +1,8 @@
+# Paste your Google Search Console HTML-tag token below (the value of
+# content="..." from the meta tag Search Console shows you).
+# Lines starting with # and blank lines are ignored.
+#
+# After this file is non-empty, push to main, wait for Pages to deploy,
+# then click Verify in Search Console.
+# See docs/GOOGLE-VERIFICATION.md.
+

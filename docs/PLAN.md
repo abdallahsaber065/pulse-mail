@@ -138,6 +138,14 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-27 (GitHub Pages landing):** Static site in `site/` (home,
+  privacy, terms) deployed by `.github/workflows/pages.yml`
+  (`actions/deploy-pages`). Target
+  https://abdallahsaber065.github.io/pulse-mail/. Privacy policy matches
+  `SCOPE` in `auth/oauth.rs`. Owner checklist:
+  [GOOGLE-VERIFICATION.md](GOOGLE-VERIFICATION.md). Pages source must be
+  set to GitHub Actions before the first deploy succeeds.
+
 - **2026-10-27 (release OAuth embed):** `release.yml` passes
   `PULSE_GOOGLE_CLIENT_ID` / `PULSE_GOOGLE_CLIENT_SECRET` into the Tauri
   build (`option_env!`). Official-repo releases fail if they're missing;

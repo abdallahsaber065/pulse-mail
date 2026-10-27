@@ -10,6 +10,8 @@ I wanted a tiny always-on Gmail client that doesn't feel like a browser tab.
 
 Lives in the tray, caches mail in SQLite on your machine, gets push over IMAP IDLE, and puts 2FA codes on the notification so you can copy them without hunting the inbox.
 
+**Site:** [abdallahsaber065.github.io/pulse-mail](https://abdallahsaber065.github.io/pulse-mail/) · [Privacy](https://abdallahsaber065.github.io/pulse-mail/privacy/) · [Terms](https://abdallahsaber065.github.io/pulse-mail/terms/)
+
 <p>
   <img src="https://img.shields.io/badge/version-v0.4.0-blue.svg?style=flat-square" alt="Version 0.4.0" />
   <a href="https://github.com/abdallahsaber065/pulse-mail/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/abdallahsaber065/pulse-mail/ci.yml?style=flat-square" alt="CI" /></a>
@@ -108,6 +110,7 @@ pnpm dev
 - [docs/STATUS.md](docs/STATUS.md) — what actually works today
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — sync, SQLite, IPC
 - [docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md) — sign-in (installers vs your own client)
+- [docs/GOOGLE-VERIFICATION.md](docs/GOOGLE-VERIFICATION.md) — Auth Platform branding, Search Console, restricted scopes / CASA
 - [docs/RELEASING.md](docs/RELEASING.md) — tags, OAuth secrets, release notes
 - [AGENTS.md](AGENTS.md) — rules for anyone hacking on this
 

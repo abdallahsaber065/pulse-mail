@@ -69,7 +69,10 @@ Why: while an app is in **Testing**, Google expires refresh tokens after
 **7 days**, so a 24/7 client would sign you out every week. "In production"
 without verification is fine for personal use: Google caps unverified apps
 with restricted scopes at 100 users, and you are one. You don't need to
-submit for verification.
+submit for verification. To actually verify the Cloud project (lift the
+user cap and the warning), follow
+[GOOGLE-VERIFICATION.md](GOOGLE-VERIFICATION.md) — homepage, privacy,
+terms, Search Console, restricted-scope demo video, and CASA notes.
 
 ### 5. Create the Desktop client
 
