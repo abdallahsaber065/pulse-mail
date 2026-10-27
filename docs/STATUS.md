@@ -1,25 +1,24 @@
 # Status: what works today
 
-## Current Release: v0.4.0 (2026-10-24)
+## Current Release: v0.4.1 (2026-10-27)
 
-Release highlights since v0.3.0 (full list in [CHANGELOG.md](../CHANGELOG.md)):
-self-update from GitHub Releases (signature-checked), Linux and macOS
-(Apple Silicon) installers, and search/list work moved off the UI thread.
-Windows remains the daily-driver platform; macOS and Linux are experimental
-(see the release table in [README.md](../README.md)).
+Release highlights since v0.4.0 (full list in [CHANGELOG.md](../CHANGELOG.md)):
+official installers embed this project's Google Desktop client so Sign in
+with Google works without your own Cloud project; a public site
+(privacy/terms) at https://abdallahsaber065.github.io/pulse-mail/; demo
+mailbox for contributors (`pnpm dev`). Windows remains the daily-driver
+platform; macOS and Linux are experimental (see the release table in
+[README.md](../README.md)).
 
-- **Launch docs + demo mailbox (unreleased):** README is conversion-oriented
-  (GIF, downloads, OAuth user-cap). `pnpm dev` still uses the in-process
-  mock; the dataset is now fictional (`.example` senders, a Northwind OTP
-  thread, Clients/Receipts labels). `PULSE_MAIL_DEMO=1` can point a *dev*
-  Tauri window at the same mock. Release builds cannot enable it. See
-  [DEMO.md](DEMO.md).
-- **GitHub Pages landing (unreleased):** static site in `site/` (home,
-  `/privacy`, `/terms`) plus `.github/workflows/pages.yml`, live at
-  https://abdallahsaber065.github.io/pulse-mail/. Visual identity follows
-  the app tokens (self-hosted Inter, window-framed shots, screenshot
-  gallery). Privacy policy matches the scopes in `auth/oauth.rs`. Owner
-  steps: [GOOGLE-VERIFICATION.md](GOOGLE-VERIFICATION.md).
+- **v0.4.1 launch (2026-10-27):** README is conversion-oriented (GIF,
+  downloads, OAuth user-cap). `pnpm dev` still uses the in-process mock;
+  the dataset is fictional (`.example` senders, a Northwind OTP thread,
+  Clients/Receipts labels). `PULSE_MAIL_DEMO=1` can point a *dev* Tauri
+  window at the same mock. Release builds cannot enable it. See
+  [DEMO.md](DEMO.md). Site in `site/` (home, `/privacy`, `/terms`) live at
+  https://abdallahsaber065.github.io/pulse-mail/. Privacy policy matches
+  the scopes in `auth/oauth.rs`. Owner steps:
+  [GOOGLE-VERIFICATION.md](GOOGLE-VERIFICATION.md).
 
 - **Dark-mode mail rendering fix (2026-10-24, `0ea8ffc`):** smart dark no
   longer renders washed-out light text on a light canvas (Chromium paints

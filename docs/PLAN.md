@@ -138,6 +138,10 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-27 (v0.4.1):** Version bump across package.json, tauri.conf.json,
+  Cargo.toml / Cargo.lock. CHANGELOG + GitHub release notes drafted in
+  `docs/release-notes/v0.4.1.md`. Tag after merge — do not tag from the PR.
+
 - **2026-10-27 (landing design pass):** Site restyled from app tokens
   (self-hosted Inter, 8px spacing, window chrome around shots, radio
   gallery). Demo mode gained URL flags for compose/settings/search/label/
