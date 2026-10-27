@@ -17,6 +17,9 @@ google-oauth-client*.json
 *.pem
 secrets/
 
+# assembled GitHub Pages output (scripts/assemble-site.sh)
+_site/
+
 # local data
 *.db
 *.db-shm

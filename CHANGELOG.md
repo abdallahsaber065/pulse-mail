@@ -16,6 +16,9 @@ the 1.0 hardening milestone. Released binaries are on
 - Release builds can embed the project's Google OAuth Desktop client from
   repository secrets (`PULSE_GOOGLE_CLIENT_ID` / `PULSE_GOOGLE_CLIENT_SECRET`).
   A local `google-oauth-client.json` still wins. See [docs/RELEASING.md](docs/RELEASING.md).
+- Public landing site (GitHub Pages): home, privacy policy, and terms at
+  https://abdallahsaber065.github.io/pulse-mail/ — no cookies or analytics.
+  Owner checklist: [docs/GOOGLE-VERIFICATION.md](docs/GOOGLE-VERIFICATION.md).
 
 ### Changed
 

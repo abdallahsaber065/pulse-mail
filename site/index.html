@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pulse Mail — a Gmail client that lives in the tray</title>
+  <meta name="description" content="Pulse Mail is an always-on desktop Gmail client. It lives in the tray, toasts new mail in seconds, and puts verification codes on the notification. Mail stays on your computer — there is no Pulse Mail server." />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="canonical" href="https://abdallahsaber065.github.io/pulse-mail/" />
+  <link rel="icon" href="assets/logo.png" type="image/png" />
+  <link rel="apple-touch-icon" href="assets/logo.png" />
+  <link rel="stylesheet" href="styles.css" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Pulse Mail" />
+  <meta property="og:url" content="https://abdallahsaber065.github.io/pulse-mail/" />
+  <meta property="og:title" content="Pulse Mail — a Gmail client that lives in the tray" />
+  <meta property="og:description" content="Always-on desktop Gmail. Tray + push, verification codes on the toast, local SQLite cache. No Pulse Mail server." />
+  <meta property="og:image" content="https://abdallahsaber065.github.io/pulse-mail/assets/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Pulse Mail inbox with a verification-code chip on a new message" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Pulse Mail — a Gmail client that lives in the tray" />
+  <meta name="twitter:description" content="Always-on desktop Gmail. Tray + push, verification codes on the toast, local SQLite cache. No Pulse Mail server." />
+  <meta name="twitter:image" content="https://abdallahsaber065.github.io/pulse-mail/assets/og-image.png" />
+  <!-- Search Console: token injected at deploy from site/google-site-verification.content -->
+  <meta name="google-site-verification" content="GOOGLE_SITE_VERIFICATION_TOKEN" />
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site">
+    <div class="wrap nav">
+      <a class="brand" href="./">
+        <img src="assets/logo.png" width="32" height="32" alt="" />
+        Pulse Mail
+      </a>
+      <nav class="nav-links" aria-label="Site">
+        <a class="nav-optional" href="#features">Features</a>
+        <a class="nav-optional" href="#why-gmail">Why Gmail access</a>
+        <a href="privacy/">Privacy</a>
+        <a href="terms/">Terms</a>
+        <a href="https://github.com/abdallahsaber065/pulse-mail">GitHub</a>
+        <a class="btn btn-primary" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="wrap hero">
+      <div>
+        <p class="kicker">Desktop Gmail · Windows daily driver</p>
+        <h1>Pulse Mail</h1>
+        <p class="lede">A Gmail client that lives in the tray, not in a browser tab. Stays running, toasts new mail in seconds, and puts 2FA codes on the notification so you can copy them without hunting the inbox.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">Download latest release</a>
+          <a class="btn btn-ghost" href="https://github.com/abdallahsaber065/pulse-mail">View source</a>
+        </div>
+        <p class="fine">Free, MIT. Windows 10/11 is the one that’s been lived in. macOS (Apple Silicon) and Linux ship experimental builds. Google still shows an “unverified app” warning until verification finishes — expected, and capped at about 100 users until then.</p>
+      </div>
+      <figure class="shot-frame" aria-label="Product demo">
+        <img class="demo-gif" src="assets/demo.gif" width="1100" alt="Pulse Mail opening the inbox, reading a thread, and copying a verification code from a notification" />
+      </figure>
+    </div>
+
+    <section id="features">
+      <div class="wrap">
+        <h2 class="section-title">What it actually does</h2>
+        <p class="section-lead">Claims below match the current app. Windows is the daily driver; the other platforms compile and ship.</p>
+        <div class="features">
+          <article class="card">
+            <h3>Tray + push</h3>
+            <p>Stays in the tray. IMAP IDLE is the doorbell, then a cheap Gmail history sync. Not a 60-second poll loop.</p>
+          </article>
+          <article class="card">
+            <h3>Codes on the toast</h3>
+            <p>Verification codes and magic links are pulled out of the mail. Copy from the notification, the row chip, the reader, or Shift+C.</p>
+          </article>
+          <article class="card">
+            <h3>Local cache</h3>
+            <p>SQLite + FTS5 on this computer. Search hits the cache first; Gmail server search fills in older mail.</p>
+          </article>
+          <article class="card">
+            <h3>Hostile HTML stays in a box</h3>
+            <p>Sanitized in Rust, rendered in a sandboxed iframe. Remote images off until you click. Links open in your system browser.</p>
+          </article>
+          <article class="card">
+            <h3>Undo send</h3>
+            <p>A 5–10 second grace window before Gmail actually sends. Compose, reply, and labels work like Gmail’s shortcuts.</p>
+          </article>
+          <article class="card">
+            <h3>Several accounts</h3>
+            <p>Per-account inboxes plus “All inboxes”. Tokens live in the OS keychain, one entry per account.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="screenshots">
+      <div class="wrap">
+        <h2 class="section-title">Inbox, thread, code</h2>
+        <p class="section-lead">From the in-app demo mailbox — fictional senders, one Northwind OTP thread.</p>
+        <div class="shots">
+          <figure>
+            <div class="shot-frame"><img src="assets/inbox.png" width="1180" alt="Pulse Mail inbox with unread rows, a green 482917 verification-code chip, and Gmail-style sidebar labels" /></div>
+            <figcaption>Inbox — unread in bold, OTP chip on the row, Gmail-style labels.</figcaption>
+          </figure>
+          <div class="stack">
+            <figure>
+              <div class="shot-frame"><img src="assets/thread.png" width="1180" alt="Reading a verification-code email with a Copy button on a green banner" /></div>
+              <figcaption>Thread — copy the code from the banner.</figcaption>
+            </figure>
+            <figure>
+              <div class="shot-frame"><img src="assets/otp.png" width="1180" alt="A notification offering Copy code for a six-digit sign-in code" /></div>
+              <figcaption>Toast — Copy code without opening the window.</figcaption>
+            </figure>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="why-gmail">
+      <div class="wrap">
+        <div class="why">
+          <h2>Why Pulse Mail asks for Gmail access</h2>
+          <p>Pulse Mail is a <strong>desktop email client</strong>. When you click Sign in with Google it requests access to your Gmail so it can:</p>
+          <ul>
+            <li>read, search, send, archive, star, label, and trash mail through the Gmail API;</li>
+            <li>keep an IMAP connection open (IDLE) so new mail can toast within seconds instead of polling;</li>
+            <li>show your Google account name and photo in the account switcher (<code>openid</code> + <code>profile</code>).</li>
+          </ul>
+          <p>There is <strong>no Pulse Mail server</strong>. The app talks to Google (OAuth, Gmail REST, IMAP) from your computer, and to this project’s GitHub Releases for optional self-update. Mail, search, and tokens are not uploaded to us — we don’t have a place to put them.</p>
+          <p>The Gmail permission is the broad <code>https://mail.google.com/</code> scope because IMAP XOAUTH2 requires it. Tokens go in the OS credential store. The mail cache is a SQLite file in your user profile; it is <strong>not encrypted at rest</strong>. Details, including how to revoke access and delete the cache: <a href="privacy/">Privacy policy</a>.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="download">
+      <div class="wrap">
+        <h2 class="section-title">Download</h2>
+        <p class="section-lead">Installers are on <a href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">GitHub Releases</a>. Pick the file for your OS from the latest release (currently v0.4.0).</p>
+        <div class="downloads">
+          <article class="card os">
+            <span class="badge badge-live">Daily driver</span>
+            <h3>Windows 10/11 (x64)</h3>
+            <p class="note"><code>Pulse.Mail_*_x64-setup.exe</code> (per-user) or the <code>.msi</code>.</p>
+            <p class="note">SmartScreen may warn once — the installer isn’t Authenticode-signed yet. More info → Run anyway.</p>
+            <a class="btn btn-primary" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">Get Windows build</a>
+          </article>
+          <article class="card os">
+            <span class="badge">Experimental</span>
+            <h3>macOS (Apple Silicon)</h3>
+            <p class="note"><code>Pulse.Mail_*_aarch64.dmg</code>. Intel Macs are not built.</p>
+            <p class="note">Unsigned. After dragging to Applications: right-click → Open the first time.</p>
+            <a class="btn btn-ghost" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">Get macOS build</a>
+          </article>
+          <article class="card os">
+            <span class="badge">Experimental</span>
+            <h3>Linux (x64)</h3>
+            <p class="note"><code>.AppImage</code> (self-updates), <code>.deb</code>, or <code>.rpm</code>.</p>
+            <p class="note">Tray needs an appindicator; notification buttons work on GNOME/KDE.</p>
+            <a class="btn btn-ghost" href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">Get Linux build</a>
+          </article>
+        </div>
+        <p class="fine" style="margin-top:20px">After install: open the app → Sign in with Google. Google will say it hasn’t verified this app. That’s the same ~100-user cap as any unverified Gmail client. Building from source uses your own Cloud desktop client — see the repo README.</p>
+      </div>
+    </section>
+
+    <section id="privacy">
+      <div class="wrap">
+        <h2 class="section-title">Privacy, in one screen</h2>
+        <div class="features">
+          <article class="card">
+            <h3>No Pulse Mail server</h3>
+            <p>No account with us, no cloud mailbox, no telemetry, no ads, no sale of data, no AI training on your mail.</p>
+          </article>
+          <article class="card">
+            <h3>Tokens in the OS keychain</h3>
+            <p>Refresh tokens live in Credential Manager / Keychain / Secret Service. Access tokens stay in memory.</p>
+          </article>
+          <article class="card">
+            <h3>You can leave</h3>
+            <p>Sign out in the app, or remove Pulse Mail at <a href="https://myaccount.google.com/permissions">Google Account permissions</a>. That also deletes the local cache for that account.</p>
+          </article>
+        </div>
+        <p style="margin-top:20px"><a href="privacy/">Full privacy policy</a> · <a href="terms/">Terms of service</a> · MIT license</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site">
+    <div class="wrap">
+      <div class="foot">
+        <span>Pulse Mail · MIT · © 2026 Abdallah Saber</span>
+        <nav aria-label="Footer">
+          <a href="privacy/">Privacy</a>
+          <a href="terms/">Terms</a>
+          <a href="https://github.com/abdallahsaber065/pulse-mail">GitHub</a>
+          <a href="https://github.com/abdallahsaber065/pulse-mail/releases/latest">Releases</a>
+        </nav>
+      </div>
+      <p class="legal">Independent project, not affiliated with Google. Gmail is a trademark of Google LLC. This site is static files on GitHub Pages — no cookies, no analytics.</p>
+    </div>
+  </footer>
+</body>
+</html>

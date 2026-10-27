@@ -49,6 +49,7 @@ src-tauri/src/
   tray.rs, window.rs     tray menu, hide/destroy-on-close lifecycle
   devtools.rs            dev-only benchmark code (examples/sync_bench.rs)
 src-tauri/build.rs       embeds windows-app-manifest.xml into every target (ADR 0010)
+site/                    GitHub Pages landing (home, privacy, terms); see docs/GOOGLE-VERIFICATION.md
 docs/                    status, roadmap, plan, workflow, architecture, design, security, ADRs
 ```
 
