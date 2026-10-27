@@ -130,7 +130,7 @@ yet exercised against the real account.
 | Feature | State | Notes | Code |
 | --- | --- | --- | --- |
 | Google sign-in (PKCE, loopback redirect) | Done | Opens the system browser; 5 min timeout | `auth/oauth.rs`, `auth/pkce.rs` |
-| OAuth client file outside the repo | Done | `%APPDATA%\com.abdallah.pulsemail\google-oauth-client.json` or `PULSE_MAIL_OAUTH_CLIENT` | `auth/client_config.rs` |
+| OAuth client file outside the repo | Done | Local JSON (`google-oauth-client.json` / `PULSE_MAIL_OAUTH_CLIENT`) wins; published installers fall back to compile-time `PULSE_GOOGLE_CLIENT_ID` / `PULSE_GOOGLE_CLIENT_SECRET` (release workflow secrets) | `auth/client_config.rs` |
 | Refresh token in Windows Credential Manager | Done | One entry per account (`refresh-token:<email>`); access token in memory only (`Secret`) | `auth/token_store.rs`, `auth/secret.rs` |
 | Resume on launch | Done | Starts every signed-in account | `commands/mod.rs::resume` |
 | Multiple accounts | Done (untested live with a 2nd account) | One sync engine, IMAP IDLE task and status cell per account. Account menu lists accounts with unread counts, "All inboxes", "Add another account". Commands take `accountId` (null = default account, or all accounts for list/search) | `lib.rs` (`AppState.syncs`, `statuses`), `AccountMenu.tsx` |

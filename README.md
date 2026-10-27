@@ -30,7 +30,7 @@ Installers are on **[GitHub Releases](https://github.com/abdallahsaber065/pulse-
 
 Windows is the one that's been lived in. macOS and Linux compile and ship; they have not had a long run on real hardware yet ([docs/VERIFY-LIVE.md](docs/VERIFY-LIVE.md)).
 
-After install, drop a Google Cloud **Desktop** OAuth client JSON in the app config dir (one-time, ~10 minutes) and **Sign in with Google**. Google will show an "unverified app" warning — that's expected. Guide: [docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md). See [Privacy & security](#privacy--security).
+After install, open the app and **Sign in with Google**. Google will show an "unverified app" warning — that's expected (see [Privacy & security](#privacy--security)). Building from source, or swapping in your own Cloud client: [docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md).
 
 ## What it does
 
@@ -52,7 +52,9 @@ There is **no Pulse Mail server**. The app talks to Google (Gmail OAuth, Gmail R
 - Mail HTML is sanitized (ammonia) and shown in an iframe with `sandbox="allow-scripts"` and **no** `allow-same-origin`, plus a tight frame CSP. Details: [docs/SECURITY.md](docs/SECURITY.md).
 - The cache file itself is **not** encrypted at rest (it sits in your user profile). BitLocker / FileVault / LUKS still help.
 
-**Google OAuth is unverified.** The Gmail scope is restricted. Unverified apps are capped at about **100 users**, and Google shows a warning screen on sign-in. Pulse Mail uses **your** Cloud desktop client (the JSON Google lets you download) — there is no Pulse Mail backend and no "official verified" Google app. The installer and source builds both look for `google-oauth-client.json` ([docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md)). Publish that client ("In production") or Google expires refresh tokens after 7 days.
+**Google OAuth is unverified.** The Gmail scope is restricted. Unverified apps are capped at about **100 users**, and Google shows a warning screen on sign-in. Prebuilt installers embed this project's Desktop client at compile time so you can sign in without creating a Cloud project — that is **not** Google verification. Fine for trying the app, not a company rollout.
+
+Building from source uses **your own** Cloud desktop client ([docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md)). A `google-oauth-client.json` in the app config dir (or `PULSE_MAIL_OAUTH_CLIENT`) also overrides the embedded client on an installed build. Publish that client ("In production") or Google expires refresh tokens after 7 days.
 
 ## Run from source
 
@@ -63,7 +65,7 @@ pnpm install
 pnpm tauri dev
 ```
 
-Put `google-oauth-client.json` in the repo root (gitignored) or in the app config dir. Step-by-step: [docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md).
+Source builds need your own Desktop client JSON (`google-oauth-client.json` in the repo root — gitignored — or the app config dir). Step-by-step: [docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md).
 
 ```bash
 pnpm tauri build    # installers under src-tauri/target/release/bundle/
@@ -105,7 +107,8 @@ pnpm dev
 - [docs/SECURITY.md](docs/SECURITY.md) — threat model
 - [docs/STATUS.md](docs/STATUS.md) — what actually works today
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — sync, SQLite, IPC
-- [docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md) — your own OAuth client
+- [docs/SETUP-GOOGLE-OAUTH.md](docs/SETUP-GOOGLE-OAUTH.md) — sign-in (installers vs your own client)
+- [docs/RELEASING.md](docs/RELEASING.md) — tags, OAuth secrets, release notes
 - [AGENTS.md](AGENTS.md) — rules for anyone hacking on this
 
 ## Contributing

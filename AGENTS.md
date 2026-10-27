@@ -169,5 +169,6 @@ phase done. Never mark work done on a failing build or test.
   Never claim an untested-live path works — point at VERIFY-LIVE.md instead.
 - Tag on `main` after the release PR merges: `git tag -a vX.Y.Z` (annotated;
   the repo rejects lightweight tags) and `git push origin vX.Y.Z`. The
-  pipeline builds the Windows installer into a draft release and publishes
-  it on success.
+  pipeline builds Windows / macOS (Apple Silicon) / Linux installers into a
+  draft release and publishes it on success. OAuth client secrets for those
+  binaries: [docs/RELEASING.md](docs/RELEASING.md).

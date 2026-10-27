@@ -66,3 +66,5 @@ CI also runs `pnpm audit --audit-level high` and clippy with `-D warnings`.
 New `#[tauri::command]`s need three registrations (handler, `build.rs`
 `COMMANDS`, `capabilities/default.json`). The test
 `security::tests::command_allowlist_in_sync` fails if you miss one.
+
+Cutting a GitHub Release (OAuth secrets, tags, notes): [docs/RELEASING.md](docs/RELEASING.md).
