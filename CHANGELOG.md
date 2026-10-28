@@ -7,7 +7,7 @@ the 1.0 hardening milestone. Released binaries are on
 
 ## [Unreleased]
 
-## [0.4.2] — 2026-10-28
+## [0.4.3] — 2026-10-28
 
 Eliminate idle background CPU usage when minimized or closed to the system tray.
 
