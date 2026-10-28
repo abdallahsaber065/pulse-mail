@@ -956,6 +956,19 @@ export default function App() {
   });
 
   onMount(() => {
+    // Freeze CSS animations & webview work while the window is minimized or hidden to tray (see body.win-hidden).
+    const setHidden = (hidden: boolean) => {
+      document.body.classList.toggle("win-hidden", hidden);
+    };
+    const syncHidden = () => setHidden(document.hidden);
+    syncHidden();
+    document.addEventListener("visibilitychange", syncHidden);
+    const onFocus = () => setHidden(false);
+    window.addEventListener("focus", onFocus);
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", syncHidden);
+      window.removeEventListener("focus", onFocus);
+    });
     const initThread = urlParams?.get("thread");
     if (initThread) {
       setSelectedAccount(1);
@@ -985,6 +998,7 @@ export default function App() {
         clearTimeout(mailTimer);
         mailTimer = setTimeout(() => setTick((n) => n + 1), 350);
       }),
+      onEvent<boolean>("window-visibility", (vis) => setHidden(!vis)),
       onEvent<null>("accounts-changed", () => void refetchStatus()),
       onEvent<SyncStatus>("sync-status", (s) => {
         setSyncs((m) => ({ ...m, [s.accountId]: s }));

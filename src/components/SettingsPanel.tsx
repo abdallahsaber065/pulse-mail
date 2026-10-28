@@ -459,12 +459,12 @@ export default function SettingsPanel(p: Props) {
             <Row title="When I close the window" stack>
               <Segmented
                 label="Close behavior"
-                value={p.status.destroyOnClose ? "quit" : "tray"}
+                value={p.status.destroyOnClose ? "destroy" : "hide"}
                 options={[
-                  ["tray", "Keep running in tray"],
-                  ["quit", "Quit Pulse Mail"],
+                  ["hide", "Hide window (faster reopen)"],
+                  ["destroy", "Destroy window (0% CPU, lowest RAM)"],
                 ]}
-                onChange={(v) => p.onCloseBehavior(v === "quit")}
+                onChange={(v) => p.onCloseBehavior(v === "destroy")}
               />
             </Row>
           </Section>

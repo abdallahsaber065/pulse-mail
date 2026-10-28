@@ -95,7 +95,11 @@ export default function SyncIndicator(p: {
   const [open, setOpen] = createSignal(false);
   const [now, setNow] = createSignal(Date.now());
   onMount(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 20_000);
+    const t = window.setInterval(() => {
+      if (!document.body.classList.contains("win-hidden")) {
+        setNow(Date.now());
+      }
+    }, 20_000);
     onCleanup(() => clearInterval(t));
   });
   const v = createMemo(() => chipView(p.sync, p.online, now()));

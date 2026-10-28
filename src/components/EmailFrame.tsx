@@ -60,10 +60,11 @@ export default function EmailFrame(p: Props) {
       const d = e.data as { pm?: number; t?: string; v?: unknown; href?: unknown; text?: unknown } | null;
       if (!d || d.pm !== 1) return;
       if (d.t === "h" && typeof d.v === "number" && Number.isFinite(d.v)) {
+        if (document.body.classList.contains("win-hidden")) return;
         const next = Math.min(Math.max(Math.ceil(d.v), 40), 16_000);
         setHeight((prev) => {
-          // Break runaway feedback loops: ignore tiny fluctuations <= 3px
-          if (Math.abs(next - prev) <= 3) return prev;
+          // Break runaway feedback loops: ignore tiny fluctuations <= 4px
+          if (Math.abs(next - prev) <= 4) return prev;
           return next;
         });
       } else if (d.t === "link" && typeof d.href === "string") {

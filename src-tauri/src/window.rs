@@ -35,6 +35,7 @@ pub fn show_main(app: &AppHandle) {
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
+    let _ = window.emit("window-visibility", true);
     // Open/reopen marker for the PLAN.md window-latency targets.
     tracing::info!(
         ms = crate::started().elapsed().as_millis() as u64,
@@ -77,16 +78,32 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
     if window.label() != MAIN {
         return;
     }
-    if let WindowEvent::CloseRequested { api, .. } = event {
-        let destroy = window
-            .app_handle()
-            .try_state::<AppState>()
-            .map(|s| s.destroy_on_close.load(Ordering::Relaxed))
-            .unwrap_or(false);
-        if !destroy {
-            api.prevent_close();
-            let _ = window.hide();
+    match event {
+        WindowEvent::CloseRequested { api, .. } => {
+            let destroy = window
+                .app_handle()
+                .try_state::<AppState>()
+                .map(|s| s.destroy_on_close.load(Ordering::Relaxed))
+                .unwrap_or(false);
+            if !destroy {
+                api.prevent_close();
+                if let Some(win) = window.app_handle().get_webview_window(MAIN) {
+                    let _ = win.emit("window-visibility", false);
+                    let _ = win.hide();
+                } else {
+                    let _ = window.hide();
+                }
+            }
+            // destroy: let it close; RunEvent::ExitRequested keeps the app alive.
         }
-        // destroy: let it close; RunEvent::ExitRequested keeps the app alive.
+        WindowEvent::Focused(false) => {
+            if window.is_minimized().unwrap_or(false) || !window.is_visible().unwrap_or(true) {
+                let _ = window.emit("window-visibility", false);
+            }
+        }
+        WindowEvent::Focused(true) => {
+            let _ = window.emit("window-visibility", true);
+        }
+        _ => {}
     }
 }

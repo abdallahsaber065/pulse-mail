@@ -193,10 +193,10 @@ body {
   to { transform: translateX(300%); }
 }
 
-/* "Live" heartbeat on the status dot. */
+/* "Live" heartbeat on the status dot (pulses 3 times on state change, then rests). */
 .pulse-dot {
   box-shadow: 0 0 0 0 color-mix(in srgb, var(--otp) 60%, transparent);
-  animation: pulse-ring 2.4s ease-out infinite;
+  animation: pulse-ring 2.4s ease-out 3;
 }
 @keyframes pulse-ring {
   70% { box-shadow: 0 0 0 6px transparent; }
@@ -212,6 +212,18 @@ button:active > .star-pop { transform: scale(1.25); }
     transition: none !important;
     animation: none !important;
   }
+}
+
+/* Minimized to tray the window keeps compositing infinite animations (pulse-ring, shimmer)
+   and iframes. Pause them and suspend iframe rendering while hidden; toggled from App.tsx. */
+body.win-hidden *,
+body.win-hidden *::before,
+body.win-hidden *::after {
+  animation-play-state: paused !important;
+}
+
+body.win-hidden iframe.email-frame {
+  content-visibility: hidden !important;
 }
 
 /* Print just the open conversation: no chrome, light colors. */

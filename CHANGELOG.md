@@ -7,6 +7,16 @@ the 1.0 hardening milestone. Released binaries are on
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-10-28
+
+Eliminate idle background CPU usage when minimized or closed to the system tray.
+
+### Changed
+
+- **Zero-spin background idle**: The status connection heartbeat dot now pulses 3 times upon connection changes and then rests, eliminating continuous compositor repaints.
+- **Background webview suspension**: All CSS animations pause and sandboxed email reader iframes suspend rendering while the window is hidden or minimized to the tray.
+- **Clarified window close options**: Settings now clearly distinguish between "Hide window (faster reopen)" and "Destroy window (0% CPU, lowest RAM)".
+
 ## [0.4.1] — 2026-10-27
 
 Install from GitHub, sign in with Google — no Cloud project of your own.
