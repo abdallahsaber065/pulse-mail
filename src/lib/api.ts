@@ -156,8 +156,5 @@ export async function onEvent<T>(
   const { listen } = await import("@tauri-apps/api/event");
   return listen<T>(name, (e) => cb(e.payload));
 }
-  const { listen } = await import("@tauri-apps/api/event");
-  return listen<T>(name, (e) => cb(e.payload));
-}
 
 export type { SyncStatus };
