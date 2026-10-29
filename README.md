@@ -6,8 +6,6 @@
 
 I wanted a tiny always-on Gmail client that doesn't feel like a browser tab.
 
-<img src="docs/assets/demo.gif" align="right" width="520" alt="Pulse Mail opening the inbox, reading a thread, and copying a verification code from a notification" />
-
 Lives in the tray, caches mail in SQLite on your machine, gets push over IMAP IDLE, and puts 2FA codes on the notification so you can copy them without hunting the inbox.
 
 **Site:** [pulsemail.abdallahsaber.eu.cc](https://pulsemail.abdallahsaber.eu.cc/) · [Privacy](https://pulsemail.abdallahsaber.eu.cc/privacy/) · [Terms](https://pulsemail.abdallahsaber.eu.cc/terms/)
@@ -18,6 +16,10 @@ Lives in the tray, caches mail in SQLite on your machine, gets push over IMAP ID
   <img src="https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-experimental%20non--Windows-brightgreen.svg?style=flat-square" alt="Platforms" />
   <img src="https://img.shields.io/badge/Tauri%20v2%20%7C%20Rust%20%7C%20SolidJS-orange.svg?style=flat-square" alt="Stack" />
   <img src="https://img.shields.io/badge/license-MIT-informational.svg?style=flat-square" alt="MIT license" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/demo.gif" width="100%" alt="Pulse Mail opening the inbox, reading a thread, and copying a verification code from a notification" />
 </p>
 
 ## Download
