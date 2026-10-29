@@ -228,7 +228,7 @@ VERIFY-LIVE.md §7). Local time for quiet hours comes from
 | Clippy / fmt | Done | All-target Clippy with `-D warnings` passes; rustfmt clean and gated in CI |
 | Security invariant tests | Done | IPC allowlist in sync, devtools off in release, log calls never format secrets (`security.rs`) |
 | Dependency audit | Done | `cargo audit`: no vulnerabilities; 5 allowed warnings, all Linux-only GTK/zbus crates not built on Windows. `pnpm audit`: clean since the `xlsx` 0.20.3 upgrade (2026-10-24) |
-| CI | Done | GitHub Actions on Windows, macOS (Apple Silicon), and Linux for every PR: pnpm test, typecheck + build, `pnpm audit`, `cargo fmt --check`, check, test, clippy `-D warnings`. The release pipeline publishes Win/macOS/Linux installers plus updater signatures. |
+| CI | Done | GitHub Actions on Windows, macOS (Apple Silicon), and Linux: pnpm test, typecheck + build, `pnpm audit`, `cargo fmt --check`, check, test, clippy `-D warnings`. Docs/website-only PRs skip that matrix (check names still report). The release pipeline publishes Win/macOS/Linux installers plus updater signatures. |
 
 ## Measured numbers
 

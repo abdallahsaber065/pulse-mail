@@ -103,7 +103,7 @@ PLAN.md's progress log.
 - **Protected Main**: `main` is protected on GitHub. Direct pushes to `main` are disabled; all changes merge via reviewed Pull Requests.
 - **Branches**: Use descriptive branch names (`feat/<feature>`, `fix/<bug>`, `docs/<topic>`).
 - **Commits**: Small, focused commits with imperative subjects following Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`).
-- **Quality Gates**: All tests (`pnpm test`, `cargo test`) and typechecks (`pnpm build`) must pass before a PR is merged.
+- **Quality Gates**: All tests (`pnpm test`, `cargo test`) and typechecks (`pnpm build`) must pass before a PR is merged. GitHub Actions runs the Gates matrix (Linux / Windows / macOS) on PRs and pushes that touch code, config, package/lock files, or workflows. Changes that only touch `**/*.md`, `docs/**`, `site/**`, `LICENSE`, or `.github/ISSUE_TEMPLATE/**` skip that matrix; the workflow still starts so required check names report success. Do not add `paths-ignore` on `.github/workflows/ci.yml` — a skipped workflow leaves required checks pending. The Pages deploy workflow still runs for `site/**` (and related asset) pushes to `main`.
 - **Cleanup**: Head branches are automatically deleted after merge.
 
 ## Decisions

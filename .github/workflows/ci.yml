@@ -8,9 +8,57 @@ on:
   pull_request:
     branches: [main]
 
+# Do not add workflow-level paths-ignore. If Gates is a required status check
+# (main is protected; the protection API is not readable from this token), a
+# skipped workflow leaves those checks pending and blocks the merge. Job-level
+# `if:` reports skipped jobs as success, and the docs-only stubs below keep the
+# same check names (`Gates (Windows)`, `Gates (macOS (Apple Silicon))`,
+# `Gates (Linux)`) in case a skipped matrix job never expands.
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Filter paths
+        uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          # `**` matches everything; negated rules drop docs/website-only paths.
+          # `some-with-excludes` is required — the default `some` would treat
+          # `**` as a match for every file and ignore the exclusions.
+          predicate-quantifier: some-with-excludes
+          list-files: json
+          filters: |
+            code:
+              - '**'
+              - '!*.md'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!site/**'
+              - '!LICENSE'
+              - '!.github/ISSUE_TEMPLATE/**'
+
+      - name: Result
+        env:
+          CODE: ${{ steps.filter.outputs.code }}
+          COUNT: ${{ steps.filter.outputs.code_count }}
+        run: 'echo "Run Gates: $CODE (non-docs files: $COUNT)"'
+
   test:
     name: Gates (${{ matrix.name }})
+    needs: changes
+    # Fail closed: run the matrix unless the filter explicitly said docs-only.
+    if: always() && !cancelled() && needs.changes.outputs.code != 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -88,3 +136,21 @@ jobs:
 
       - name: Cargo clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+  # Cheap jobs with the same check names as `test`, so required status checks
+  # still go green on a docs-only change instead of staying pending.
+  test-docs:
+    name: Gates (${{ matrix.name }})
+    needs: changes
+    if: always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.code == 'false'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        name:
+          - Windows
+          - macOS (Apple Silicon)
+          - Linux
+    steps:
+      - name: Skip Gates
+        run: echo "Docs-only change; skipping Gates (${{ matrix.name }})."
