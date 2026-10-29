@@ -12,27 +12,25 @@ Google checks that the name on the consent screen matches the product.
 
 ## 1. Ship the site
 
-1. Merge the Pages PR to `main`.
-2. In the GitHub repo: **Settings → Pages → Build and deployment → Source →
-   GitHub Actions**. Save. This is the only step the workflow cannot do for
-   you. Docs:
-   [Configuring a publishing source](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
-3. Run **Actions → Deploy site to Pages → Run workflow** (or push a trivial
-   change under `site/`). The first deploy after switching the source should
-   succeed and print the URL.
-4. Confirm these load without a login:
+The site is live at **https://pulsemail.abdallahsaber.eu.cc/**. GitHub Pages
+already uses that custom domain (HTTPS enforced). The old project URL
+`https://abdallahsaber065.github.io/pulse-mail/` 301s there.
 
-   | Page | URL |
-   | --- | --- |
-   | Home | https://abdallahsaber065.github.io/pulse-mail/ |
-   | Privacy | https://abdallahsaber065.github.io/pulse-mail/privacy/ |
-   | Terms | https://abdallahsaber065.github.io/pulse-mail/terms/ |
+Deploys still come from `.github/workflows/pages.yml` (Source = GitHub
+Actions). `site/CNAME` documents the host and is copied into the assembled
+site.
 
-5. Optional but useful: GitHub **Settings → General → Website** =
-   `https://abdallahsaber065.github.io/pulse-mail/` so the repo header
-   matches the consent screen.
+Confirm these load without a login (HTTPS, no `/pulse-mail/` prefix):
 
-Until step 2, the workflow is present but Pages deploys fail.
+| Page | URL |
+| --- | --- |
+| Home | https://pulsemail.abdallahsaber.eu.cc/ |
+| Privacy | https://pulsemail.abdallahsaber.eu.cc/privacy/ |
+| Terms | https://pulsemail.abdallahsaber.eu.cc/terms/ |
+
+Optional: GitHub **Settings → General → Website** =
+`https://pulsemail.abdallahsaber.eu.cc/` so the repo header matches the
+consent screen.
 
 ## 2. Branding fields to paste
 
@@ -44,10 +42,10 @@ Google Auth Platform → **Branding**
 | App name | `Pulse Mail` |
 | User support email | your Google account (the one that owns the Cloud project) |
 | App logo | `docs/pulse-mail-logo.png` (the neon envelope). Square PNG. |
-| Application home page | `https://abdallahsaber065.github.io/pulse-mail/` |
-| Privacy policy link | `https://abdallahsaber065.github.io/pulse-mail/privacy/` |
-| Terms of service link | `https://abdallahsaber065.github.io/pulse-mail/terms/` |
-| Authorized domains | `abdallahsaber065.github.io` |
+| Application home page | `https://pulsemail.abdallahsaber.eu.cc/` |
+| Privacy policy link | `https://pulsemail.abdallahsaber.eu.cc/privacy/` |
+| Terms of service link | `https://pulsemail.abdallahsaber.eu.cc/terms/` |
+| Authorized domains | `abdallahsaber.eu.cc` |
 | Developer contact email | same Google account (or a mailbox you actually read) |
 | App domain | add the three URLs above **after** the authorized domain is saved |
 
@@ -60,9 +58,10 @@ Homepage rules Google will check
 - links the **same** privacy-policy URL as the Branding field
 - hosted on a domain you have verified in Search Console
 
-`github.io` is on the [Public Suffix List](https://publicsuffix.org/), so the
-**top private domain** of this site is `abdallahsaber065.github.io`, not
-`github.io`. Do not add `github.io` itself.
+`eu.cc` is on the [Public Suffix List](https://publicsuffix.org/), so the
+**top private domain** is `abdallahsaber.eu.cc`, not `eu.cc`. Do not add
+`eu.cc` itself. Google Branding’s authorized domain for this site is
+`abdallahsaber.eu.cc`.
 
 ## 3. Verify the domain in Search Console
 
@@ -71,49 +70,39 @@ Google will not accept the Branding URLs until a Google account that is
 in Search Console
 ([verify site ownership](https://support.google.com/webmasters/answer/9008080)).
 
-You **cannot** use a Search Console **Domain** property (`abdallahsaber065.github.io`
-without `https://`). That method needs a DNS TXT record, and you do not
-control `github.io` DNS. Use a **URL-prefix** property.
+Verify the **custom host**, not the old `github.io` prefix. Two methods:
 
-### Recommended: HTML meta tag (already wired)
+### URL-prefix + HTML file (already served)
 
 1. Open [Google Search Console](https://search.google.com/search-console).
 2. Add property → **URL prefix** →
-   `https://abdallahsaber065.github.io/pulse-mail/`
-3. Choose **HTML tag**. Copy the `content="…"` value (not the whole tag).
-4. Paste that value as the first non-comment line of
-   [`site/google-site-verification.content`](../site/google-site-verification.content).
-5. Commit, push to `main`, wait for **Deploy site to Pages**.
-6. View source on the live home page and confirm
-   `<meta name="google-site-verification" content="…">` is present.
-7. Back in Search Console, click **Verify**.
-8. Use **the same Google account** as a Cloud project Owner/Editor.
+   `https://pulsemail.abdallahsaber.eu.cc/`
+3. Choose **HTML file**. The file
+   [`site/google1fa75fe00e9db009.html`](../site/google1fa75fe00e9db009.html)
+   is already in the repo and is served at
+   `https://pulsemail.abdallahsaber.eu.cc/google1fa75fe00e9db009.html`.
+4. Click **Verify**. Use **the same Google account** as a Cloud project
+   Owner/Editor.
 
-The assemble script (`scripts/assemble-site.sh`) injects the token at deploy
-time. An empty file omits the meta tag so we never publish a dummy token.
+If Search Console issues a different filename, put that file in `site/`
+and push to `main`. Google’s token is meant to be public.
 
-### Fallback: HTML file
+### Domain property via Cloudflare DNS
 
-Search Console can instead give you a file named like `googleXXXXXXXX.html`.
+You control DNS for `abdallahsaber.eu.cc` in Cloudflare, so a **Domain**
+property works too:
 
-1. Put that file in `site/` (repo path `site/googleXXXXXXXX.html`).
-2. Push to `main`. It is served at
-   `https://abdallahsaber065.github.io/pulse-mail/googleXXXXXXXX.html`.
-3. Click **Verify**. Do not add a secret to that file; Google’s token is
-   meant to be public.
+1. Add property → **Domain** → `abdallahsaber.eu.cc`
+2. Paste the TXT record Google shows into Cloudflare DNS.
+3. Verify. That covers the apex and every subdomain, including
+   `pulsemail.`.
 
-### If Cloud Console still refuses the domain
+### Optional: HTML meta tag
 
-Some reviews want verification of the host
-`https://abdallahsaber065.github.io/` (no `/pulse-mail`). That URL 404s
-unless you also have a **user** GitHub Pages site (a repo named
-`abdallahsaber065.github.io`). If Branding rejects the project URL-prefix:
-
-1. Create that user-site repo, put the HTML verification file at its root,
-   enable Pages, verify `https://abdallahsaber065.github.io/` in Search
-   Console, **or**
-2. Reply to Trust & Safety that the product lives at the `/pulse-mail/`
-   prefix and the meta tag is on that homepage.
+The assemble script still injects a token from
+[`site/google-site-verification.content`](../site/google-site-verification.content)
+if that file is non-empty. An empty file omits the meta tag. The HTML file
+above is enough for the URL-prefix property; you do not need both.
 
 Keep the Cloud project’s OAuth Branding Google account listed as a verified
 owner of the Search Console property.

@@ -10,10 +10,10 @@ I wanted a tiny always-on Gmail client that doesn't feel like a browser tab.
 
 Lives in the tray, caches mail in SQLite on your machine, gets push over IMAP IDLE, and puts 2FA codes on the notification so you can copy them without hunting the inbox.
 
-**Site:** [abdallahsaber065.github.io/pulse-mail](https://abdallahsaber065.github.io/pulse-mail/) · [Privacy](https://abdallahsaber065.github.io/pulse-mail/privacy/) · [Terms](https://abdallahsaber065.github.io/pulse-mail/terms/)
+**Site:** [pulsemail.abdallahsaber.eu.cc](https://pulsemail.abdallahsaber.eu.cc/) · [Privacy](https://pulsemail.abdallahsaber.eu.cc/privacy/) · [Terms](https://pulsemail.abdallahsaber.eu.cc/terms/)
 
 <p>
-  <img src="https://img.shields.io/badge/version-v0.4.1-blue.svg?style=flat-square" alt="Version 0.4.1" />
+  <img src="https://img.shields.io/badge/version-v0.4.3-blue.svg?style=flat-square" alt="Version 0.4.3" />
   <a href="https://github.com/abdallahsaber065/pulse-mail/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/abdallahsaber065/pulse-mail/ci.yml?style=flat-square" alt="CI" /></a>
   <img src="https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-experimental%20non--Windows-brightgreen.svg?style=flat-square" alt="Platforms" />
   <img src="https://img.shields.io/badge/Tauri%20v2%20%7C%20Rust%20%7C%20SolidJS-orange.svg?style=flat-square" alt="Stack" />
@@ -22,12 +22,12 @@ Lives in the tray, caches mail in SQLite on your machine, gets push over IMAP ID
 
 ## Download
 
-Installers are on **[GitHub Releases](https://github.com/abdallahsaber065/pulse-mail/releases/latest)** (v0.4.1).
+Installers are on **[GitHub Releases](https://github.com/abdallahsaber065/pulse-mail/releases/latest)** (v0.4.3).
 
 | Platform | File | Notes |
 | --- | --- | --- |
-| **Windows** 10/11 (x64) | `Pulse.Mail_0.4.1_x64-setup.exe` (per-user) or the `.msi` | Daily-driver build. SmartScreen may warn once — the installer isn't Authenticode-signed yet. "More info" → "Run anyway". |
-| **macOS** Apple Silicon | `Pulse.Mail_0.4.1_aarch64.dmg` | **Experimental and unsigned.** After dragging to Applications: right-click → Open the first time. Intel Macs are not built. |
+| **Windows** 10/11 (x64) | `Pulse.Mail_0.4.3_x64-setup.exe` (per-user) or the `.msi` | Daily-driver build. SmartScreen may warn once — the installer isn't Authenticode-signed yet. "More info" → "Run anyway". |
+| **macOS** Apple Silicon | `Pulse.Mail_0.4.3_aarch64.dmg` | **Experimental and unsigned.** After dragging to Applications: right-click → Open the first time. Intel Macs are not built. |
 | **Linux** x64 | `.AppImage` (self-updates), `.deb`, or `.rpm` | **Experimental.** Tray needs an appindicator; notification buttons work on GNOME/KDE. |
 
 Windows is the one that's been lived in. macOS and Linux compile and ship; they have not had a long run on real hardware yet ([docs/VERIFY-LIVE.md](docs/VERIFY-LIVE.md)).

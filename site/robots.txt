@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://abdallahsaber065.github.io/pulse-mail/sitemap.xml
+Sitemap: https://pulsemail.abdallahsaber.eu.cc/sitemap.xml

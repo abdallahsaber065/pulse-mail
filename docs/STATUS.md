@@ -5,7 +5,7 @@
 Release highlights since v0.4.0 (full list in [CHANGELOG.md](../CHANGELOG.md)):
 official installers embed this project's Google Desktop client so Sign in
 with Google works without your own Cloud project; a public site
-(privacy/terms) at https://abdallahsaber065.github.io/pulse-mail/; demo
+(privacy/terms) at https://pulsemail.abdallahsaber.eu.cc/; demo
 mailbox for contributors (`pnpm dev`). Windows remains the daily-driver
 platform; macOS and Linux are experimental (see the release table in
 [README.md](../README.md)).
@@ -16,7 +16,7 @@ platform; macOS and Linux are experimental (see the release table in
   Clients/Receipts labels). `PULSE_MAIL_DEMO=1` can point a *dev* Tauri
   window at the same mock. Release builds cannot enable it. See
   [DEMO.md](DEMO.md). Site in `site/` (home, `/privacy`, `/terms`) live at
-  https://abdallahsaber065.github.io/pulse-mail/. Privacy policy matches
+  https://pulsemail.abdallahsaber.eu.cc/. Privacy policy matches
   the scopes in `auth/oauth.rs`. Owner steps:
   [GOOGLE-VERIFICATION.md](GOOGLE-VERIFICATION.md).
 

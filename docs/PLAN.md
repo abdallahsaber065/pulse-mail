@@ -138,6 +138,12 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-10-29 (custom domain):** Pages site canonical host is
+  https://pulsemail.abdallahsaber.eu.cc/ (`site/CNAME`, 404 paths at `/`,
+  Search Console / Branding notes in
+  [GOOGLE-VERIFICATION.md](GOOGLE-VERIFICATION.md)). Old
+  `*.github.io/pulse-mail/` URL 301s there.
+
 - **2026-10-27 (v0.4.1):** Version bump across package.json, tauri.conf.json,
   Cargo.toml / Cargo.lock. CHANGELOG + GitHub release notes drafted in
   `docs/release-notes/v0.4.1.md`. Tag after merge — do not tag from the PR.
@@ -151,7 +157,7 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 - **2026-10-27 (GitHub Pages landing):** Static site in `site/` (home,
   privacy, terms) deployed by `.github/workflows/pages.yml`
   (`actions/deploy-pages`). Target
-  https://abdallahsaber065.github.io/pulse-mail/. Privacy policy matches
+  https://pulsemail.abdallahsaber.eu.cc/. Privacy policy matches
   `SCOPE` in `auth/oauth.rs`. Owner checklist:
   [GOOGLE-VERIFICATION.md](GOOGLE-VERIFICATION.md). Pages source must be
   set to GitHub Actions before the first deploy succeeds.
