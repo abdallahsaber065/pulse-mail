@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://abdallahsaber065.github.io/pulse-mail/</loc>
+    <loc>https://pulsemail.abdallahsaber.eu.cc/</loc>
     <changefreq>weekly</changefreq>
   </url>
   <url>
-    <loc>https://abdallahsaber065.github.io/pulse-mail/privacy/</loc>
+    <loc>https://pulsemail.abdallahsaber.eu.cc/privacy/</loc>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://abdallahsaber065.github.io/pulse-mail/terms/</loc>
+    <loc>https://pulsemail.abdallahsaber.eu.cc/terms/</loc>
     <changefreq>monthly</changefreq>
   </url>
 </urlset>

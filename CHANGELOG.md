@@ -7,6 +7,11 @@ the 1.0 hardening milestone. Released binaries are on
 
 ## [Unreleased]
 
+### Changed
+
+- Public site canonical URL is https://pulsemail.abdallahsaber.eu.cc/
+  (the old GitHub Pages URL redirects there).
+
 ## [0.4.3] — 2026-10-28
 
 Eliminate idle background CPU usage when minimized or closed to the system tray.
