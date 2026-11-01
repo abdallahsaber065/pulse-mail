@@ -31,3 +31,6 @@ Consequences (+ Alternatives when useful), under about 40 lines.
 | [0023](0023-google-account-profile.md) | Google account profile sync and custom display names | accepted |
 | [0024](0024-bulk-selection.md) | Virtualized bulk conversation selection and paced batch operations | accepted |
 | [0025](0025-attachment-preview-and-ipc-contract.md) | On-demand attachment preview, Tauri v2 capability discipline, and reactive overlay scope | accepted |
+| [0026](0026-always-on-reliability.md) | Always-on reliability: quiet hours, resume catch-up, local crash logs | accepted |
+| [0027](0027-self-update.md) | Self-update via GitHub Releases and tauri-plugin-updater | accepted |
+| [0028](0028-one-token-manager-per-account.md) | One token manager per account; credential store is the source of truth | accepted |

@@ -63,7 +63,7 @@ flowchart LR
 | --- | --- |
 | `src-tauri/src/lib.rs` | `AppState`, plugins (single-instance, autostart, opener, clipboard), tracing, HTTP client, run loop that survives zero windows |
 | `commands.rs` | Every IPC command; maps errors to friendly sentences (`friendly!` macro); `start_sync`, `resume` |
-| `auth/` | Client file (`client_config.rs`), PKCE + loopback OAuth (`oauth.rs`, `pkce.rs`), keyring (`token_store.rs`), `Secret` (`secret.rs`), access-token cache + refresh (`mod.rs::TokenManager`) |
+| `auth/` | Client file (`client_config.rs`), PKCE + loopback OAuth (`oauth.rs`, `pkce.rs`), keyring (`token_store.rs`), `Secret` (`secret.rs`), one access-token cache + refresh owner per account (`mod.rs::TokenManager`, ADR 0028) |
 | `store/` | One SQLite connection, migrations (`migrations.rs`), all queries (`mod.rs`) |
 | `sync/mod.rs` | `Engine`: run loop, first sync, background job, delta sync, lazy bodies, label changes, panic isolation |
 | `sync/gmail.rs` | Gmail REST client: retry/backoff, error classification, batch endpoint, history folding (`HistoryDelta`) |

@@ -31,6 +31,9 @@ pub struct AppState {
     pub store: Arc<Mutex<store::Store>>,
     pub http: reqwest::Client,
     pub config_dir: PathBuf,
+    /// One token manager per signed-in mailbox (the credential store key; the
+    /// only in-memory owner of that refresh token — ADR 0028).
+    pub tokens: tokio::sync::Mutex<BTreeMap<String, Arc<auth::TokenManager>>>,
     /// One running sync engine per signed-in account.
     pub syncs: tokio::sync::Mutex<BTreeMap<i64, sync::SyncController>>,
     /// Status cell per account (also for accounts that can't sync right now,
@@ -262,6 +265,7 @@ pub fn run() {
                 store: Arc::new(Mutex::new(store)),
                 http: http_client(),
                 config_dir,
+                tokens: tokio::sync::Mutex::new(BTreeMap::new()),
                 syncs: tokio::sync::Mutex::new(BTreeMap::new()),
                 statuses: Mutex::new(BTreeMap::new()),
                 pending_open: Mutex::new(None),

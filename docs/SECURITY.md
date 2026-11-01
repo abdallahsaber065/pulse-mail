@@ -82,6 +82,11 @@ For Desktop-app clients Google treats the client secret as non-confidential
   tokens, bodies, raw mail, HTML and codes.
 - Access-token refresh is serialized per account (`TokenManager` mutex), so
   concurrent requests never race two refreshes.
+- One `TokenManager` per account (ADR 0028) is the only in-memory owner of that
+  account's refresh token; the credential store is the source of truth. A
+  rotated token is written back, a reconnect updates that same manager instead
+  of adding a second writer, and sign-out closes it before deleting the entry
+  so an in-flight refresh cannot write the credential back.
 - Single instance, per-user NSIS install, no admin rights.
 
 **Sending mail** (`feee336`)
