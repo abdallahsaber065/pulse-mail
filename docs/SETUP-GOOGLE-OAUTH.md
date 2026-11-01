@@ -134,7 +134,8 @@ to disk by Pulse Mail.
 | "The Google OAuth client file isn't valid" | You downloaded a **Web** client or edited the file. Create a **Desktop app** client. |
 | `Error 403: access_denied` in the browser | The app is still in Testing and your account isn't a test user. Publish it (step 4). |
 | Signed out after about a week | App still in Testing. Publish it (step 4), then sign in again. |
-| "Your Google sign-in expired" | You revoked access at <https://myaccount.google.com/permissions> or changed your password. Sign in again. |
+| Signed out every few days, repeatedly | Google revoked the grant, not the app. Check `refresh_token_expires_in` in the log line written at sign-in: a value there means the Cloud project is still in Testing (step 4). No value means Google revoked it server-side — look for a password change, sign-out of all devices, or the grant at <https://myaccount.google.com/permissions>; fewer than 100 live grants per account/client also matters, so avoid re-signing in in a loop. |
+| "Your Google sign-in expired" | You revoked access at <https://myaccount.google.com/permissions> or changed your password. Sign in again. A reconnect made elsewhere is picked up automatically; if the running app still shows this, check the log for Google's reason (`PULSE_MAIL_LOG=debug`). |
 | No toasts in `pnpm tauri dev` | Dev builds borrow PowerShell's toast identity; check Windows notification settings for PowerShell, or use the installed build. |
 
 Maintainers cutting a GitHub Release: [RELEASING.md](RELEASING.md).

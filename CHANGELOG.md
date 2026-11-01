@@ -5,7 +5,13 @@ All notable changes to Pulse Mail are documented here. The format follows
 the 1.0 hardening milestone. Released binaries are on
 [GitHub Releases](https://github.com/abdallahsaber065/pulse-mail/releases).
 
-## [Unreleased]
+## [0.4.4] — 2026-11-01
+
+### Changed
+
+- **Google sign-in keeps itself alive**: when Google issues a renewed sign-in credential, Pulse Mail now saves and uses it instead of failing at the next refresh. A reconnect made elsewhere (another window, a dev build) is picked up without restarting the app.
+- **Clearer sign-in diagnosis**: the local log now records Google's own reason for a rejected token, and warns at sign-in when Google sets a time limit on the credential (the usual cause is a Cloud project still in "Testing").
+- **One credential owner per account**: a reconnect updates the account's existing token manager instead of adding a second copy, so an older session can no longer overwrite the newer sign-in, and signing out during a refresh can no longer bring the removed credential back.
 
 ### Changed
 

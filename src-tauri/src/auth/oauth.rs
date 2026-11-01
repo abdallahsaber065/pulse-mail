@@ -46,18 +46,26 @@ pub struct Tokens {
     pub access_token: Secret,
     pub expires_at: Instant,
     pub refresh_token: Option<Secret>,
+    /// Set when Google limits the refresh token's lifetime (a "Testing"
+    /// consent screen, or a user-granted time limit).
+    pub refresh_token_expires_in: Option<u64>,
 }
 
 #[derive(Deserialize)]
 struct TokenResponse {
     access_token: Secret,
     expires_in: u64,
+    #[serde(default)]
     refresh_token: Option<Secret>,
+    #[serde(default)]
+    refresh_token_expires_in: Option<u64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 struct TokenErrorResponse {
     error: String,
+    #[serde(default)]
+    error_description: String,
 }
 
 /// A pending browser sign-in: open `auth_url`, then await [`PendingLogin::finish`].
@@ -262,16 +270,8 @@ pub async fn revoke(http: &reqwest::Client, token: &Secret) -> Result<(), AuthEr
 async fn parse_token_response(resp: reqwest::Response) -> Result<Tokens, AuthError> {
     let status = resp.status();
     if !status.is_success() {
-        let err = resp
-            .json::<TokenErrorResponse>()
-            .await
-            .map(|e| e.error)
-            .unwrap_or_default();
-        return Err(if err == "invalid_grant" {
-            AuthError::InvalidGrant
-        } else {
-            AuthError::Protocol(format!("{status} {err}"))
-        });
+        let err = resp.json::<TokenErrorResponse>().await.unwrap_or_default();
+        return Err(token_error(status, err));
     }
     let t: TokenResponse = resp.json().await?;
     Ok(Tokens {
@@ -279,7 +279,20 @@ async fn parse_token_response(resp: reqwest::Response) -> Result<Tokens, AuthErr
         // refresh a minute early
         expires_at: Instant::now() + Duration::from_secs(t.expires_in.saturating_sub(60)),
         refresh_token: t.refresh_token,
+        refresh_token_expires_in: t.refresh_token_expires_in,
     })
+}
+
+fn token_error(status: reqwest::StatusCode, err: TokenErrorResponse) -> AuthError {
+    // Google's reason (never a token) is the only clue for a dead sign-in.
+    tracing::debug!(reason = %err.error, detail = %err.error_description, "Google rejected the token request");
+    if err.error == "invalid_grant" {
+        AuthError::InvalidGrant
+    } else if err.error_description.is_empty() {
+        AuthError::Protocol(format!("{status} {}", err.error))
+    } else {
+        AuthError::Protocol(format!("{status} {}: {}", err.error, err.error_description))
+    }
 }
 
 #[cfg(test)]
@@ -336,5 +349,41 @@ mod tests {
             ["https://mail.google.com/", "openid", "profile"].into_iter().collect()
         );
         assert!(!p.auth_url.contains("client_secret"));
+    }
+
+    #[test]
+    fn time_limited_refresh_tokens_are_read() {
+        let t: TokenResponse = serde_json::from_str(
+            r#"{"access_token":"a","expires_in":3599,"refresh_token":"r","refresh_token_expires_in":604799}"#,
+        )
+        .unwrap();
+        assert_eq!(t.refresh_token_expires_in, Some(604_799));
+        let plain: TokenResponse = serde_json::from_str(r#"{"access_token":"a","expires_in":3599}"#).unwrap();
+        assert_eq!(plain.refresh_token_expires_in, None);
+        assert!(plain.refresh_token.is_none());
+    }
+
+    #[test]
+    fn token_errors_keep_google_detail() {
+        assert!(matches!(
+            token_error(
+                reqwest::StatusCode::BAD_REQUEST,
+                TokenErrorResponse {
+                    error: "invalid_grant".into(),
+                    ..Default::default()
+                }
+            ),
+            AuthError::InvalidGrant
+        ));
+        match token_error(
+            reqwest::StatusCode::UNAUTHORIZED,
+            TokenErrorResponse {
+                error: "invalid_client".into(),
+                error_description: "Bad client".into(),
+            },
+        ) {
+            AuthError::Protocol(m) => assert_eq!(m, "401 Unauthorized invalid_client: Bad client"),
+            other => panic!("unexpected {other:?}"),
+        }
     }
 }

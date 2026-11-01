@@ -9,6 +9,7 @@ pub mod validate;
 use crate::AppState;
 use crate::auth::client_config::{self, ConfigError};
 use crate::auth::oauth::{self, AuthError};
+use crate::auth::secret::Secret;
 use crate::auth::{TokenManager, token_store};
 use crate::store::{Account, LabelRow, MessageRow, SYNC_WINDOWS, ThreadRow};
 use crate::sync::gmail::{Gmail, GmailError};
@@ -190,6 +191,13 @@ pub async fn sign_in(app: AppHandle, state: State<'_, AppState>, account_id: Opt
     let pending = oauth::begin_login(&client, expected.as_ref().map(|a| a.email.as_str())).await?;
     app.opener().open_url(pending.auth_url.clone(), None::<&str>)?;
     let tokens = pending.finish(&state.http, &client).await?;
+    if let Some(secs) = tokens.refresh_token_expires_in {
+        // The usual cause is an OAuth consent screen still in "Testing".
+        tracing::warn!(
+            seconds = secs,
+            "Google issued a time-limited refresh token; sign-in will expire on its own"
+        );
+    }
     let refresh = tokens
         .refresh_token
         .clone()
@@ -200,7 +208,12 @@ pub async fn sign_in(app: AppHandle, state: State<'_, AppState>, account_id: Opt
     if expected.as_ref().is_some_and(|a| !a.email.eq_ignore_ascii_case(&email)) {
         return Err(CmdError::new("Choose the same Google account to reconnect."));
     }
-    token_store::save_refresh_token(&email, &refresh)?;
+    let manager = token_manager(&state, &email, client, &refresh).await;
+    // The manager saves the credential and uses it here too, even if another
+    // task was mid-refresh with the previous grant (ADR 0028).
+    if !manager.adopt(refresh).await? {
+        return Err(CmdError::new("Sign-in was cancelled. Please try again."));
+    }
     let account = {
         let store = state.store.lock().unwrap_or_else(|e| e.into_inner());
         let a = store.upsert_account(&email, now_ms())?;
@@ -208,8 +221,6 @@ pub async fn sign_in(app: AppHandle, state: State<'_, AppState>, account_id: Opt
         a
     };
     tracing::info!(account = account.id, "signed in");
-
-    let manager = TokenManager::new(email.clone(), client, state.http.clone(), refresh);
     start_sync(&app, &state, manager, &account).await;
     // Optional identity work must not hold up the inbox or sign-in result.
     let (profile_app, profile_email, profile_id) = (app.clone(), email.clone(), account.id);
@@ -249,6 +260,11 @@ pub async fn sign_out(state: State<'_, AppState>, account_id: Option<i64>) -> Cm
     let a = resolve_account(&state, account_id)?;
     if let Some(c) = state.syncs.lock().await.remove(&a.id) {
         c.stop();
+    }
+    // Close the credential owner before deleting the entry, so a refresh that
+    // is already in flight can neither serve nor write it back.
+    if let Some(t) = state.tokens.lock().await.remove(&a.email) {
+        t.close();
     }
     if let Ok(Some(rt)) = token_store::load_refresh_token(&a.email) {
         // Best effort: also revoke at Google.
@@ -886,8 +902,31 @@ pub fn set_notifications(state: State<'_, AppState>, mode: String, account_id: O
     Ok(())
 }
 
+/// The one token manager for a mailbox (the credential store key), created on
+/// first use and shared by its sync engine and every command, so this process
+/// has a single credential writer per account (ADR 0028).
+async fn token_manager(
+    state: &AppState,
+    email: &str,
+    client: crate::auth::client_config::OAuthClient,
+    refresh: &Secret,
+) -> Arc<TokenManager> {
+    let mut tokens = state.tokens.lock().await;
+    if let Some(existing) = tokens.get(email).filter(|m| !m.is_closed()) {
+        return existing.clone();
+    }
+    let fresh = Arc::new(TokenManager::new(
+        email.to_string(),
+        client,
+        state.http.clone(),
+        refresh.clone(),
+    ));
+    tokens.insert(email.to_string(), fresh.clone());
+    fresh
+}
+
 /// (Re)start the sync engine for one account (other accounts keep running).
-pub async fn start_sync(app: &AppHandle, state: &AppState, tokens: TokenManager, account: &Account) {
+pub async fn start_sync(app: &AppHandle, state: &AppState, tokens: Arc<TokenManager>, account: &Account) {
     let status = state.status_for(app, account.id, &account.email);
     status.update(|s| s.error = None);
     let mut syncs = state.syncs.lock().await;
@@ -899,7 +938,7 @@ pub async fn start_sync(app: &AppHandle, state: &AppState, tokens: TokenManager,
         sync::spawn(
             app.clone(),
             state.store.clone(),
-            Arc::new(tokens),
+            tokens,
             state.http.clone(),
             account.id,
             status,
@@ -926,7 +965,7 @@ pub async fn resume(app: AppHandle) {
     for account in accounts {
         match token_store::load_refresh_token(&account.email) {
             Ok(Some(refresh)) => {
-                let manager = TokenManager::new(account.email.clone(), client.clone(), state.http.clone(), refresh);
+                let manager = token_manager(&state, &account.email, client.clone(), &refresh).await;
                 start_sync(&app, &state, manager, &account).await;
             }
             Ok(None) => {

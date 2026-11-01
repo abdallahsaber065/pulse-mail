@@ -138,6 +138,27 @@ and export (R4), drag and drop (R5), mini window (R6), CI (M3).
 
 ## Progress log
 
+- **2026-11-01 (sign-in longevity):** Logs showed the refresh token, not the
+  access token, being rejected (`invalid_grant`) 2.3 days after a fresh
+  consent, while the second account's token on the same client survived 12+
+  days — so not the 7-day Testing clock. The app now keeps a rotated refresh
+  token (Google may return a new one on any refresh; it used to be dropped,
+  which makes the next refresh fail), re-reads the credential store and
+  retries once on `invalid_grant` (a reconnect from another window or a dev
+  build no longer needs a restart), logs Google's error detail at debug level,
+  and warns at sign-in when the response carries `refresh_token_expires_in`
+  (Testing consent screen or time-based access).
+
+- **2026-11-01 (credential ownership, ADR 0028):** One `TokenManager` per
+  account in `AppState.tokens`, shared by that account's sync engine, IMAP
+  IDLE task and commands: the credential store stays the source of truth, a
+  reconnect adopts the new token in the same manager instead of adding a
+  second writer, a rotated token is saved back, and sign-out closes the
+  manager before deleting the entry so an in-flight refresh can neither serve
+  nor rewrite it. New tests: `closed_manager_never_serves_a_token`,
+  `closed_manager_refuses_a_new_credential`. Gates: 144 Rust tests,
+  `clippy -D warnings`, `cargo fmt --check`.
+
 - **2026-10-29 (custom domain):** Pages site canonical host is
   https://pulsemail.abdallahsaber.eu.cc/ (`site/CNAME`, 404 paths at `/`,
   Search Console / Branding notes in

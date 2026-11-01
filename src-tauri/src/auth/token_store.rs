@@ -1,5 +1,6 @@
 //! Refresh tokens live only in Windows Credential Manager (via `keyring`).
-//! They are never written to SQLite, config files or logs.
+//! They are never written to SQLite, config files or logs. This store is the
+//! source of truth for an account's sign-in (ADR 0028).
 
 use super::secret::Secret;
 
